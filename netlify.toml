@@ -1,0 +1,23 @@
+# Configuration Netlify — ELEV8 Private Driver (elevateprivatedriver.com)
+# Déploiement automatique : chaque modification envoyée sur GitHub est publiée.
+
+[build]
+  publish = "public"
+  functions = "netlify/functions"
+  # Ne republie pas le site si seuls les documents (README, guides) ont changé
+  ignore = "bash netlify/ignore-build.sh"
+
+[functions]
+  node_bundler = "esbuild"
+
+[[headers]]
+  for = "/sitemap.xml"
+  [headers.values]
+    Content-Type = "application/xml; charset=utf-8"
+
+# Le code PHP ne sert que sur un hébergement PHP : on le masque sur Netlify
+[[redirects]]
+  from = "/api/*"
+  to = "/404.html"
+  status = 404
+  force = true

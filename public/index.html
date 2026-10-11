@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ELEV8 Private Driver — Chauffeur privé Genève, Côte d'Azur, Dijon</title>
+<meta name="description" content="Chauffeur privé haut de gamme à Genève et vers les stations de ski, sur la Côte d'Azur, à Dijon et en Bourgogne. Demande de réservation en ligne.">
+<meta name="theme-color" content="#0c0b09">
+<meta property="og:type" content="website">
+<meta property="og:title" content="ELEV8 Private Driver">
+<meta property="og:description" content="L'excellence à chaque destination. Chauffeur privé à Genève, sur la Côte d'Azur et en Bourgogne.">
+<meta property="og:locale" content="fr_FR">
+<link rel="canonical" href="https://elevateprivatedriver.com/">
+<meta property="og:url" content="https://elevateprivatedriver.com/">
+<meta property="og:site_name" content="ELEV8 Private Driver">
+<meta property="og:image" content="https://elevateprivatedriver.com/assets/img/hero.jpg">
+<meta property="og:image:width" content="2400">
+<meta property="og:image:height" content="1600">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;0,6..96,500;1,6..96,400&family=Jost:wght@300;400;500&display=swap">
+<link rel="preload" as="image" href="assets/img/hero.jpg">
+<link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+<a class="skip" href="#reservation">Aller au formulaire de réservation</a>
+
+<!-- En-tête -->
+<header class="top" id="top">
+  <a class="brand" href="#accueil" aria-label="Retour en haut">
+    <span class="brand__mono" data-c="marque.monogramme">E8</span>
+    <span class="brand__text">
+      <span class="brand__name" data-c="marque.nom">ELEV8</span>
+      <span class="brand__sub" data-c="marque.activite">Private Driver</span>
+    </span>
+  </a>
+  <button class="menu-btn" id="menuBtn" aria-expanded="false" aria-controls="menu">
+    <span class="menu-btn__label">Menu</span>
+    <span class="menu-btn__lines" aria-hidden="true"><i></i><i></i></span>
+  </button>
+</header>
+
+<nav class="menu" id="menu" aria-label="Navigation principale" hidden>
+  <ul>
+    <li><a href="#experience">L'expérience</a></li>
+    <li><a href="#destinations">Destinations</a></li>
+    <li><a href="#flotte">La flotte</a></li>
+    <li><a href="#prestations">Prestations</a></li>
+    <li><a href="#engagements">Engagements</a></li>
+    <li><a href="#reservation">Réservation</a></li>
+  </ul>
+  <p class="menu__foot"><span data-c="contact.disponibilite">Sur réservation</span></p>
+</nav>
+
+<main>
+
+  <!-- 1. Accueil -->
+  <section class="hero" id="accueil">
+    <div class="hero__media">
+      <img id="heroImg" src="assets/img/hero.jpg" alt="" fetchpriority="high">
+    </div>
+    <div class="hero__veil" aria-hidden="true"></div>
+    <div class="hero__content">
+      <p class="eyebrow hero__eyebrow" data-c="accueil.surtitre">Genève · Côte d'Azur · Bourgogne</p>
+      <h1 class="hero__title" data-html="accueil.slogan">L'excellence<br><em>à chaque destination.</em></h1>
+      <p class="hero__text" data-c="accueil.texte"></p>
+      <a class="btn btn--gold hero__cta" href="#experience"><span data-c="accueil.bouton">Découvrir nos services</span></a>
+      <p class="onboard" id="onboard" hidden></p>
+    </div>
+    <a class="hero__scroll" href="#experience" aria-label="Faire défiler"><span></span></a>
+  </section>
+
+  <!-- 2. Expérience -->
+  <section class="section experience" id="experience">
+    <div class="wrap experience__grid">
+      <div class="experience__copy reveal">
+        <p class="eyebrow" data-c="experience.surtitre"></p>
+        <h2 class="h2" data-c="experience.titre"></h2>
+        <div class="experience__text" id="experienceText"></div>
+        <p class="signature" data-c="experience.signature"></p>
+      </div>
+      <figure class="experience__figure reveal">
+        <img id="experienceImg" src="assets/img/experience.jpg" alt="" loading="lazy" decoding="async">
+      </figure>
+    </div>
+  </section>
+
+  <!-- Destinations -->
+  <section class="section destinations" id="destinations">
+    <div class="wrap">
+      <header class="section__head reveal">
+        <p class="eyebrow" data-c="destinations.surtitre"></p>
+        <h2 class="h2" data-c="destinations.titre"></h2>
+        <p class="lead" data-c="destinations.intro"></p>
+      </header>
+      <div class="dest__list" id="destList"></div>
+    </div>
+  </section>
+
+  <!-- 3. Flotte -->
+  <section class="section fleet" id="flotte">
+    <div class="wrap">
+      <header class="section__head reveal">
+        <p class="eyebrow" data-c="flotte.surtitre"></p>
+        <h2 class="h2" data-c="flotte.titre"></h2>
+        <p class="lead" data-c="flotte.intro"></p>
+      </header>
+      <div class="fleet__list" id="fleetList"></div>
+    </div>
+  </section>
+
+  <!-- 4. Prestations -->
+  <section class="section services" id="prestations">
+    <div class="wrap">
+      <header class="section__head reveal">
+        <p class="eyebrow" data-c="prestations.surtitre"></p>
+        <h2 class="h2" data-c="prestations.titre"></h2>
+      </header>
+      <ul class="services__list" id="servicesList"></ul>
+    </div>
+  </section>
+
+  <!-- 5. Avantages -->
+  <section class="section values" id="engagements">
+    <div class="wrap values__grid">
+      <header class="section__head values__head reveal">
+        <p class="eyebrow" data-c="avantages.surtitre"></p>
+        <h2 class="h2" data-c="avantages.titre"></h2>
+      </header>
+      <dl class="values__list" id="valuesList"></dl>
+    </div>
+  </section>
+
+  <!-- 6 & 7. Réservation + WhatsApp -->
+  <section class="section booking" id="reservation">
+    <div class="wrap booking__wrap">
+      <header class="section__head reveal">
+        <p class="eyebrow" data-c="reservation.surtitre"></p>
+        <h2 class="h2" data-c="reservation.titre"></h2>
+        <p class="lead" data-c="reservation.intro"></p>
+      </header>
+
+      <form class="form reveal" id="bookingForm" novalidate>
+        <fieldset class="form__group">
+          <legend>Le trajet</legend>
+
+          <div class="field field--full">
+            <label for="f-service">Prestation</label>
+            <select id="f-service" name="service"></select>
+          </div>
+          <div class="field field--full" id="refField" hidden>
+            <label for="f-ref"><span id="refLabel">N° de vol</span> <span class="opt">facultatif</span></label>
+            <input id="f-ref" name="ref" type="text" maxlength="20" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Ex. : AF1142">
+            <p class="field__hint">Permet d'adapter la prise en charge à votre heure d'arrivée réelle.</p>
+          </div>
+
+          <div class="field">
+            <label for="f-date">Date</label>
+            <input id="f-date" name="date" type="date" required>
+            <p class="field__err" data-err="date">Indiquez une date à partir d'aujourd'hui.</p>
+          </div>
+          <div class="field">
+            <label for="f-time">Heure de prise en charge</label>
+            <input id="f-time" name="time" type="time" required>
+            <p class="field__err" data-err="time">Indiquez l'heure souhaitée.</p>
+          </div>
+
+          <div class="field field--full">
+            <label for="f-from">Adresse de départ</label>
+            <input id="f-from" name="from" type="text" autocomplete="street-address" placeholder="Adresse, gare, aéroport, hôtel…" required>
+            <p class="field__err" data-err="from">Indiquez le lieu de prise en charge.</p>
+          </div>
+          <div class="field field--full">
+            <label for="f-to">Destination</label>
+            <input id="f-to" name="to" type="text" placeholder="Adresse, gare, aéroport, hôtel…" required>
+            <p class="field__err" data-err="to">Indiquez la destination.</p>
+          </div>
+        </fieldset>
+
+        <fieldset class="form__group">
+          <legend>Le véhicule</legend>
+          <div class="vehicle-choice" id="vehicleChoice" role="radiogroup" aria-label="Véhicule"></div>
+          <div class="field">
+            <label for="f-pax">Passagers</label>
+            <select id="f-pax" name="pax"></select>
+          </div>
+        </fieldset>
+
+        <fieldset class="form__group">
+          <legend>Vos coordonnées</legend>
+          <div class="field">
+            <label for="f-lastname">Nom</label>
+            <input id="f-lastname" name="lastname" type="text" autocomplete="family-name" maxlength="80" required>
+            <p class="field__err">Indiquez votre nom.</p>
+          </div>
+          <div class="field">
+            <label for="f-firstname">Prénom</label>
+            <input id="f-firstname" name="firstname" type="text" autocomplete="given-name" maxlength="80" required>
+            <p class="field__err">Indiquez votre prénom.</p>
+          </div>
+          <div class="field field--full">
+            <label for="f-phone">Téléphone</label>
+            <div class="phone">
+              <select id="f-cc" name="cc" aria-label="Indicatif du pays" autocomplete="tel-country-code"></select>
+              <input id="f-phone" name="phone" type="tel" autocomplete="tel-national" inputmode="tel" maxlength="24" placeholder="6 12 34 56 78" required>
+            </div>
+            <p class="field__err">Numéro invalide. Vérifiez l'indicatif et le numéro, ou saisissez le numéro complet avec + (ex. +41 79 123 45 67).</p>
+          </div>
+          <div class="field field--full">
+            <label for="f-email">E-mail <span class="opt">facultatif</span></label>
+            <input id="f-email" name="email" type="email" autocomplete="email" inputmode="email" maxlength="120" spellcheck="false">
+            <p class="field__err">Adresse e-mail invalide.</p>
+          </div>
+          <div class="field field--full">
+            <label for="f-msg">Précisions <span class="opt">facultatif</span></label>
+            <textarea id="f-msg" name="msg" rows="3" placeholder="N° de vol ou de train, bagages, siège enfant à prévoir…"></textarea>
+          </div>
+        </fieldset>
+
+        <!-- Anti-spam : champ invisible pour les personnes, rempli par les robots -->
+        <div class="hp" aria-hidden="true">
+          <label for="f-website">Ne pas remplir</label>
+          <input id="f-website" name="website" type="text" tabindex="-1" autocomplete="off">
+        </div>
+        <div class="turnstile" id="turnstileBox" hidden></div>
+
+        <div class="form__actions">
+          <button class="btn btn--solid" type="submit" id="sendBtn"><span data-c="reservation.boutonEnvoyer">Envoyer ma demande</span></button>
+          <button class="btn btn--gold" type="button" id="waBtn">
+            <svg viewBox="0 0 24 24" aria-hidden="true" width="16" height="16"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2c-1.5 0-3-.4-4.3-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3c-.2.3-.9.9-.9 2.2s1 2.6 1.1 2.7c.1.2 1.9 2.9 4.6 4 1.7.7 2.4.8 3.2.7.5-.1 1.5-.6 1.8-1.2.2-.6.2-1.1.1-1.2l-.4-.2Z"/></svg>
+            <span data-c="reservation.boutonWhatsApp">Contacter via WhatsApp</span>
+          </button>
+        </div>
+        <div class="form__status" id="formStatus" role="alert" hidden></div>
+        <p class="form__note" data-html="reservation.noteConfidentialite"></p>
+      </form>
+
+      <!-- Confirmation : affichée uniquement si le serveur a confirmé la transmission -->
+      <div class="recap" id="sent" hidden tabindex="-1">
+        <p class="eyebrow">Demande transmise</p>
+        <h3 class="h3" id="sentTitle">Merci</h3>
+        <p class="sent__text" id="sentText"></p>
+        <dl class="recap__list" id="sentList"></dl>
+        <p class="recap__hint">Cette demande ne vaut pas réservation tant que votre chauffeur ne l'a pas confirmée.</p>
+        <div class="recap__actions">
+          <button class="link-btn" type="button" id="newBtn">Faire une nouvelle demande</button>
+        </div>
+      </div>
+
+      <!-- Récapitulatif avant WhatsApp -->
+      <div class="recap" id="recap" hidden tabindex="-1" aria-live="polite">
+        <p class="eyebrow">Votre demande</p>
+        <h3 class="h3">Relisez avant l'envoi</h3>
+        <dl class="recap__list" id="recapList"></dl>
+        <a class="btn btn--wa btn--block" id="waLink" href="#" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" aria-hidden="true" width="18" height="18"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2c-1.5 0-3-.4-4.3-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3c-.2.3-.9.9-.9 2.2s1 2.6 1.1 2.7c.1.2 1.9 2.9 4.6 4 1.7.7 2.4.8 3.2.7.5-.1 1.5-.6 1.8-1.2.2-.6.2-1.1.1-1.2l-.4-.2Z"/></svg>
+          <span>Ouvrir WhatsApp</span>
+        </a>
+        <div class="recap__actions">
+          <button class="link-btn" type="button" id="editBtn">Modifier la demande</button>
+          <button class="link-btn" type="button" id="copyBtn">Copier le message</button>
+        </div>
+        <p class="recap__hint" data-c="reservation.noteWhatsApp">WhatsApp s'ouvre avec votre message prérempli. Il ne part qu'après avoir appuyé sur « Envoyer » dans l'application.</p>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- 8. Pied de page -->
+<footer class="footer" id="contact">
+  <div class="wrap footer__grid">
+    <div class="footer__brand">
+      <span class="brand__mono brand__mono--lg" data-c="marque.monogramme">E8</span>
+      <p class="footer__name" data-c="marque.nom">ELEV8</p>
+      <p class="footer__sub" data-c="marque.activite"></p>
+      <p class="footer__zones" id="footerZone"></p>
+    </div>
+    <div class="footer__contact">
+      <p class="eyebrow">Contact</p>
+      <ul>
+        <li><span class="footer__label">Téléphone</span><a id="telLink" href="#" data-c="contact.telephoneAffiche"></a></li>
+        <li><span class="footer__label">E-mail</span><a id="mailLink" href="#" data-c="contact.email"></a></li>
+        <li><span class="footer__label">Disponibilité</span><span data-c="contact.disponibilite"></span></li>
+      </ul>
+    </div>
+    <div class="footer__legal">
+      <a href="mentions-legales.html">Mentions légales</a>
+      <a href="confidentialite.html">Politique de confidentialité</a>
+      <p class="footer__copy">© <span id="year"></span> <span data-c="marque.nomComplet"></span></p>
+    </div>
+  </div>
+</footer>
+
+<!-- Bouton de réservation flottant (apparaît après l'accueil) -->
+<a class="dock" id="dock" href="#reservation" aria-hidden="true" tabindex="-1">
+  <span>Demander une réservation</span>
+  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+</a>
+
+<noscript><p class="noscript">Ce site nécessite JavaScript pour afficher son contenu.</p></noscript>
+
+<script src="config.js"></script>
+<script src="assets/js/main.js"></script>
+</body>
+</html>

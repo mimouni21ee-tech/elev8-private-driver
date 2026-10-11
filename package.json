@@ -1,0 +1,9 @@
+{
+  "name": "elev8-private-driver",
+  "private": true,
+  "description": "Site ELEV8 Private Driver — fonctions Netlify (envoi des réservations)",
+  "type": "module",
+  "dependencies": {
+    "@netlify/blobs": "10.7.13"
+  }
+}
