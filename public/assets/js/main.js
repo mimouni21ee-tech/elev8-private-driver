@@ -20,14 +20,82 @@
     var og = $('meta[property="og:title"]'); if (og) og.setAttribute("content", C.seo.titre);
   }
 
-  /* ---------- Images ---------- */
-  var heroImg = $("#heroImg");
-  heroImg.src = C.accueil.image; heroImg.alt = C.accueil.imageAlt || "";
-  var expImg = $("#experienceImg");
-  expImg.src = C.experience.image; expImg.alt = C.experience.imageAlt || "";
+  var reduceMotion = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  var canHover = !!(window.matchMedia && window.matchMedia("(hover: hover)").matches);
 
-  /* ---------- Expérience ---------- */
-  $("#experienceText").innerHTML = (C.experience.paragraphes || []).map(function (p) { return "<p>" + esc(p) + "</p>"; }).join("");
+  /* ---------- Accueil : titre révélé ligne par ligne ---------- */
+  function splitLines(el, html, delayStart) {
+    if (!el || !html) return;
+    el.innerHTML = String(html).split(/<br\s*\/?>/i).map(function (part, i) {
+      return '<span class="line"><span style="--i:' + (i + (delayStart || 0)) + '">' + part + "</span></span>";
+    }).join("");
+  }
+  splitLines($("#heroTitle"), C.accueil && C.accueil.slogan);
+
+  /* ---------- Mode passager à bord (QR code) ---------- */
+  var root = document.documentElement;
+  var B = C.bord || {};
+  splitLines($("#bordTitle"), B.phrase, 3);
+  $("#bordCall").href = "tel:" + C.contact.telephone;
+
+  /* « Enregistrer mon chauffeur » : ouvre la fiche vCard. Le téléphone demande toujours
+     confirmation avant d'ajouter le contact ; on affiche la marche à suivre selon l'appareil. */
+  var save = $("#saveContact"), saveHint = $("#saveHint");
+  if (C.ficheContact && C.ficheContact.url) save.href = C.ficheContact.url;
+  var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  save.addEventListener("click", function () {
+    saveHint.textContent = isIOS ? (B.aideIphone || "") : (B.aideAndroid || "");
+    saveHint.hidden = !saveHint.textContent;
+  });
+  $("#bordCars").innerHTML = (C.flotte.vehicules || []).map(function (v) {
+    return '<a class="bcar" href="#reservation" data-pick="' + esc(v.id) + '">' +
+      '<span class="bcar__media"><img src="' + esc(v.image) + '" alt="' + esc(v.imageAlt || v.nom) + '" loading="lazy" decoding="async"></span>' +
+      '<span class="bcar__name">' + esc(v.nom) + "</span>" +
+      '<span class="bcar__meta">' + esc(v.categorie) + (v.passagersMax ? " · jusqu'à " + v.passagersMax + " passagers" : "") + "</span></a>";
+  }).join("");
+  $("#bordZones").innerHTML = (B.zones || []).map(function (z) { return "<li>" + esc(z) + "</li>"; }).join("");
+  $("#bordServices").innerHTML = (C.prestations.liste || []).filter(function (sv) { return sv.afficherDansListe !== false; })
+    .map(function (sv) { return "<li>" + esc(sv.titre) + "</li>"; }).join("");
+  // En mode passager, le contact direct est déjà en tête de page : l'introduction de la réservation est adaptée
+  var bookingLead = $("#reservation .lead"), classicLead = bookingLead ? bookingLead.textContent : "";
+  function syncBookingLead() {
+    if (bookingLead) bookingLead.textContent = root.classList.contains("is-bord") && B.introReservation ? B.introReservation : classicLead;
+  }
+  syncBookingLead();
+  function exitBord() {
+    if (!root.classList.contains("is-bord")) return;
+    root.classList.remove("is-bord");
+    syncBookingLead();
+    window.scrollTo(0, 0);
+    if (typeof onScroll === "function") onScroll();
+  }
+  $("#bordFull").addEventListener("click", function () { exitBord(); });
+  // En mode passager, un lien vers une section du site complet affiche d'abord le site complet
+  document.addEventListener("click", function (e) {
+    var a = e.target.closest && e.target.closest('a[href^="#"]');
+    if (!a || !root.classList.contains("is-bord")) return;
+    var id = a.getAttribute("href").slice(1);
+    if (["flotte", "prestations", "destinations", "accueil"].indexOf(id) === -1) return;
+    e.preventDefault(); exitBord();
+    var t = document.getElementById(id); if (t) setTimeout(function () { t.scrollIntoView({ behavior: "smooth" }); }, 60);
+  }, true);
+  $("#pledges").innerHTML = (C.engagements || []).map(function (t) { return "<li>" + esc(t) + "</li>"; }).join("");
+
+  // Petit point lumineux qui parcourt l'itinéraire (désactivé si l'utilisateur limite les animations)
+  if (!reduceMotion) {
+    var route = $("#route");
+    if (route && getComputedStyle(route).display !== "none") {   // itinéraire affiché seulement sur grand écran
+      var NS = "http://www.w3.org/2000/svg";
+      var car = document.createElementNS(NS, "circle");
+      car.setAttribute("r", "1.8"); car.setAttribute("class", "route__car");
+      var am = document.createElementNS(NS, "animateMotion");
+      am.setAttribute("dur", "16s"); am.setAttribute("begin", "3s"); am.setAttribute("repeatCount", "indefinite");
+      am.setAttribute("keyPoints", "0;1"); am.setAttribute("keyTimes", "0;1"); am.setAttribute("calcMode", "linear");
+      var mp = document.createElementNS(NS, "mpath");
+      mp.setAttributeNS("http://www.w3.org/1999/xlink", "href", "#routePath"); mp.setAttribute("href", "#routePath");
+      am.appendChild(mp); car.appendChild(am); route.appendChild(car);
+    }
+  }
 
   /* ---------- Flotte ---------- */
   var vehicles = C.flotte.vehicules || [];
@@ -63,23 +131,20 @@
       (ICONS[s.icone] || ICONS.route) + "</svg><div><h3>" + esc(s.titre) + "</h3><p>" + esc(s.texte) + "</p></div></li>";
   }).join("");
 
-  /* ---------- Destinations ---------- */
+  /* ---------- Destinations : chaque ligne entière est un raccourci vers la réservation ---------- */
   var dest = C.destinations || { liste: [] };
   $("#destList").innerHTML = (dest.liste || []).map(function (z) {
-    return '<article class="dest reveal"><p class="dest__region">' + esc(z.region) + '</p>' +
-      '<h3 class="dest__name">' + esc(z.nom).replace(/ &amp; /, " <em>&amp;</em> ") + "</h3>" +
-      '<p class="dest__text">' + esc(z.texte) + "</p>" +
-      '<a class="dest__link" href="#reservation"' + (z.prestation ? ' data-service="' + esc(z.prestation) + '"' : "") + '>Demander un trajet' +
-      '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.4"/></svg></a></article>';
-  }).join("");
-
-  /* ---------- Avantages ---------- */
-  $("#valuesList").innerHTML = (C.avantages.liste || []).map(function (a) {
-    return '<div class="value reveal"><dt>' + esc(a.titre) + "</dt><dd>" + esc(a.texte) + "</dd></div>";
+    return '<div class="dest reveal"><a class="dest__link" href="#reservation"' + (z.prestation ? ' data-service="' + esc(z.prestation) + '"' : "") + '>' +
+      '<span class="dest__body"><span class="dest__region">' + esc(z.region) + '</span>' +
+      '<span class="dest__name">' + esc(z.nom).replace(/ &amp; /, " <em>&amp;</em> ") + "</span>" +
+      '<span class="dest__text">' + esc(z.texte) + "</span></span>" +
+      '<span class="dest__go" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.4"/></svg></span>' +
+      '<span class="sr-only">Demander un trajet</span></a></div>';
   }).join("");
 
   /* ---------- Pied de page ---------- */
   $("#telLink").href = "tel:" + C.contact.telephone;
+  $("#callLink").href = "tel:" + C.contact.telephone;
   $("#mailLink").href = "mailto:" + C.contact.email;
   $("#footerZone").textContent = C.contact.zone || "";
   $("#year").textContent = new Date().getFullYear();
@@ -95,7 +160,7 @@
       var labels = (C.suivi && C.suivi.sources) || {};
       if (src) { o.code = src; o.libelle = labels[src] || src; }
       else if (o.utm.utm_source) { o.code = o.utm.utm_source; o.libelle = labels[o.utm.utm_source] || o.utm.utm_source; }
-      if (q.get("bord") === "1") {
+      if (q.get("bord") === "1" || document.documentElement.classList.contains("is-bord")) {
         o.bord = true;
         if (!src) { o.code = "bord"; o.libelle = (C.suivi && C.suivi.libelleBord) || "QR code à bord"; }
       }
@@ -103,7 +168,15 @@
     } catch (e) {}
     return o;
   })();
-  if (ORIGINE.bord && C.messageABord) { var ob = $("#onboard"); ob.textContent = C.messageABord; ob.hidden = false; }
+
+  /* ---------- WhatsApp direct (sans formulaire) : tous les boutons [data-wa-direct] ----------
+     Le message prérempli mentionne l'origine (QR code Tesla / Viano, campagne…) pour le suivi. */
+  var waNumber = String(C.contact.whatsapp).replace(/[^\d]/g, "");
+  var waDirectText = (C.reservation.messageWhatsAppDirect || "Bonjour, je souhaite des renseignements pour un trajet.") +
+    (ORIGINE.code ? "\n\n(Origine : " + ORIGINE.libelle + ")" : "");
+  $$("[data-wa-direct]").forEach(function (a) {
+    a.href = "https://wa.me/" + waNumber + "?text=" + encodeURIComponent(waDirectText);
+  });
 
   /* ---------- Formulaire ---------- */
   var form = $("#bookingForm");
@@ -129,9 +202,10 @@
   var NO_PREF = { id: "indifferent", nom: "Pas de préférence", passagersMax: Math.max.apply(null, vehicles.map(function (v) { return v.passagersMax || 1; }).concat([1])) };
   var choices = vehicles.concat([NO_PREF]);
   $("#vehicleChoice").innerHTML = choices.map(function (v, i) {
-    var meta = v === NO_PREF ? "Selon votre trajet" : (v.passagersMax ? "Jusqu'à " + v.passagersMax + " passagers" : "");
+    var label = v === NO_PREF ? "Indifférent" : (v.nomCourt || v.nom);
+    var meta = v === NO_PREF ? "Selon le trajet" : (v.passagersMax ? "Jusqu'à " + v.passagersMax : "");
     return '<div class="vchoice"><input type="radio" name="vehicle" id="v-' + esc(v.id) + '" value="' + esc(v.id) + '"' + (i === choices.length - 1 ? " checked" : "") + ">" +
-      '<label for="v-' + esc(v.id) + '"><span class="vchoice__name">' + esc(v.nom) + '</span><span class="vchoice__meta">' + esc(meta) + "</span></label></div>";
+      '<label for="v-' + esc(v.id) + '" title="' + esc(v.nom) + '"><span class="vchoice__name">' + esc(label) + '</span><span class="vchoice__meta">' + esc(meta) + "</span></label></div>";
   }).join("");
 
   var paxSel = $("#f-pax");
@@ -221,6 +295,17 @@
     });
   });
   ccSel.addEventListener("change", function () { if (fieldOf("phone").classList.contains("is-invalid")) check("phone"); });
+  /* Touche « Suivant » du clavier : passe au champ suivant au lieu d'envoyer le formulaire */
+  form.addEventListener("keydown", function (e) {
+    if (e.key !== "Enter" || e.target.tagName !== "INPUT" || e.isComposing) return;
+    e.preventDefault();
+    var list = $$("input, select, textarea", form).filter(function (el) {
+      return !el.closest("[hidden]") && !el.closest(".hp") && el.type !== "radio" && el.offsetParent !== null;
+    });
+    var next = list[list.indexOf(e.target) + 1];
+    if (next && e.target.id !== "f-email") next.focus(); else e.target.blur();
+  });
+
   function validateAll() {
     var bad = Object.keys(validators).filter(function (n) { return !check(n); });
     if (bad.length) { form.elements[bad[0]].focus(); return false; }
@@ -409,6 +494,7 @@
   $("#editBtn").addEventListener("click", function () { showPanel("form"); });
   $("#newBtn").addEventListener("click", function () {
     form.reset(); fillPax(); updateRef(); updatePhPlaceholder(); startedAt = Date.now();
+    $("#moreDetails").open = false;
     ccSel.value = C.reservation.indicatifParDefaut || "+33";
     showPanel("form");
   });
@@ -431,6 +517,7 @@
     menu.hidden = !open; menuBtn.setAttribute("aria-expanded", String(open));
     menuBtn.querySelector(".menu-btn__label").textContent = open ? "Fermer" : "Menu";
     document.body.classList.toggle("menu-open", open);
+    if (typeof updateDock === "function") updateDock();
   }
   menuBtn.addEventListener("click", function () { setMenu(menu.hidden); });
   menu.addEventListener("click", function (e) { if (e.target.closest("a")) setMenu(false); });
@@ -440,14 +527,15 @@
   var top = $("#top"), dock = $("#dock"), hero = $("#accueil"), booking = $("#reservation");
   var inBooking = false, pastHero = false;
   function updateDock() {
-    var show = pastHero && !inBooking;
+    var show = pastHero && !inBooking && menu.hidden;
     dock.classList.toggle("is-visible", show);
     dock.setAttribute("aria-hidden", String(!show));
-    dock.tabIndex = show ? 0 : -1;
+    $$("a", dock).forEach(function (a) { a.tabIndex = show ? 0 : -1; });
   }
   function onScroll() {
     top.classList.toggle("is-solid", window.scrollY > 40);
-    pastHero = window.scrollY > hero.offsetHeight * 0.75;
+    var first = root.classList.contains("is-bord") ? $(".bord__screen") : hero;
+    pastHero = window.scrollY > first.offsetHeight * 0.75;
     updateDock();
   }
   window.addEventListener("scroll", onScroll, { passive: true });
@@ -456,9 +544,16 @@
   if ("IntersectionObserver" in window) {
     new IntersectionObserver(function (en) { inBooking = en[0].isIntersecting; updateDock(); }, { threshold: 0.05 }).observe(booking);
 
+    /* Écrans tactiles : la photo du véhicule visible à l'écran s'anime comme au survol */
+    if (!canHover && !reduceMotion) {
+      var carIO = new IntersectionObserver(function (entries) {
+        entries.forEach(function (en) { en.target.classList.toggle("is-inview", en.intersectionRatio > 0.6); });
+      }, { threshold: [0, 0.6, 1] });
+      $$(".car").forEach(function (el) { carIO.observe(el); });
+    }
+
     /* Apparitions : seuls les éléments situés sous l'écran au chargement sont animés */
-    var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (!reduce) {
+    if (!reduceMotion) {
       var io = new IntersectionObserver(function (entries) {
         entries.forEach(function (en) {
           if (en.isIntersecting) { en.target.classList.remove("is-pending"); io.unobserve(en.target); }

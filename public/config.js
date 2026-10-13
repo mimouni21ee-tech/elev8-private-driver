@@ -38,62 +38,50 @@ window.SITE_CONFIG = {
     description: "Chauffeur privé haut de gamme à Genève et vers les stations de ski, sur la Côte d'Azur, à Dijon et en Bourgogne : transferts aéroports et gares, déplacements professionnels, longues distances, événements privés et mise à disposition."
   },
 
-  /* ---------- 1. Accueil ---------- */
+  /* ---------- 1. Accueil ----------
+     Deux boutons visibles dès l'arrivée : réservation (formulaire) et WhatsApp direct. */
   accueil: {
-    surtitre: "Genève · Côte d'Azur · Bourgogne",
-    slogan: "L'excellence<br><em>à chaque destination.</em>",
-    texte: "Un chauffeur attitré, un véhicule soigné, un trajet pensé pour vous.",
-    bouton: "Découvrir nos services",
-    image: "assets/img/hero.jpg",
-    imageAlt: "Véhicule haut de gamme de nuit"
+    surtitre: "Service privé · Sur réservation",
+    slogan: "L'excellence<br><em>à chaque destination.</em>",   // <br> = retour à la ligne
+    texte: "Votre chauffeur en Tesla Model Y ou Mercedes-Benz Viano, à Genève et dans les Alpes, sur la Côte d'Azur et en Bourgogne.",
+    boutonReservation: "Demander une réservation",
+    boutonCourt: "Réserver un trajet",              // Barre flottante en bas d'écran
+    boutonWhatsApp: "Contacter via WhatsApp"
   },
 
-  /* Message affiché aux passagers qui scannent le QR code (lien terminé par ?bord=1). */
-  messageABord: "Vous êtes à bord. Gardez ce contact pour vos prochains trajets.",
+  /* Engagements : affichés sur une ligne discrète en bas de l'accueil */
+  engagements: ["Service personnalisé", "Discrétion", "Confort", "Ponctualité", "Réservation simplifiée"],
 
-  /* ---------- 2. L'expérience ---------- */
-  experience: {
-    surtitre: "L'expérience",
-    titre: "Bien plus qu'un trajet, un service sur mesure",
-    paragraphes: [
-      "Chaque déplacement est préparé à l'avance : l'horaire, l'itinéraire et vos préférences sont convenus avant la prise en charge.",
-      "Vous voyagez avec un chauffeur privé dédié, dans un véhicule entretenu avec soin, sans intermédiaire entre vous et votre chauffeur.",
-      "Pour un rendez-vous professionnel, un départ en voyage ou une soirée, le trajet se déroule dans le calme et à votre rythme."
-    ],
-    signature: "Votre chauffeur privé",
-    image: "assets/img/experience.jpg",
-    imageAlt: "Intérieur de véhicule"
+  /* ---------- Fiche contact « Enregistrer mon chauffeur » (vCard) ----------
+     Générée automatiquement à partir des informations de ce fichier (nom, téléphone,
+     WhatsApp, site) et du logo assets/img/e8-contact.jpg. */
+  ficheContact: {
+    url: "/elev8-private-driver.vcf",
+    inclureEmail: false,     // Passez à true quand contact.email sera une boîte opérationnelle
+    fonction: "Chauffeur privé",
+    note: "Chauffeur privé sur réservation · Genève et stations de ski · Côte d'Azur · Dijon et Bourgogne"
   },
 
-  /* ---------- Destinations (zones desservies) ----------
-     "prestation" : prestation présélectionnée dans le formulaire au clic sur « Demander un trajet ». */
-  destinations: {
-    surtitre: "Destinations",
-    titre: "Trois territoires, un même service",
-    intro: "Nous intervenons principalement dans ces régions. Pour un trajet au départ ou à destination d'une autre ville, indiquez-le dans votre demande.",
-    liste: [
-      {
-        region: "Suisse · Alpes",
-        nom: "Genève & stations de ski",
-        texte: "Transferts depuis l'aéroport et la gare de Genève vers votre hôtel, votre chalet ou les stations de ski, et trajets retour en fin de séjour.",
-        prestation: "Transferts stations de ski"
-      },
-      {
-        region: "Alpes-Maritimes · Var",
-        nom: "Côte d'Azur",
-        texte: "Transferts aéroports et gares, déplacements professionnels et soirées sur la Côte d'Azur.",
-        prestation: "Transferts aéroports"
-      },
-      {
-        region: "Côte-d'Or",
-        nom: "Dijon & Bourgogne",
-        texte: "Transferts depuis la gare de Dijon, rendez-vous professionnels et déplacements à travers la Bourgogne.",
-        prestation: "Transferts gares"
-      }
-    ]
+  /* ---------- Mode passager à bord (QR code des véhicules : lien contenant ?bord=1) ----------
+     Page courte de recontact : 3 actions immédiates, puis véhicules, zones et prestations. */
+  bord: {
+    bienvenue: "Merci de voyager avec ELEV8 Private Driver",
+    phrase: "Votre chauffeur privé,<br><em>à nouveau en un instant.</em>",   // <br> = retour à la ligne
+    boutonReserver: "Réserver un trajet",
+    boutonEnregistrer: "Enregistrer mon chauffeur",
+    boutonWhatsApp: "Contacter via WhatsApp",
+    aideIphone: "La fiche ELEV8 s'ouvre : touchez « Créer un nouveau contact » pour l'enregistrer.",
+    aideAndroid: "Fiche téléchargée : ouvrez-la depuis la notification ou le dossier Téléchargements, puis choisissez « Contacts » pour l'enregistrer.",
+    boutonAppeler: "Appeler",
+    titreVehicules: "Véhicules",
+    titreZones: "Zones desservies",
+    titrePrestations: "Prestations",
+    zones: ["Genève", "Stations de ski", "Côte d'Azur", "Dijon & Bourgogne"],
+    lienSiteComplet: "Découvrir le site complet",
+    introReservation: "Indiquez votre trajet : votre chauffeur vous confirme la disponibilité."
   },
 
-  /* ---------- 3. Flotte ---------- */
+  /* ---------- 2. Flotte ---------- */
   flotte: {
     surtitre: "La flotte",
     titre: "Deux véhicules, une même exigence",
@@ -103,6 +91,7 @@ window.SITE_CONFIG = {
       {
         id: "tesla",
         nom: "Tesla Model Y",
+        nomCourt: "Model Y",                // Affiché dans le choix du formulaire
         categorie: "SUV 100 % électrique",
         description: "Silencieux et spacieux, idéal pour les trajets en ville, les transferts et les déplacements professionnels.",
         passagersMax: 4,                    // À vérifier selon votre configuration
@@ -116,6 +105,7 @@ window.SITE_CONFIG = {
       {
         id: "viano",
         nom: "Mercedes-Benz Viano",
+        nomCourt: "Viano",
         categorie: "Van grand confort",
         description: "Un espace généreux pour voyager à plusieurs, en famille ou entre collaborateurs, avec vos bagages.",
         passagersMax: 7,                    // À vérifier selon votre configuration
@@ -129,7 +119,7 @@ window.SITE_CONFIG = {
     ]
   },
 
-  /* ---------- 4. Prestations ----------
+  /* ---------- 3. Prestations ----------
      icones disponibles : avion, train, mallette, route, coupe, horloge, montagne
      transfert : "vol", "train" ou "vol-train" → affiche le champ « N° de vol / de train » dans le formulaire
      afficherDansListe : false → proposé uniquement dans le formulaire */
@@ -137,36 +127,40 @@ window.SITE_CONFIG = {
     surtitre: "Prestations",
     titre: "À chaque déplacement, son service",
     liste: [
-      { icone: "avion",    titre: "Transferts aéroports",        transfert: "vol",   texte: "Vers et depuis les aéroports, notamment Genève et Nice Côte d'Azur, à l'heure convenue." },
-      { icone: "train",    titre: "Transferts gares",            transfert: "train", texte: "Prise en charge et dépose en gare, notamment à Genève, Dijon et sur la Côte d'Azur." },
-      { icone: "mallette", titre: "Déplacements professionnels", texte: "Rendez-vous, séminaires, accueil de clients ou de collaborateurs." },
-      { icone: "route",    titre: "Longues distances",           texte: "Des trajets interurbains de porte à porte, entre Genève, les Alpes, la Bourgogne et la Côte d'Azur." },
-      { icone: "coupe",    titre: "Événements privés",           texte: "Mariages, soirées, galas et occasions particulières." },
-      { icone: "horloge",  titre: "Mise à disposition",          texte: "Un chauffeur et un véhicule à votre disposition pour la durée de votre choix." },
+      { icone: "avion",    titre: "Transferts aéroports",        transfert: "vol",   texte: "Départs et arrivées, notamment à Genève et à Nice." },
+      { icone: "train",    titre: "Transferts gares",            transfert: "train", texte: "Genève, Dijon et la Côte d'Azur." },
+      { icone: "mallette", titre: "Déplacements professionnels", texte: "Rendez-vous, séminaires, accueil de clients." },
+      { icone: "route",    titre: "Longues distances",           texte: "De porte à porte, d'une région à l'autre." },
+      { icone: "coupe",    titre: "Événements privés",           texte: "Mariages, soirées, galas." },
+      { icone: "horloge",  titre: "Mise à disposition",          texte: "Un chauffeur pour la durée de votre choix." },
       { icone: "montagne", titre: "Transferts stations de ski",  transfert: "vol-train", afficherDansListe: false, texte: "Depuis l'aéroport ou la gare de Genève vers les stations de ski." }
     ]
   },
 
-  /* ---------- 5. Avantages ---------- */
-  avantages: {
-    surtitre: "Nos engagements",
-    titre: "Ce qui fait la différence",
+  /* ---------- Destinations (dans la section Prestations) ----------
+     "prestation" : prestation présélectionnée dans le formulaire au toucher de la destination. */
+  destinations: {
+    surtitre: "Destinations",
+    titre: "Trois territoires, un même service",
+    note: "Autre ville de départ ou d'arrivée ? Précisez-la dans votre demande.",
     liste: [
-      { titre: "Service personnalisé", texte: "Vos préférences et vos contraintes sont prises en compte dès la demande." },
-      { titre: "Discrétion",           texte: "Vos trajets, vos échanges et vos informations restent confidentiels." },
-      { titre: "Confort",              texte: "Un véhicule haut de gamme et une conduite souple, pour voyager sereinement." },
-      { titre: "Ponctualité",          texte: "La prise en charge est organisée à l'avance pour respecter vos horaires." },
-      { titre: "Réservation simplifiée", texte: "Une demande en quelques champs, une confirmation directe par votre chauffeur." }
+      { region: "Suisse · Alpes",        nom: "Genève & stations de ski", texte: "Aéroport et gare de Genève, chalets et stations.", prestation: "Transferts stations de ski" },
+      { region: "Alpes-Maritimes · Var", nom: "Côte d'Azur",              texte: "Aéroport de Nice, gares, soirées et événements.",   prestation: "Transferts aéroports" },
+      { region: "Côte-d'Or",             nom: "Dijon & Bourgogne",        texte: "Gare de Dijon et déplacements en Bourgogne.",       prestation: "Transferts gares" }
     ]
   },
 
-  /* ---------- 6. Réservation ---------- */
+  /* ---------- 4. Réservation ---------- */
   reservation: {
     surtitre: "Réservation",
     titre: "Demander une réservation",
-    intro: "Envoyez votre demande directement depuis le site, ou préparez un message WhatsApp. Votre chauffeur vous confirme ensuite la disponibilité.",
+    intro: "Écrivez-nous directement, ou envoyez une demande détaillée. Votre chauffeur vous confirme la disponibilité.",
+    waTexte: "Écrire directement, sans formulaire",
+    ouTexte: "ou envoyez une demande détaillée",
+    // Message prérempli du contact WhatsApp direct (boutons « Contacter via WhatsApp »)
+    messageWhatsAppDirect: "Bonjour ELEV8, je souhaite des renseignements pour un trajet.",
     boutonEnvoyer: "Envoyer ma demande",
-    boutonWhatsApp: "Contacter via WhatsApp",
+    boutonWhatsApp: "Envoyer par WhatsApp",        // Envoie le détail du formulaire dans WhatsApp
     introMessage: "Bonjour, je souhaite faire une demande de réservation :",
     // Si vous modifiez legal.dureeDemandes, adaptez aussi la durée citée ici.
     noteConfidentialite: "Les champs sans mention « facultatif » sont nécessaires. « Envoyer ma demande » transmet vos informations par e-mail à ELEV8 Private Driver, via notre prestataire d'envoi, uniquement pour traiter votre demande ; elles sont conservées au plus 12 mois si la demande reste sans suite. Vous pouvez y accéder ou demander leur suppression : <a href=\"confidentialite.html\">politique de confidentialité</a>.",
@@ -196,6 +190,7 @@ window.SITE_CONFIG = {
     sources: {
       "tesla": "QR code — Tesla Model Y",
       "viano": "QR code — Mercedes-Benz Viano",
+      "contact": "Fiche contact enregistrée",
       "carte": "Carte de visite",
       "google-ads": "Google Ads",
       "google-maps": "Fiche Google",

@@ -163,7 +163,12 @@ message d'erreur propose WhatsApp et le téléphone, et les champs restent rempl
 
 | ID | Action | Résultat attendu |
 |---|---|---|
-| Q1 | Scanner le QR imprimé (`?bord=1&src=viano`) avec l'appareil photo, iPhone et Android | Le site s'ouvre ; message « Vous êtes à bord… » sous le bouton d'accueil |
+| Q1 | Scanner le QR imprimé (`?bord=1&src=viano`) avec l'appareil photo, iPhone et Android | Le mode passager s'ouvre : logo E8 animé, « Merci de voyager avec ELEV8 Private Driver », et les trois boutons Réserver / WhatsApp / Appeler visibles sans défiler |
+| Q1b | En mode passager : toucher une carte véhicule, puis « Découvrir le site complet » | La carte ouvre le formulaire avec ce véhicule présélectionné ; le lien affiche le site complet |
+| Q1c | iPhone (Safari), mode passager : « Enregistrer mon chauffeur » | La fiche ELEV8 s'ouvre avec le logo E8, le nom, le numéro, le lien WhatsApp et le site ; rien n'est ajouté tant que « Créer un nouveau contact » n'est pas touché ; une aide s'affiche sous les boutons |
+| Q1d | Android (Chrome), même bouton | La fiche `ELEV8-Private-Driver.vcf` est téléchargée ; l'aide indique de l'ouvrir depuis la notification ; l'ouverture propose Contacts (ou Google Contacts) et l'enregistrement demande confirmation |
+| Q1e | Ouvrir le contact enregistré, toucher le lien du site, envoyer une demande | L'e-mail reçu indique « Origine : Fiche contact enregistrée » |
+| Q1f | Samsung Internet et Firefox Android, même bouton | Fiche téléchargée ou ouverte selon le navigateur, enregistrement possible |
 | Q2 | Envoyer une demande depuis cette page | E-mail : « Origine : QR code — Mercedes-Benz Viano » |
 | Q3 | Même test en WhatsApp | Dernière ligne du message : « (Origine : QR code — Mercedes-Benz Viano) » |
 | Q4 | Lien `?utm_source=google-ads&utm_medium=cpc&utm_campaign=geneve-ski` | E-mail : origine « Google Ads — campagne geneve-ski » et ligne UTM |

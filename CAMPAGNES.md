@@ -15,7 +15,7 @@ de bandeau de consentement.
 | QR de la Tesla Model Y | `https://elevateprivatedriver.com/?bord=1&src=tesla` |
 | QR du Mercedes-Benz Viano | `https://elevateprivatedriver.com/?bord=1&src=viano` |
 
-`bord=1` affiche le message d'accueil des passagers (`messageABord` dans `config.js`).
+`bord=1` ouvre le **mode passager** : une page courte de recontact (logo animé, « Réserver un trajet », « Contacter via WhatsApp », « Appeler », puis véhicules, zones et prestations). Textes modifiables dans le bloc `bord` de `config.js`. Le visiteur peut toujours ouvrir le site complet.
 
 ## Supports et réseaux
 

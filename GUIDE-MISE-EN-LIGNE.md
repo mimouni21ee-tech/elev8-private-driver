@@ -279,7 +279,7 @@ Liens définitifs :
 | Tesla Model Y | `https://elevateprivatedriver.com/?bord=1&src=tesla` |
 | Mercedes-Benz Viano | `https://elevateprivatedriver.com/?bord=1&src=viano` |
 
-1. Testez chaque lien à la main sur votre téléphone : le message « Vous êtes à bord… » doit apparaître.
+1. Testez chaque lien à la main sur votre téléphone : le mode passager doit s'ouvrir (logo E8 animé, « Merci de voyager avec ELEV8 Private Driver » et les trois boutons Réserver, WhatsApp, Appeler).
 2. Envoyez une demande depuis chaque lien : l'e-mail doit indiquer « Origine : QR code — Tesla Model Y »
    ou « Origine : QR code — Mercedes-Benz Viano ».
 3. Je génère ensuite les QR codes **statiques** prêts à imprimer (sans service intermédiaire qui
@@ -299,7 +299,7 @@ apparaît dans la demande reçue.
   **Commit changes**. Le site est republié en 1 à 2 minutes (15 crédits par publication : regroupez
   vos modifications).
 - **Remplacer une photo** : dans GitHub, ouvrez `public/assets/img` → **Add file** → **Upload files** →
-  déposez la photo avec **exactement le même nom** (par exemple `hero.jpg`) → **Commit changes**.
+  déposez la photo avec **exactement le même nom** (par exemple `tesla-model-y.jpg`) → **Commit changes**.
 - **Surveiller les crédits** : Netlify → **Usage & billing**.
 - **Un problème ?** Netlify → **Logs** → **Functions** → `reservation` indique la cause sans afficher
   les données des clients (voir le tableau du README, § 3-E).

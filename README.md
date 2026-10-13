@@ -31,6 +31,7 @@ public/                       ← le site (c'est ce dossier qui est publié)
   _headers, .htaccess         Sécurité (HTTPS, CSP) et cache
 netlify/functions/reservation.mjs   Envoi des demandes — Netlify (recommandé), adresse /envoi-reservation
 netlify/functions/rl-cleanup.mjs    Suppression horaire des compteurs anti-abus expirés
+netlify/functions/contact.mjs       Fiche contact « Enregistrer mon chauffeur » (/elev8-private-driver.vcf)
 netlify/lib/ratelimit.mjs     Limitation des envois partagée (Netlify Blobs)
 netlify.toml, package.json    Réglages Netlify et dépendance @netlify/blobs
 .env.example                  Liste des variables secrètes à créer dans Netlify
@@ -94,8 +95,7 @@ Remplacez les fichiers de `public/assets/img/` **en gardant les mêmes noms** :
 
 | Fichier              | Usage                     | Format conseillé          |
 |----------------------|---------------------------|---------------------------|
-| `hero.jpg`           | Photo plein écran accueil | 2400 × 1600 px, < 400 Ko  |
-| `experience.jpg`     | Section « L'expérience »  | 1200 × 1500 px (vertical) |
+| `hero.jpg`           | Image d'aperçu quand le lien est partagé (WhatsApp, SMS, réseaux) — n'apparaît pas sur la page | 1200 × 630 px, < 300 Ko |
 | `tesla-model-y.jpg`  | Fiche Tesla Model Y       | 1500 × 1000 px            |
 | `mercedes-viano.jpg` | Fiche Mercedes-Benz Viano | 1500 × 1000 px            |
 
@@ -240,12 +240,32 @@ Clés de test officielles Cloudflare (pour vérifier le fonctionnement avant d'u
 
 Ne laissez jamais les clés de test en production.
 
-## 5. QR codes et campagnes
+## 5. Mode passager et fiche contact
+
+Les QR codes des véhicules (`?bord=1`) ouvrent le **mode passager** : logo E8 animé, puis quatre actions
+visibles sans défiler — Réserver un trajet, Enregistrer mon chauffeur, Contacter via WhatsApp, Appeler —
+et en dessous les véhicules, zones et prestations. Textes : bloc `bord` de `config.js`.
+
+**Enregistrer mon chauffeur** ouvre une fiche contact (vCard) générée automatiquement à partir de
+`config.js` : nom, téléphone, lien WhatsApp, site, logo E8 (`assets/img/e8-contact.jpg`). Modifier le
+numéro dans `config.js` suffit, la fiche suit. Pour ajouter l'e-mail quand la boîte sera opérationnelle :
+`ficheContact.inclureEmail: true`.
+
+- **iPhone (Safari)** : la fiche s'ouvre, le client touche « Créer un nouveau contact ».
+- **Android (Chrome)** : la fiche est téléchargée ; le site affiche comment l'ouvrir avec Contacts.
+- Rien n'est jamais ajouté sans la confirmation du client.
+- Le lien du site enregistré dans la fiche contient `?src=contact` : les demandes envoyées plus tard
+  depuis la fiche apparaissent avec l'origine « Fiche contact enregistrée ».
+
+L'offre gratuite Netlify autorise 2 règles de limitation : elles sont utilisées par l'envoi des
+réservations et par la fiche contact (30 téléchargements par minute et par visiteur).
+
+## 6. QR codes et campagnes
 
 Voir `CAMPAGNES.md` : liens prêts pour chaque véhicule, carte de visite, réseaux sociaux et campagnes
 Google Ads / Meta. L'origine apparaît dans chaque demande reçue, sans cookie ni traceur.
 
-## 6. Polices (optionnel, RGPD)
+## 7. Polices (optionnel, RGPD)
 
 Les polices Bodoni Moda et Jost viennent de Google Fonts. Pour ne transmettre aucune adresse IP à Google,
 téléchargez-les (google-webfonts-helper) dans `public/assets/fonts/`, remplacez la ligne
