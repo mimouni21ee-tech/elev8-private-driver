@@ -100,7 +100,7 @@ window.SITE_CONFIG = {
           { label: "Motorisation", valeur: "Électrique" },
           { label: "Passagers", valeur: "Jusqu'à 4" }
         ],
-        image: "assets/img/tesla-model-y.jpg?v=2",
+        image: "assets/img/tesla-model-y.jpg?v=3",
         imageAlt: "Tesla Model Y noire"
       },
       {
@@ -114,7 +114,7 @@ window.SITE_CONFIG = {
           { label: "Format", valeur: "Van" },
           { label: "Passagers", valeur: "Jusqu'à 7" }
         ],
-        image: "assets/img/mercedes-classe-v.jpg?v=1",
+        image: "assets/img/mercedes-classe-v.jpg?v=2",
         imageAlt: "Mercedes-Benz Classe V noir"
       }
     ]
