@@ -23,6 +23,7 @@
   --gutter: clamp(1.25rem, 5vw, 3rem);
   --ease: cubic-bezier(.2, .7, .1, 1);
   color-scheme: dark;
+  --elev8-css: 6;   /* version de la feuille de style : doit correspondre à assets/js/mode.js */
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -138,7 +139,7 @@ em { font-style: italic; color: var(--champagne-clair); }
 .menu ul a {
   display: block; text-decoration: none; padding: .55rem 0;
   font: 400 clamp(2rem, 9vw, 3.5rem)/1.1 var(--f-display);
-  opacity: 0; transform: translateY(12px); animation: rise .7s var(--ease) forwards;
+  animation: rise .7s var(--ease) both;
   transition: color .4s var(--ease);
 }
 .menu li:nth-child(2) a { animation-delay: .05s; } .menu li:nth-child(3) a { animation-delay: .1s; }
@@ -196,11 +197,11 @@ body.menu-open { overflow: hidden; }
   height: min(78%, 34rem); width: auto; opacity: .5; overflow: visible;
 }
 .route__trace { fill: none; stroke: var(--filet-fort); stroke-width: .8; stroke-dasharray: 1 4; stroke-linecap: round; }
-.route__line { fill: none; stroke: var(--champagne); stroke-width: 1; stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 2.8s var(--ease) .5s forwards; }
+.route__line { fill: none; stroke: var(--champagne); stroke-width: 1; stroke-dasharray: 1; stroke-dashoffset: 0; animation: drawIn 2.8s var(--ease) .5s both; }
 .route__peaks path { fill: none; stroke: var(--champagne); stroke-width: .8; opacity: .55; }
 .route__dot { fill: var(--champagne-clair); }
 .route__ring { fill: none; stroke: var(--champagne); stroke-width: .6; opacity: 0; transform-box: fill-box; transform-origin: center; animation: pulse 4.5s ease-out infinite; animation-delay: var(--d, 1s); }
-.route__stop { opacity: 0; animation: fade 1s var(--ease) var(--d, 1s) forwards; }
+.route__stop { animation: fade 1s var(--ease) var(--d, 1s) both; }
 .route__label { display: none; fill: var(--ivoire-doux); font: 400 8.2px var(--f-body); letter-spacing: .2em; text-transform: uppercase; }
 .route__label--soft { fill: var(--gris); }
 .route__coord { display: none; fill: var(--gris); font: 400 6.6px var(--f-body); letter-spacing: .12em; font-variant-numeric: tabular-nums; }
@@ -445,6 +446,7 @@ body.menu-open { overflow: hidden; }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes lineUp { from { transform: translateY(108%); } to { transform: none; } }
 @keyframes draw { to { stroke-dashoffset: 0; } }
+@keyframes drawIn { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
 @keyframes pulse { 0% { opacity: .7; transform: scale(.4); } 70%, 100% { opacity: 0; transform: scale(1.6); } }
 @keyframes drift { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(-8vmax, 6vmax, 0); } }
 @keyframes scrollline { 0% { transform: translateY(-100%); } 60%, 100% { transform: translateY(100%); } }
@@ -528,7 +530,7 @@ html.is-bord .top:not(.is-solid) .brand { opacity: 0; pointer-events: none; }
 .bord__logo { position: relative; width: 5.25rem; height: 5.25rem; display: grid; place-items: center; margin-bottom: 1.6rem; perspective: 400px; }
 .bord__rings { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible; }
 .bord__track { fill: none; stroke: var(--filet); stroke-width: 1; }
-.bord__ring { fill: none; stroke: var(--champagne); stroke-width: 1.1; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 1.5s var(--ease) .15s forwards; }
+.bord__ring { fill: none; stroke: var(--champagne); stroke-width: 1.1; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 0; animation: drawIn 1.5s var(--ease) .15s both; }
 .bord__sweep {
   fill: none; stroke: var(--champagne-clair); stroke-width: 2.4; stroke-linecap: round;
   stroke-dasharray: .1 .9; opacity: 0; transform-origin: 50px 50px;
@@ -564,8 +566,6 @@ html.is-bord .top:not(.is-solid) .brand { opacity: 0; pointer-events: none; }
   animation: fade .8s var(--ease) 1.6s both;
 }
 .bord__more svg { animation: nudge 2.4s var(--ease) 2.6s infinite; }
-html.has-intro .bord__more { animation-delay: 1.75s; }
-html.has-intro.intro-skip .bord__more { animation-delay: .4s; }
 @keyframes nudge { 0%, 60%, 100% { transform: none; } 30% { transform: translateY(3px); } }
 .bord__hint {
   margin: .9rem 0 0; padding: .75rem 1rem; border-left: 1px solid var(--champagne);
@@ -629,28 +629,30 @@ html.is-bord .booking { padding-top: clamp(3rem, 9vw, 4.5rem); }
   .btn__num { display: none; }
 }
 
-/* ---------- Introduction du mode passager (QR code / NFC) ----------
-   0 → 0,65 s : un trait de lumière traverse l'écran comme une route de nuit
-   0,3 → 1,0 s : l'anneau s'ouvre depuis la route, le E8 se dessine puis se remplit
-   1,0 → 1,45 s : le logo glisse à sa place dans la page, le voile noir s'efface
-   Au premier toucher, l'introduction s'efface immédiatement. */
+/* ---------- Introduction du mode passager (QR code / NFC) — environ 1 seconde ----------
+   0 → 0,45 s : un trait de lumière traverse l'écran comme une route de nuit
+   0,15 → 0,7 s : l'anneau s'ouvre depuis la route, le E8 se dessine puis se remplit
+   0,65 → 1 s : le logo glisse à sa place dans la page, le voile noir s'efface
+   Sécurités : l'introduction n'est affichée que si cette feuille de style est bien chargée
+   (vérifiée par mode.js), elle se retire seule (CSS à 1 s, JavaScript à 1,1 s) et au premier toucher.
+   Tout le contenu de la page est visible par défaut, même si aucune animation ne se lance. */
 .intro { display: none; }
 html.intro-on .intro {
   position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; overflow: hidden;
-  pointer-events: auto; transition: opacity .25s var(--ease);
-  animation: introRelease 0s linear 1.3s forwards, introEnd 0s linear 1.55s forwards;
+  pointer-events: auto; transition: opacity .2s var(--ease);
+  animation: introRelease 0s linear .75s forwards, introEnd 0s linear 1s forwards;
 }
 html.intro-skip .intro { opacity: 0; }
-.intro__veil { position: absolute; inset: 0; background: var(--noir); animation: fadeOut .45s var(--ease) 1s forwards; }
+.intro__veil { position: absolute; inset: 0; background: var(--noir); animation: fadeOut .3s var(--ease) .7s forwards; }
 .intro__veil::after {
   content: ""; position: absolute; left: 50%; top: 50%; width: 70vmax; height: 70vmax; transform: translate(-50%, -50%);
   background: radial-gradient(closest-side, rgba(188, 167, 131, .14), transparent 70%);
-  opacity: 0; animation: fadeIn .8s var(--ease) .35s forwards;
+  opacity: 0; animation: fadeIn .5s var(--ease) .15s forwards;
 }
 .intro__road {
   position: absolute; left: 8%; right: 8%; top: 50%; height: 1px;
   background: linear-gradient(90deg, transparent, rgba(188, 167, 131, .55) 18%, rgba(221, 209, 183, .9) 50%, rgba(188, 167, 131, .55) 82%, transparent);
-  clip-path: inset(0 100% 0 0); animation: roadDraw .65s cubic-bezier(.65, 0, .35, 1) .05s forwards, fadeOut .3s var(--ease) .78s forwards;
+  clip-path: inset(0 100% 0 0); animation: roadDraw .42s cubic-bezier(.65, 0, .35, 1) .02s forwards, fadeOut .2s var(--ease) .5s forwards;
 }
 .intro__lane { position: absolute; left: 8%; right: 8%; top: calc(50% - 2.5rem); height: 5rem; pointer-events: none; }
 /* la route et sa lumière s'interrompent à l'intérieur de l'anneau (centre de la route = centre de l'écran) */
@@ -661,27 +663,27 @@ html.intro-skip .intro { opacity: 0; }
 .intro__light {
   position: absolute; top: 50%; left: 0; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; border-radius: 50%;
   background: #fffaf0; box-shadow: 0 0 10px 3px rgba(255, 244, 220, .85), 0 0 34px 10px rgba(221, 209, 183, .35);
-  animation: lightRun .65s cubic-bezier(.65, 0, .35, 1) .05s both;
+  animation: lightRun .42s cubic-bezier(.65, 0, .35, 1) .02s both;
 }
 .intro__logo {
-  position: relative; z-index: 1; width: 7.5rem; height: 7.5rem; display: grid; place-items: center;
-  border-radius: 50%;
-  animation: logoGlide .45s cubic-bezier(.65, 0, .25, 1) .98s forwards, fadeOut .14s linear 1.38s forwards;
+  position: relative; z-index: 1; width: 7.5rem; height: 7.5rem; max-width: 40vw; max-height: 40vw;
+  display: grid; place-items: center; border-radius: 50%;
+  animation: logoGlide .3s cubic-bezier(.65, 0, .25, 1) .66s forwards, fadeOut .1s linear .9s forwards;
 }
 .intro__ring { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(180deg); overflow: visible; }
-.intro__track { fill: none; stroke: var(--filet); stroke-width: .8; opacity: 0; animation: fadeIn .4s linear .25s forwards; }
-.intro__arc { fill: none; stroke: var(--champagne); stroke-width: 1.1; stroke-linecap: butt; stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw .75s cubic-bezier(.45, 0, .2, 1) .3s forwards; }
+.intro__track { fill: none; stroke: var(--filet); stroke-width: .8; opacity: 0; animation: fadeIn .25s linear .12s forwards; }
+.intro__arc { fill: none; stroke: var(--champagne); stroke-width: 1.1; stroke-linecap: butt; stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw .45s cubic-bezier(.45, 0, .2, 1) .15s forwards; }
 .intro__mono { width: 52%; height: auto; overflow: visible; }
 .intro__glyph {
   fill: var(--champagne-clair); fill-opacity: 0; stroke: var(--champagne-clair); stroke-width: 14;
   stroke-dasharray: 1; stroke-dashoffset: 1;
-  animation: draw .6s cubic-bezier(.45, 0, .2, 1) .38s forwards, glyphFill .32s var(--ease) .78s forwards;
+  animation: draw .38s cubic-bezier(.45, 0, .2, 1) .2s forwards, glyphFill .2s var(--ease) .48s forwards;
 }
-.intro__glyph--8 { animation-delay: .5s, .86s; }
+.intro__glyph--8 { animation-delay: .28s, .54s; }
 .intro__name {
   position: absolute; z-index: 1; left: 0; right: 0; top: calc(50% + 5.25rem); margin: 0; text-align: center;
   font-size: .62rem; letter-spacing: .42em; text-transform: uppercase; color: var(--gris);
-  opacity: 0; animation: nameIn .5s var(--ease) .5s forwards, fadeOut .2s linear .92s forwards;
+  opacity: 0; animation: nameIn .3s var(--ease) .3s forwards, fadeOut .15s linear .58s forwards;
 }
 .intro__name span { color: var(--champagne-clair); }
 
@@ -695,21 +697,24 @@ html.intro-skip .intro { opacity: 0; }
 @keyframes introRelease { to { pointer-events: none; } }
 @keyframes introEnd { to { visibility: hidden; } }
 
-/* Page sous l'introduction : le logo arrive déjà tracé, le texte et les boutons suivent aussitôt */
-html.has-intro .bord__logo { opacity: 0; animation: fadeIn .12s linear 1.36s forwards; }
+/* Page sous l'introduction : le logo arrive déjà tracé, le texte et les boutons suivent aussitôt.
+   Toutes ces animations partent d'un état visible par défaut (« both ») : sans animation, tout s'affiche. */
+html.has-intro .bord__logo { animation: fade .12s linear .92s both; }
 html.has-intro .bord__ring { animation: none; stroke-dashoffset: 0; }
-html.has-intro .bord__sweep { animation: sweepIdle 9s linear 3s infinite; }
+html.has-intro .bord__sweep { animation: sweepIdle 9s linear 2.5s infinite; }
 html.has-intro .bord__mono { animation: none; }
-html.has-intro .bord__screen::before { animation-delay: 1s; }
-html.has-intro .bord__welcome { animation-delay: 1.05s; }
-html.has-intro .bord__title .line > span { animation-delay: calc(.8s + var(--i, 0) * .1s); }
-html.has-intro .bord__actions { animation: rise .9s var(--ease) 1.2s both; }
-html.has-intro .btn--save::after { animation-delay: 2.4s, 7s; }
+html.has-intro .bord__screen::before { animation-delay: .7s; }
+html.has-intro .bord__welcome { animation-delay: .62s; }
+html.has-intro .bord__title .line > span { animation-delay: calc(.55s + (var(--i, 0) - 3) * .08s); }
+html.has-intro .bord__actions { animation: rise .7s var(--ease) .7s both; }
+html.has-intro .btn--save::after { animation-delay: 1.8s, 6s; }
+html.has-intro .bord__more { animation-delay: 1.15s; }
 /* Introduction ignorée au toucher : la page s'affiche aussitôt */
-html.has-intro.intro-skip .bord__logo { animation: fadeIn .2s linear 0s forwards; }
+html.has-intro.intro-skip .bord__logo { animation: fade .2s linear 0s both; }
 html.has-intro.intro-skip .bord__welcome { animation-delay: 0s; }
 html.has-intro.intro-skip .bord__title .line > span { animation-delay: calc((var(--i, 0) - 3) * .08s); }
 html.has-intro.intro-skip .bord__actions { animation: rise .6s var(--ease) .1s both; }
+html.has-intro.intro-skip .bord__more { animation-delay: .4s; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }

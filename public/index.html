@@ -19,24 +19,24 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;0,6..96,500;1,6..96,400&family=Jost:wght@300;400;500&display=swap">
-<link rel="stylesheet" href="assets/css/style.css">
-<script src="assets/js/mode.js"></script>
+<link rel="stylesheet" href="assets/css/style.css?v=20261016b">
+<script src="assets/js/mode.js?v=20261016b"></script>
 </head>
 <body>
 
 <!-- Introduction du mode passager (QR code / NFC) : ~1,5 s, ignorée au toucher, jouée une fois par visite -->
-<div class="intro" id="intro" aria-hidden="true">
+<div class="intro" id="intro" aria-hidden="true" hidden>
   <div class="intro__veil"></div>
   <div class="intro__road"></div>
   <div class="intro__lane"><span class="intro__light"></span></div>
   <div class="intro__logo" id="introLogo">
-    <svg class="intro__ring" viewBox="0 0 100 100">
-      <circle class="intro__track" cx="50" cy="50" r="47"/>
-      <circle class="intro__arc" cx="50" cy="50" r="47" pathLength="1"/>
+    <svg class="intro__ring" viewBox="0 0 100 100" width="120" height="120">
+      <circle class="intro__track" cx="50" cy="50" r="47" fill="none"/>
+      <circle class="intro__arc" cx="50" cy="50" r="47" pathLength="1" fill="none"/>
     </svg>
-    <svg class="intro__mono" viewBox="-130 -1580 2400 1640">
-      <path class="intro__glyph" pathLength="1" d="M-90 0V-39H89L419 -1461H248V-1500H1315L1219 -1090H1180Q1205 -1197 1193.5 -1281.0Q1182 -1365 1123.5 -1413.0Q1065 -1461 948 -1461H609L454 -795H566Q623 -795 674.5 -815.0Q726 -835 763.5 -877.0Q801 -919 816 -986H855L757 -557H718Q733 -624 717.0 -668.0Q701 -712 662.0 -734.0Q623 -756 566 -756H445L279 -39H600Q737 -39 826.0 -89.0Q915 -139 968.5 -231.0Q1022 -323 1052 -450H1091L987 0Z"/>
-      <path class="intro__glyph intro__glyph--8" pathLength="1" d="M1614 20Q1403 20 1294.0 -65.0Q1185 -150 1185 -300Q1185 -420 1241.0 -528.0Q1297 -636 1410 -704Q1500 -757 1626 -768Q1573 -778 1530 -799Q1448 -838 1406.0 -904.0Q1364 -970 1364 -1050Q1364 -1140 1400.5 -1224.0Q1437 -1308 1503.0 -1375.0Q1569 -1442 1658.5 -1481.0Q1748 -1520 1854 -1520Q1975 -1520 2057.5 -1470.5Q2140 -1421 2182.0 -1345.0Q2224 -1269 2224 -1189Q2224 -1099 2187.5 -1021.0Q2151 -943 2084.5 -884.0Q2018 -825 1929 -792Q1873 -772 1812 -764Q1939 -747 2015 -691Q2124 -610 2124 -460Q2124 -340 2067.5 -230.0Q2011 -120 1898.0 -50.0Q1785 20 1614 20ZM1614 -19Q1673 -19 1722.0 -42.5Q1771 -66 1808.5 -107.0Q1846 -148 1872.0 -201.5Q1898 -255 1911.0 -316.0Q1924 -377 1924 -439Q1924 -523 1899.5 -590.5Q1875 -658 1824.0 -697.5Q1773 -737 1694 -737Q1635 -737 1586.0 -714.0Q1537 -691 1499.5 -650.5Q1462 -610 1436.0 -556.5Q1410 -503 1397.0 -442.5Q1384 -382 1384 -320Q1384 -236 1408.5 -168.0Q1433 -100 1484.0 -59.5Q1535 -19 1614 -19ZM1733 -793Q1786 -793 1831.5 -813.0Q1877 -833 1912.5 -869.0Q1948 -905 1973.0 -954.0Q1998 -1003 2011.0 -1060.5Q2024 -1118 2024 -1180Q2024 -1244 2010.5 -1313.5Q1997 -1383 1960.5 -1432.0Q1924 -1481 1854 -1481Q1801 -1481 1755.5 -1457.5Q1710 -1434 1674.5 -1393.0Q1639 -1352 1614.0 -1298.5Q1589 -1245 1576.0 -1184.0Q1563 -1123 1563 -1061Q1563 -998 1577.0 -936.0Q1591 -874 1627.5 -833.5Q1664 -793 1733 -793Z"/>
+    <svg class="intro__mono" viewBox="-130 -1580 2400 1640" width="62" height="42">
+      <path class="intro__glyph" pathLength="1" fill="#ddd1b7" d="M-90 0V-39H89L419 -1461H248V-1500H1315L1219 -1090H1180Q1205 -1197 1193.5 -1281.0Q1182 -1365 1123.5 -1413.0Q1065 -1461 948 -1461H609L454 -795H566Q623 -795 674.5 -815.0Q726 -835 763.5 -877.0Q801 -919 816 -986H855L757 -557H718Q733 -624 717.0 -668.0Q701 -712 662.0 -734.0Q623 -756 566 -756H445L279 -39H600Q737 -39 826.0 -89.0Q915 -139 968.5 -231.0Q1022 -323 1052 -450H1091L987 0Z"/>
+      <path class="intro__glyph intro__glyph--8" pathLength="1" fill="#ddd1b7" d="M1614 20Q1403 20 1294.0 -65.0Q1185 -150 1185 -300Q1185 -420 1241.0 -528.0Q1297 -636 1410 -704Q1500 -757 1626 -768Q1573 -778 1530 -799Q1448 -838 1406.0 -904.0Q1364 -970 1364 -1050Q1364 -1140 1400.5 -1224.0Q1437 -1308 1503.0 -1375.0Q1569 -1442 1658.5 -1481.0Q1748 -1520 1854 -1520Q1975 -1520 2057.5 -1470.5Q2140 -1421 2182.0 -1345.0Q2224 -1269 2224 -1189Q2224 -1099 2187.5 -1021.0Q2151 -943 2084.5 -884.0Q2018 -825 1929 -792Q1873 -772 1812 -764Q1939 -747 2015 -691Q2124 -610 2124 -460Q2124 -340 2067.5 -230.0Q2011 -120 1898.0 -50.0Q1785 20 1614 20ZM1614 -19Q1673 -19 1722.0 -42.5Q1771 -66 1808.5 -107.0Q1846 -148 1872.0 -201.5Q1898 -255 1911.0 -316.0Q1924 -377 1924 -439Q1924 -523 1899.5 -590.5Q1875 -658 1824.0 -697.5Q1773 -737 1694 -737Q1635 -737 1586.0 -714.0Q1537 -691 1499.5 -650.5Q1462 -610 1436.0 -556.5Q1410 -503 1397.0 -442.5Q1384 -382 1384 -320Q1384 -236 1408.5 -168.0Q1433 -100 1484.0 -59.5Q1535 -19 1614 -19ZM1733 -793Q1786 -793 1831.5 -813.0Q1877 -833 1912.5 -869.0Q1948 -905 1973.0 -954.0Q1998 -1003 2011.0 -1060.5Q2024 -1118 2024 -1180Q2024 -1244 2010.5 -1313.5Q1997 -1383 1960.5 -1432.0Q1924 -1481 1854 -1481Q1801 -1481 1755.5 -1457.5Q1710 -1434 1674.5 -1393.0Q1639 -1352 1614.0 -1298.5Q1589 -1245 1576.0 -1184.0Q1563 -1123 1563 -1061Q1563 -998 1577.0 -936.0Q1591 -874 1627.5 -833.5Q1664 -793 1733 -793Z"/>
     </svg>
   </div>
   <p class="intro__name"><span>ELEV8</span> Private Driver</p>
@@ -78,10 +78,10 @@
   <section class="bord" id="bord" aria-label="Accès rapide passagers">
     <div class="bord__screen">
       <div class="bord__logo" aria-hidden="true">
-        <svg class="bord__rings" viewBox="0 0 100 100">
-          <circle class="bord__track" cx="50" cy="50" r="47"/>
-          <circle class="bord__ring" cx="50" cy="50" r="47" pathLength="1"/>
-          <circle class="bord__sweep" cx="50" cy="50" r="47" pathLength="1"/>
+        <svg class="bord__rings" viewBox="0 0 100 100" width="84" height="84">
+          <circle class="bord__track" cx="50" cy="50" r="47" fill="none"/>
+          <circle class="bord__ring" cx="50" cy="50" r="47" pathLength="1" fill="none"/>
+          <circle class="bord__sweep" cx="50" cy="50" r="47" pathLength="1" fill="none"/>
         </svg>
         <span class="bord__mono" data-c="marque.monogramme">E8</span>
       </div>
@@ -359,7 +359,7 @@
 
 <noscript><p class="noscript">Ce site nécessite JavaScript pour afficher son contenu.</p></noscript>
 
-<script src="config.js"></script>
-<script src="assets/js/main.js"></script>
+<script src="config.js?v=20261016b"></script>
+<script src="assets/js/main.js?v=20261016b"></script>
 </body>
 </html>

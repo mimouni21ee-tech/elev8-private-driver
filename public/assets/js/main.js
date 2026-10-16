@@ -37,6 +37,7 @@
 
   /* Introduction : le logo central glisse exactement à la place du logo de la page */
   if (root.classList.contains("has-intro")) {
+    if (root.classList.contains("intro-on")) $("#intro").hidden = false;   // à afficher avant de mesurer
     var il = $("#introLogo"), pl = $(".bord__logo");
     if (il && pl) {
       var a = il.getBoundingClientRect(), b = pl.getBoundingClientRect();

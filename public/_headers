@@ -6,8 +6,16 @@
   Strict-Transport-Security: max-age=31536000; includeSubDomains
   Content-Security-Policy: default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-src https://challenges.cloudflare.com; form-action 'self'; base-uri 'self'; frame-ancestors 'self'; object-src 'none'
 
-/assets/*
-  Cache-Control: public, max-age=2592000
-
+# Styles, scripts et réglages : le téléphone vérifie toujours qu'il a la dernière version
+# (réponse « inchangé » très légère si rien n'a bougé). Évite qu'une ancienne feuille de style
+# reste en mémoire après une mise à jour du site.
+/assets/css/*
+  Cache-Control: public, max-age=0, must-revalidate
+/assets/js/*
+  Cache-Control: public, max-age=0, must-revalidate
 /config.js
-  Cache-Control: public, max-age=300
+  Cache-Control: public, max-age=0, must-revalidate
+
+# Photos : 1 jour (une photo remplacée sous le même nom apparaît au plus tard le lendemain)
+/assets/img/*
+  Cache-Control: public, max-age=86400
