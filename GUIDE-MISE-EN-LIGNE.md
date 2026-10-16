@@ -277,11 +277,11 @@ Liens définitifs :
 | Véhicule | Lien encodé dans le QR code |
 |---|---|
 | Tesla Model Y | `https://elevateprivatedriver.com/?bord=1&src=tesla` |
-| Mercedes-Benz Viano | `https://elevateprivatedriver.com/?bord=1&src=viano` |
+| Mercedes-Benz Classe V | `https://elevateprivatedriver.com/?bord=1&src=classe-v` |
 
 1. Testez chaque lien à la main sur votre téléphone : le mode passager doit s'ouvrir (logo E8 animé, « Merci de voyager avec ELEV8 Private Driver » et les trois boutons Réserver, WhatsApp, Appeler).
 2. Envoyez une demande depuis chaque lien : l'e-mail doit indiquer « Origine : QR code — Tesla Model Y »
-   ou « Origine : QR code — Mercedes-Benz Viano ».
+   ou « Origine : QR code — Mercedes-Benz Classe V ».
 3. Je génère ensuite les QR codes **statiques** prêts à imprimer (sans service intermédiaire qui
    pourrait expirer). Évitez les générateurs en ligne « dynamiques » : beaucoup redirigent par leurs
    propres serveurs et cessent de fonctionner à la fin d'un essai gratuit.

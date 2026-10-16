@@ -184,7 +184,7 @@
   })();
 
   /* ---------- WhatsApp direct (sans formulaire) : tous les boutons [data-wa-direct] ----------
-     Le message prérempli mentionne l'origine (QR code Tesla / Viano, campagne…) pour le suivi. */
+     Le message prérempli mentionne l'origine (QR code Tesla / Classe V, campagne…) pour le suivi. */
   var waNumber = String(C.contact.whatsapp).replace(/[^\d]/g, "");
   var waDirectText = (C.reservation.messageWhatsAppDirect || "Bonjour, je souhaite des renseignements pour un trajet.") +
     (ORIGINE.code ? "\n\n(Origine : " + ORIGINE.libelle + ")" : "");

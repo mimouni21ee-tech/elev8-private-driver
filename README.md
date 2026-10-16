@@ -81,7 +81,7 @@ Ouvrez `public/config.js` avec un éditeur de texte (VS Code, Bloc-notes…).
   (06 12 34 56 78 → `33612345678` ; 079 123 45 67 → `41791234567`).
 - **Indicatif proposé par défaut** : `reservation.indicatifParDefaut` (`+33` ou `+41`). Les visiteurs
   dont le navigateur est réglé en français de Suisse voient `+41` automatiquement.
-- **Véhicules** : vérifiez `passagersMax` (4 pour la Tesla, 7 pour le Viano par défaut).
+- **Véhicules** : vérifiez `passagersMax` (4 pour la Tesla, 7 pour le Classe V par défaut).
 - **Destinations et prestations** : textes modifiables. Une prestation avec `transfert: "vol"`,
   `"train"` ou `"vol-train"` fait apparaître le champ « N° de vol / de train ».
 - **Mentions légales** : complétez tout le bloc `legal` (SIRET, n° d'inscription au registre VTC,
@@ -97,7 +97,7 @@ Remplacez les fichiers de `public/assets/img/` **en gardant les mêmes noms** :
 |----------------------|---------------------------|---------------------------|
 | `hero.jpg`           | Image d'aperçu quand le lien est partagé (WhatsApp, SMS, réseaux) — n'apparaît pas sur la page | 1200 × 630 px, < 300 Ko |
 | `tesla-model-y.jpg`  | Fiche Tesla Model Y       | 1500 × 1000 px            |
-| `mercedes-viano.jpg` | Fiche Mercedes-Benz Viano | 1500 × 1000 px            |
+| `mercedes-classe-v.jpg` | Fiche Mercedes-Benz Classe V | 1500 × 1000 px         |
 
 Compressez-les (squoosh.app). Passez ensuite `afficherMentionPhotoProvisoire` à `false`.
 

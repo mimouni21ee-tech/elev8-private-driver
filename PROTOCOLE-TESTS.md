@@ -27,7 +27,7 @@ une seconde adresse e-mail personnelle (Gmail **et** Outlook/Hotmail si possible
 
 | Cas | Nom / Prénom | Téléphone | E-mail | Trajet |
 |---|---|---|---|---|
-| A | TEST Dupont / Élodie | FR — `06 12 34 56 78` | votre Gmail | Aéroport de Genève → Megève, vol `LX1234`, 3 passagers, Viano |
+| A | TEST Dupont / Élodie | FR — `06 12 34 56 78` | votre Gmail | Aéroport de Genève → Megève, vol `LX1234`, 3 passagers, Classe V |
 | B | TEST Müller / Jean-François | CH — `079 123 45 67` | *(vide)* | Gare de Dijon → Beaune, train `TGV 6501`, Tesla |
 | C | TEST O'Brien / Zoé | `+377 6 12 34 56 78` (saisi avec +) | votre Outlook | Nice → Cannes, Événements privés, précisions avec accents et retour à la ligne |
 
@@ -56,7 +56,7 @@ Utilisez votre propre numéro mobile à la place des exemples quand un rappel r�
 |---|---|---|
 | E1 | Cas A, « Envoyer ma demande » | Bouton « Envoi en cours » puis panneau **« Demande transmise »** avec une référence `E8-AAMMJJ-XXX` et le téléphone `+33 6 12 34 56 78` |
 | E2 | Boîte de réception (moins d'une minute) | E-mail reçu, objet `Demande de réservation E8-… — JJ/MM/AAAA HHhMM — Élodie TEST Dupont` ; **même référence** qu'à l'écran |
-| E3 | Contenu de l'e-mail A | Tous les champs présents et exacts : prestation, **N° de vol LX1234**, date en toutes lettres, heure, départ, destination, 3 passagers, Viano, nom complet, **téléphone**, e-mail, origine |
+| E3 | Contenu de l'e-mail A | Tous les champs présents et exacts : prestation, **N° de vol LX1234**, date en toutes lettres, heure, départ, destination, 3 passagers, Classe V, nom complet, **téléphone**, e-mail, origine |
 | E4 | Boutons de l'e-mail sur smartphone | « Appeler » ouvre le composeur avec le bon numéro ; « WhatsApp » ouvre une conversation avec le client |
 | E5 | « Répondre » dans la messagerie | Le destinataire proposé est l'e-mail du **client** (Reply-To) |
 | E6 | Cas B (sans e-mail, numéro suisse) | E-mail reçu ; téléphone `+41791234567` ; « E-mail : Non renseigné » ; « N° de train TGV 6501 » |
@@ -136,9 +136,9 @@ message d'erreur propose WhatsApp et le téléphone, et les champs restent rempl
 | F2 | Date d'hier | Refusée (« à partir d'aujourd'hui ») |
 | F3 | Prestation « Transferts aéroports » / « gares » / « stations de ski » / « Déplacements professionnels » | Champ « N° de vol » / « N° de train » / « N° de vol ou de train » / **absent** |
 | F4 | Saisir un n° de vol, puis passer à « Mise à disposition » et envoyer | Le n° de vol n'apparaît pas dans l'e-mail |
-| F5 | Tesla Model Y sélectionnée | Passagers proposés : 1 à 4 ; Viano : 1 à 7 |
+| F5 | Tesla Model Y sélectionnée | Passagers proposés : 1 à 4 ; Classe V : 1 à 7 |
 | F6 | Section Destinations → « Demander un trajet » (Genève) | Défilement vers le formulaire, prestation « Transferts stations de ski » présélectionnée |
-| F7 | Section Flotte → « Choisir ce véhicule » (Viano) | Viano présélectionné |
+| F7 | Section Flotte → « Choisir ce véhicule » (Classe V) | Classe V présélectionné |
 | F8 | E-mail `jean@` | Refusé ; e-mail vide : accepté |
 | F9 | « Faire une nouvelle demande » après un succès | Formulaire vide, prêt |
 
@@ -163,14 +163,14 @@ message d'erreur propose WhatsApp et le téléphone, et les champs restent rempl
 
 | ID | Action | Résultat attendu |
 |---|---|---|
-| Q1 | Scanner le QR imprimé (`?bord=1&src=viano`) avec l'appareil photo, iPhone et Android | Le mode passager s'ouvre : logo E8 animé, « Merci de voyager avec ELEV8 Private Driver », et les trois boutons Réserver / WhatsApp / Appeler visibles sans défiler |
+| Q1 | Scanner le QR imprimé (`?bord=1&src=classe-v`) avec l'appareil photo, iPhone et Android | Le mode passager s'ouvre : logo E8 animé, « Merci de voyager avec ELEV8 Private Driver », et les trois boutons Réserver / WhatsApp / Appeler visibles sans défiler |
 | Q1b | En mode passager : toucher une carte véhicule, puis « Découvrir le site complet » | La carte ouvre le formulaire avec ce véhicule présélectionné ; le lien affiche le site complet |
 | Q1c | iPhone (Safari), mode passager : « Enregistrer mon chauffeur » | La fiche ELEV8 s'ouvre avec le logo E8, le nom, le numéro, le lien WhatsApp et le site ; rien n'est ajouté tant que « Créer un nouveau contact » n'est pas touché ; une aide s'affiche sous les boutons |
 | Q1d | Android (Chrome), même bouton | La fiche `ELEV8-Private-Driver.vcf` est téléchargée ; l'aide indique de l'ouvrir depuis la notification ; l'ouverture propose Contacts (ou Google Contacts) et l'enregistrement demande confirmation |
 | Q1e | Ouvrir le contact enregistré, toucher le lien du site, envoyer une demande | L'e-mail reçu indique « Origine : Fiche contact enregistrée » |
 | Q1f | Samsung Internet et Firefox Android, même bouton | Fiche téléchargée ou ouverte selon le navigateur, enregistrement possible |
-| Q2 | Envoyer une demande depuis cette page | E-mail : « Origine : QR code — Mercedes-Benz Viano » |
-| Q3 | Même test en WhatsApp | Dernière ligne du message : « (Origine : QR code — Mercedes-Benz Viano) » |
+| Q2 | Envoyer une demande depuis cette page | E-mail : « Origine : QR code — Mercedes-Benz Classe V » |
+| Q3 | Même test en WhatsApp | Dernière ligne du message : « (Origine : QR code — Mercedes-Benz Classe V) » |
 | Q4 | Lien `?utm_source=google-ads&utm_medium=cpc&utm_campaign=geneve-ski` | E-mail : origine « Google Ads — campagne geneve-ski » et ligne UTM |
 | Q5 | Site ouvert sans paramètre | E-mail : « Origine : Accès direct » |
 | Q6 | Scan en conditions réelles : QR fixé au dossier, éclairage de nuit, distance d'un passager | Lecture en moins de 3 secondes sur les deux téléphones |

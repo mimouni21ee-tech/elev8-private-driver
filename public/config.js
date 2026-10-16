@@ -43,7 +43,7 @@ window.SITE_CONFIG = {
   accueil: {
     surtitre: "Service privé · Sur réservation",
     slogan: "L'excellence<br><em>à chaque destination.</em>",   // <br> = retour à la ligne
-    texte: "Votre chauffeur en Tesla Model Y ou Mercedes-Benz Viano, à Genève et dans les Alpes, sur la Côte d'Azur et en Bourgogne.",
+    texte: "Votre chauffeur en Tesla Model Y ou Mercedes-Benz Classe V, à Genève et dans les Alpes, sur la Côte d'Azur et en Bourgogne.",
     boutonReservation: "Demander une réservation",
     boutonCourt: "Réserver un trajet",              // Barre flottante en bas d'écran
     boutonWhatsApp: "Contacter via WhatsApp"
@@ -100,13 +100,13 @@ window.SITE_CONFIG = {
           { label: "Motorisation", valeur: "Électrique" },
           { label: "Passagers", valeur: "Jusqu'à 4" }
         ],
-        image: "assets/img/tesla-model-y.jpg",
-        imageAlt: "Tesla Model Y"
+        image: "assets/img/tesla-model-y.jpg?v=2",
+        imageAlt: "Tesla Model Y noire"
       },
       {
-        id: "viano",
-        nom: "Mercedes-Benz Viano",
-        nomCourt: "Viano",
+        id: "classe-v",
+        nom: "Mercedes-Benz Classe V",
+        nomCourt: "Classe V",
         categorie: "Van grand confort",
         description: "Un espace généreux pour voyager à plusieurs, en famille ou entre collaborateurs, avec vos bagages.",
         passagersMax: 7,                    // À vérifier selon votre configuration
@@ -114,8 +114,8 @@ window.SITE_CONFIG = {
           { label: "Format", valeur: "Van" },
           { label: "Passagers", valeur: "Jusqu'à 7" }
         ],
-        image: "assets/img/mercedes-viano.jpg",
-        imageAlt: "Mercedes-Benz Viano"
+        image: "assets/img/mercedes-classe-v.jpg?v=1",
+        imageAlt: "Mercedes-Benz Classe V noir"
       }
     ]
   },
@@ -190,7 +190,8 @@ window.SITE_CONFIG = {
   suivi: {
     sources: {
       "tesla": "QR code — Tesla Model Y",
-      "viano": "QR code — Mercedes-Benz Viano",
+      "classe-v": "QR code — Mercedes-Benz Classe V",
+      "viano": "QR code — Mercedes-Benz Classe V",      // ancien code, conservé par sécurité
       "contact": "Fiche contact enregistrée",
       "carte": "Carte de visite",
       "google-ads": "Google Ads",
