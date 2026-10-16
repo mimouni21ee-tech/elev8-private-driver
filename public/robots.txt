@@ -2,4 +2,4 @@ User-agent: *
 Allow: /
 Disallow: /api/
 
-Sitemap: https://elevateprivatedriver.com/sitemap.xml
+Sitemap: https://elev8privatedriver.com/sitemap.xml

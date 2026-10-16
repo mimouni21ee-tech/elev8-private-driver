@@ -21,7 +21,8 @@
 
   var ENDPOINT = A.endpoint || "/adresses";
   var MIN = Math.max(2, A.minCaracteres || 3);
-  var DELAY = 220;                 // pause après la dernière lettre tapée avant de chercher
+  var DELAY = 130;                 // pause après la dernière lettre tapée avant de chercher
+  var warmed = false;              // le service est « réveillé » dès que le client touche le champ
   var disabled = false;
   var memo = {};                   // réponses déjà reçues pendant la visite (en mémoire uniquement)
 
@@ -138,6 +139,13 @@
       else if (e.key === "ArrowUp") { e.preventDefault(); highlight(active <= 0 ? items.length - 1 : active - 1); }
       else if (e.key === "Enter" && active >= 0 && !e.isComposing) { e.preventDefault(); e.stopPropagation(); choose(active); }
       else if (e.key === "Escape") { e.preventDefault(); close(); }
+    });
+    // Dès le toucher du champ : réveille le service (connexion prête avant la première lettre)
+    input.addEventListener("focus", function () {
+      if (warmed || disabled) return; warmed = true;
+      fetch(ENDPOINT, { method: "POST", headers: { "Content-Type": "application/json" }, body: '{"q":""}' })
+        .then(function (r) { if (r.status === 404 || r.status === 405) disabled = true; })
+        .catch(function () {});
     });
     input.addEventListener("blur", function () { setTimeout(close, 160); });
     // Le toucher sur une suggestion ne doit pas fermer le clavier avant la sélection

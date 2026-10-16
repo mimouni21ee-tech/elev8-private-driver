@@ -19,7 +19,7 @@ window.SITE_CONFIG = {
 
   /* ---------- Site ---------- */
   site: {
-    url: "https://elevateprivatedriver.com"   // Domaine officiel (sans / final)
+    url: "https://elev8privatedriver.com"   // Domaine officiel (sans / final)
   },
 
   /* ---------- Coordonnées ---------- */
@@ -27,7 +27,7 @@ window.SITE_CONFIG = {
     telephoneAffiche: "+33 6 00 00 00 00",
     telephone: "+33600000000",     // Format international, sans espaces
     whatsapp: "33600000000",       // Indicatif pays + numéro, sans + ni espaces
-    email: "contact@elevateprivatedriver.com", // Adresse de contact affichée : doit être une boîte e-mail réelle
+    email: "contact@elev8privatedriver.com", // Adresse de contact affichée : doit être une boîte e-mail réelle
     zone: "Genève & stations de ski · Côte d'Azur · Dijon & Bourgogne",
     disponibilite: "Sur réservation"
   },

@@ -2,6 +2,9 @@
    ELEV8 Private Driver — suggestions d'adresses (champs « Départ » et « Destination »)
    --------------------------------------------------------------------------
    Adresse : /adresses   (appelée par public/assets/js/adresses.js)
+   Exécutée en priorité sur le serveur Netlify le plus proche du client
+   (netlify/edge-functions/adresses.js réutilise ce même code) ; cette
+   fonction classique reste en secours.
 
    Le navigateur n'appelle jamais directement Google ni aucun autre service :
    il interroge cette fonction, exécutée sur les serveurs de Netlify, qui
@@ -29,7 +32,8 @@
 
 export const config = { path: "/adresses" };
 
-const MIN_LEN = 3, MAX_LEN = 120, MAX_RESULTS = 6, TIMEOUT_MS = 3500;
+const MIN_LEN = 3, MAX_LEN = 120, MAX_RESULTS = 6, TIMEOUT_MS = 2500;
+const GRACE_MS = 250;   // mode gratuit : attente maximale du 2e service une fois le 1er arrivé
 
 /* Zone favorisée (sans exclure le reste du monde) : France, Suisse et pays voisins */
 const BIAS_RECT = { low: { latitude: 41.3, longitude: -5.2 }, high: { latitude: 51.2, longitude: 10.6 } };
@@ -38,7 +42,11 @@ const BIAS_POINT = { lat: 46.6, lon: 5.6 }; // entre Dijon, Genève et la Côte 
 /* Dépendances remplaçables pour les tests automatisés */
 export const deps = { fetch: (...a) => fetch(...a), now: () => Date.now() };
 
-const env = (k) => (process.env[k] || "").trim();
+const env = (k) => {
+  const N = globalThis.Netlify;
+  const v = (N && N.env && N.env.get(k)) || (typeof process !== "undefined" && process.env ? process.env[k] : "");
+  return (v || "").trim();
+};
 const json = (status, body) => new Response(JSON.stringify(body), {
   status,
   headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }
@@ -74,9 +82,9 @@ function cacheSet(k, v) {
   if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
 }
 
-async function getJSON(url, init = {}) {
+async function getJSON(url, init = {}, timeout = TIMEOUT_MS) {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), timeout);
   try {
     const r = await deps.fetch(url, { ...init, signal: ctrl.signal });
     if (!r.ok) { const e = new Error("http " + r.status); e.status = r.status; throw e; }
@@ -180,10 +188,19 @@ export async function searchPhoton(q) {
 }
 
 export async function searchFree(q) {
-  const [ign, photon] = await Promise.allSettled([searchIGN(q), searchPhoton(q)]);
-  const a = ign.status === "fulfilled" ? ign.value : [];
-  const b = photon.status === "fulfilled" ? photon.value : [];
-  if (ign.status === "rejected" && photon.status === "rejected") throw new Error("aucun service disponible");
+  /* Les deux services sont interrogés en même temps. Dès que l'un répond, on n'attend
+     l'autre que GRACE_MS au maximum : la liste s'affiche à la vitesse du plus rapide. */
+  const res = { ign: null, photon: null, failed: 0 };
+  const pIGN = searchIGN(q).then((v) => { res.ign = v; }, () => { res.ign = []; res.failed++; });
+  const pPh = searchPhoton(q).then((v) => { res.photon = v; }, () => { res.photon = []; res.failed++; });
+  await Promise.race([pIGN, pPh]);
+  const firstEmpty = (res.ign && !res.ign.length) || (res.photon && !res.photon.length);
+  await Promise.race([
+    Promise.all([pIGN, pPh]),
+    new Promise((r) => setTimeout(r, firstEmpty ? TIMEOUT_MS : GRACE_MS))   // 1er service sans résultat : on attend l'autre
+  ]);
+  const a = res.ign || [], b = res.photon || [];
+  if (res.failed === 2) throw new Error("aucun service disponible");
   // Saisie commençant par un numéro (« 17 rue Ferdinand ») : les adresses françaises d'abord
   const ordered = /^\s*\d/.test(q) ? a.concat(b) : b.slice(0, 3).concat(a, b.slice(3));
   const seen = new Set(), out = [];
