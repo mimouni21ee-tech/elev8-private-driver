@@ -558,6 +558,15 @@ html.is-bord .top:not(.is-solid) .brand { opacity: 0; pointer-events: none; }
   transform: translateX(-120%); animation: sheen 1.4s var(--ease) 2s 1 both, sheenIdle 10s var(--ease) 6s infinite;
 }
 .btn--save:active { background: var(--noir-3); }
+.bord__more {
+  display: flex; align-items: center; justify-content: center; gap: .6rem; width: 100%; min-height: 2.75rem; margin-top: .35rem; white-space: nowrap;
+  color: var(--champagne-clair); text-decoration: none; font-size: .68rem; letter-spacing: .2em; text-transform: uppercase;
+  animation: fade .8s var(--ease) 1.6s both;
+}
+.bord__more svg { animation: nudge 2.4s var(--ease) 2.6s infinite; }
+html.has-intro .bord__more { animation-delay: 1.75s; }
+html.has-intro.intro-skip .bord__more { animation-delay: .4s; }
+@keyframes nudge { 0%, 60%, 100% { transform: none; } 30% { transform: translateY(3px); } }
 .bord__hint {
   margin: .9rem 0 0; padding: .75rem 1rem; border-left: 1px solid var(--champagne);
   background: rgba(18, 17, 16, .85); font-size: .82rem; line-height: 1.5; color: var(--ivoire-doux); animation: rise .6s var(--ease);
@@ -573,6 +582,7 @@ html.is-bord .top:not(.is-solid) .brand { opacity: 0; pointer-events: none; }
   padding: 1rem var(--gutter) clamp(3rem, 10vw, 4.5rem); display: grid; gap: 2.4rem;
 }
 .bord__block .eyebrow { margin-bottom: .9rem; }
+#bordInfos { scroll-margin-top: 4.5rem; }
 .bord__cars { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
 .bcar { display: grid; gap: .2rem; text-decoration: none; color: inherit; min-width: 0; }
 .bcar__media { display: block; aspect-ratio: 3 / 2; overflow: hidden; background: var(--noir-2); margin-bottom: .55rem; position: relative; }
@@ -604,19 +614,102 @@ html.is-bord .booking { padding-top: clamp(3rem, 9vw, 4.5rem); }
   .bcar:hover .bcar__media img { transform: scale(1.05); }
   .bcar:hover .bcar__media::after { border-color: rgba(221, 209, 183, .3); }
 }
-@media (max-height: 620px) {
+@media (max-height: 700px) {
   .bord__screen { padding-top: calc(env(safe-area-inset-top, 0px) + 4.25rem); padding-bottom: 1.25rem; }
   .bord__logo { width: 3.75rem; height: 3.75rem; margin-bottom: .9rem; }
   .bord__mono { font-size: 1.4rem; }
   .bord__welcome { margin-bottom: .6rem; }
   .bord__title { margin-bottom: 1.2rem; font-size: clamp(1.9rem, 9vw, 2.6rem); }
   .bord__actions { gap: .5rem; }
-  .bord__actions .btn { --h: 2.875rem; }
+  .bord__actions .btn { --h: 2.75rem; }
+  .bord__more { margin-top: 0; }
 }
 @media (max-width: 360px) {
   .bord__actions .btn { letter-spacing: .13em; padding-inline: 1rem; }
   .btn__num { display: none; }
 }
+
+/* ---------- Introduction du mode passager (QR code / NFC) ----------
+   0 → 0,65 s : un trait de lumière traverse l'écran comme une route de nuit
+   0,3 → 1,0 s : l'anneau s'ouvre depuis la route, le E8 se dessine puis se remplit
+   1,0 → 1,45 s : le logo glisse à sa place dans la page, le voile noir s'efface
+   Au premier toucher, l'introduction s'efface immédiatement. */
+.intro { display: none; }
+html.intro-on .intro {
+  position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; overflow: hidden;
+  pointer-events: auto; transition: opacity .25s var(--ease);
+  animation: introRelease 0s linear 1.3s forwards, introEnd 0s linear 1.55s forwards;
+}
+html.intro-skip .intro { opacity: 0; }
+.intro__veil { position: absolute; inset: 0; background: var(--noir); animation: fadeOut .45s var(--ease) 1s forwards; }
+.intro__veil::after {
+  content: ""; position: absolute; left: 50%; top: 50%; width: 70vmax; height: 70vmax; transform: translate(-50%, -50%);
+  background: radial-gradient(closest-side, rgba(188, 167, 131, .14), transparent 70%);
+  opacity: 0; animation: fadeIn .8s var(--ease) .35s forwards;
+}
+.intro__road {
+  position: absolute; left: 8%; right: 8%; top: 50%; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(188, 167, 131, .55) 18%, rgba(221, 209, 183, .9) 50%, rgba(188, 167, 131, .55) 82%, transparent);
+  clip-path: inset(0 100% 0 0); animation: roadDraw .65s cubic-bezier(.65, 0, .35, 1) .05s forwards, fadeOut .3s var(--ease) .78s forwards;
+}
+.intro__lane { position: absolute; left: 8%; right: 8%; top: calc(50% - 2.5rem); height: 5rem; pointer-events: none; }
+/* la route et sa lumière s'interrompent à l'intérieur de l'anneau (centre de la route = centre de l'écran) */
+.intro__road, .intro__lane {
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(50% - 3.95rem), transparent calc(50% - 3.75rem), transparent calc(50% + 3.75rem), #000 calc(50% + 3.95rem));
+          mask-image: linear-gradient(90deg, #000 calc(50% - 3.95rem), transparent calc(50% - 3.75rem), transparent calc(50% + 3.75rem), #000 calc(50% + 3.95rem));
+}
+.intro__light {
+  position: absolute; top: 50%; left: 0; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; border-radius: 50%;
+  background: #fffaf0; box-shadow: 0 0 10px 3px rgba(255, 244, 220, .85), 0 0 34px 10px rgba(221, 209, 183, .35);
+  animation: lightRun .65s cubic-bezier(.65, 0, .35, 1) .05s both;
+}
+.intro__logo {
+  position: relative; z-index: 1; width: 7.5rem; height: 7.5rem; display: grid; place-items: center;
+  border-radius: 50%;
+  animation: logoGlide .45s cubic-bezier(.65, 0, .25, 1) .98s forwards, fadeOut .14s linear 1.38s forwards;
+}
+.intro__ring { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(180deg); overflow: visible; }
+.intro__track { fill: none; stroke: var(--filet); stroke-width: .8; opacity: 0; animation: fadeIn .4s linear .25s forwards; }
+.intro__arc { fill: none; stroke: var(--champagne); stroke-width: 1.1; stroke-linecap: butt; stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw .75s cubic-bezier(.45, 0, .2, 1) .3s forwards; }
+.intro__mono { width: 52%; height: auto; overflow: visible; }
+.intro__glyph {
+  fill: var(--champagne-clair); fill-opacity: 0; stroke: var(--champagne-clair); stroke-width: 14;
+  stroke-dasharray: 1; stroke-dashoffset: 1;
+  animation: draw .6s cubic-bezier(.45, 0, .2, 1) .38s forwards, glyphFill .32s var(--ease) .78s forwards;
+}
+.intro__glyph--8 { animation-delay: .5s, .86s; }
+.intro__name {
+  position: absolute; z-index: 1; left: 0; right: 0; top: calc(50% + 5.25rem); margin: 0; text-align: center;
+  font-size: .62rem; letter-spacing: .42em; text-transform: uppercase; color: var(--gris);
+  opacity: 0; animation: nameIn .5s var(--ease) .5s forwards, fadeOut .2s linear .92s forwards;
+}
+.intro__name span { color: var(--champagne-clair); }
+
+@keyframes roadDraw { to { clip-path: inset(0 0 0 0); } }
+@keyframes lightRun { 0% { left: 0; opacity: 0; } 12% { opacity: 1; } 85% { opacity: 1; } 100% { left: 100%; opacity: 0; } }
+@keyframes glyphFill { to { fill-opacity: 1; stroke-width: 0; } }
+@keyframes logoGlide { to { transform: translate(var(--dx, 0px), var(--dy, 0px)) scale(var(--s, 1)); } }
+@keyframes nameIn { from { opacity: 0; letter-spacing: .6em; } to { opacity: 1; letter-spacing: .42em; } }
+@keyframes fadeOut { to { opacity: 0; } }
+@keyframes fadeIn { to { opacity: 1; } }
+@keyframes introRelease { to { pointer-events: none; } }
+@keyframes introEnd { to { visibility: hidden; } }
+
+/* Page sous l'introduction : le logo arrive déjà tracé, le texte et les boutons suivent aussitôt */
+html.has-intro .bord__logo { opacity: 0; animation: fadeIn .12s linear 1.36s forwards; }
+html.has-intro .bord__ring { animation: none; stroke-dashoffset: 0; }
+html.has-intro .bord__sweep { animation: sweepIdle 9s linear 3s infinite; }
+html.has-intro .bord__mono { animation: none; }
+html.has-intro .bord__screen::before { animation-delay: 1s; }
+html.has-intro .bord__welcome { animation-delay: 1.05s; }
+html.has-intro .bord__title .line > span { animation-delay: calc(.8s + var(--i, 0) * .1s); }
+html.has-intro .bord__actions { animation: rise .9s var(--ease) 1.2s both; }
+html.has-intro .btn--save::after { animation-delay: 2.4s, 7s; }
+/* Introduction ignorée au toucher : la page s'affiche aussitôt */
+html.has-intro.intro-skip .bord__logo { animation: fadeIn .2s linear 0s forwards; }
+html.has-intro.intro-skip .bord__welcome { animation-delay: 0s; }
+html.has-intro.intro-skip .bord__title .line > span { animation-delay: calc((var(--i, 0) - 3) * .08s); }
+html.has-intro.intro-skip .bord__actions { animation: rise .6s var(--ease) .1s both; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
@@ -626,6 +719,7 @@ html.is-bord .booking { padding-top: clamp(3rem, 9vw, 4.5rem); }
   .route__ring { display: none; }
   .bord__ring { stroke-dashoffset: 0; }
   .bord__sweep, .btn--save::after { display: none; }
+  .intro { display: none !important; }
 }
 
 /* ---------- Pages légales ---------- */

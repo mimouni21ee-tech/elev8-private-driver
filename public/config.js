@@ -77,6 +77,7 @@ window.SITE_CONFIG = {
     titreZones: "Zones desservies",
     titrePrestations: "Prestations",
     zones: ["Genève", "Stations de ski", "Côte d'Azur", "Dijon & Bourgogne"],
+    lienDecouvrir: "Voir véhicules & prestations",
     lienSiteComplet: "Découvrir le site complet",
     introReservation: "Indiquez votre trajet : votre chauffeur vous confirme la disponibilité."
   },

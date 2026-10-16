@@ -34,6 +34,19 @@
 
   /* ---------- Mode passager à bord (QR code) ---------- */
   var root = document.documentElement;
+
+  /* Introduction : le logo central glisse exactement à la place du logo de la page */
+  if (root.classList.contains("has-intro")) {
+    var il = $("#introLogo"), pl = $(".bord__logo");
+    if (il && pl) {
+      var a = il.getBoundingClientRect(), b = pl.getBoundingClientRect();
+      if (a.width && b.width) {
+        il.style.setProperty("--dx", (b.left + b.width / 2 - (a.left + a.width / 2)).toFixed(1) + "px");
+        il.style.setProperty("--dy", (b.top + b.height / 2 - (a.top + a.height / 2)).toFixed(1) + "px");
+        il.style.setProperty("--s", (b.width / a.width).toFixed(3));
+      }
+    }
+  }
   var B = C.bord || {};
   splitLines($("#bordTitle"), B.phrase, 3);
   $("#bordCall").href = "tel:" + C.contact.telephone;
