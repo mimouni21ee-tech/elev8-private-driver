@@ -760,3 +760,27 @@ html.has-intro.intro-skip:not(.is-bord) .route__stop { animation-delay: var(--d,
 .legal strong { color: var(--ivoire); font-weight: 400; }
 .legal .back { display: inline-block; margin-bottom: 2.5rem; color: var(--champagne); text-decoration: none; font-size: var(--s-xs); letter-spacing: .22em; text-transform: uppercase; }
 .legal .todo { color: var(--champagne-clair); }
+
+/* ---------- Suggestions d'adresses (Départ / Destination) — assets/js/adresses.js ---------- */
+.field--ac { position: relative; }
+.ac {
+  position: absolute; z-index: 40; left: 0; right: 0; top: 100%; margin-top: .35rem;
+  max-height: min(21rem, 52vh); overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+  background: var(--noir-2); border: 1px solid var(--filet-fort);
+  box-shadow: 0 18px 40px -12px rgba(0, 0, 0, .85), 0 0 0 1px rgba(0, 0, 0, .4);
+  animation: acIn .22s var(--ease) both;
+}
+.ac[hidden] { display: none; }
+.ac__opt {
+  display: flex; align-items: center; gap: .85rem; min-height: 3.25rem; padding: .6rem .95rem;
+  cursor: pointer; border-bottom: 1px solid var(--filet); -webkit-tap-highlight-color: transparent;
+  transition: background .25s var(--ease);
+}
+.ac__opt[aria-selected="true"], .ac__opt:active { background: rgba(188, 167, 131, .1); }
+.ac__ico { width: 1.15rem; height: 1.15rem; flex: none; color: var(--champagne); }
+.ac__txt { display: grid; min-width: 0; line-height: 1.35; }
+.ac__main { color: var(--ivoire); font-size: .95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ac__sub { color: var(--gris); font-size: .76rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ac__credit { padding: .45rem .95rem; text-align: right; font-size: .6rem; letter-spacing: .14em; color: rgba(143, 136, 125, .75); }
+@keyframes acIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@media (hover: hover) { .ac__opt:hover { background: rgba(188, 167, 131, .07); } }

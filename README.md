@@ -32,6 +32,7 @@ public/                       ← le site (c'est ce dossier qui est publié)
 netlify/functions/reservation.mjs   Envoi des demandes — Netlify (recommandé), adresse /envoi-reservation
 netlify/functions/rl-cleanup.mjs    Suppression horaire des compteurs anti-abus expirés
 netlify/functions/contact.mjs       Fiche contact « Enregistrer mon chauffeur » (/elev8-private-driver.vcf)
+netlify/functions/adresses.mjs      Suggestions d'adresses Départ / Destination (/adresses) — voir GUIDE-ADRESSES.md
 netlify/lib/ratelimit.mjs     Limitation des envois partagée (Netlify Blobs)
 netlify.toml, package.json    Réglages Netlify et dépendance @netlify/blobs
 .env.example                  Liste des variables secrètes à créer dans Netlify

@@ -183,6 +183,17 @@ window.SITE_CONFIG = {
     delaiMaxMs: 15000
   },
 
+  /* ---------- Suggestions d'adresses (champs « Départ » et « Destination ») ----------
+     Une liste de suggestions s'affiche pendant la saisie (adresses, gares, aéroports, hôtels…).
+     Le client peut toujours écrire son adresse librement.
+     Le service utilisé se règle dans Netlify, jamais ici (voir GUIDE-ADRESSES.md) :
+     Google Places si la variable GOOGLE_MAPS_API_KEY existe, sinon un service gratuit. */
+  adresses: {
+    actif: true,             // false = désactive les suggestions
+    endpoint: "/adresses",   // fonction Netlify (netlify/functions/adresses.mjs)
+    minCaracteres: 3         // nombre de lettres avant d'afficher des suggestions
+  },
+
   /* ---------- Suivi des sources de demande ----------
      Aucun cookie, aucun traceur publicitaire, rien d'enregistré dans le navigateur.
      Le paramètre ?src=... du lien visité est simplement joint à la demande envoyée par le client.

@@ -159,6 +159,16 @@ message d'erreur propose WhatsApp et le téléphone, et les champs restent rempl
 
 ---
 
+### Suggestions d'adresses
+| # | Action | Résultat attendu |
+|---|---|---|
+| F-A1 | Dans « Départ », taper `17 rue Ferdinand` | Liste de suggestions sous le champ, dont des adresses à Dijon |
+| F-A2 | Toucher une suggestion | L'adresse complète remplit le champ, la liste se ferme, le curseur passe à « Destination » |
+| F-A3 | Dans « Destination », taper `gare de Lyon`, `aéroport Genève`, `hôtel` + ville | Gares, aéroports, hôtels proposés avec leur icône |
+| F-A4 | Taper une adresse sans choisir de suggestion, puis envoyer | La demande part avec le texte saisi tel quel |
+| F-A5 | Ouvrir `https://elev8privatedriver.com/adresses` dans le navigateur | Message d'erreur court (la fonction n'accepte que les requêtes du site) |
+| F-A6 | Bas de la liste | « Google Maps » (clé configurée) ou « © IGN · © OpenStreetMap » (mode gratuit) |
+
 ## 7. QR codes et sources
 
 | ID | Action | Résultat attendu |

@@ -19,6 +19,7 @@ carte intégrée…) doit être ajouté ici et dans `public/confidentialite.html
 | 6 | Affichage du site | Adresse IP, navigateur | Netlify (hébergement), Google Fonts (polices) | Selon chaque prestataire | Intérêt légitime |
 | 7 | Origine de la visite | Code du lien (`?src=`, UTM, `?bord=1`) | Joint à la demande (traitements 1 et 2) ; **rien n'est stocké dans le navigateur** | Celle de la demande | Intérêt légitime (mesure des canaux) |
 | 8 | Fiche contact (« Enregistrer mon chauffeur ») | Aucune donnée du client : la fiche contient uniquement les coordonnées d'ELEV8. Adresse IP traitée par Netlify pour la limitation des téléchargements | Netlify | Selon Netlify | Intérêt légitime (sécurité) |
+| 9 | Suggestions d'adresses | Texte saisi dans « Départ » / « Destination », pendant la saisie | Transmis par la fonction Netlify `/adresses`, sans adresse IP, à Google Maps Platform (si la clé est configurée) ou à l'IGN et Photon/komoot ; non conservé (cache technique de 15 min en mémoire) | Aucune | Intérêt légitime (faciliter la saisie) |
 
 Ce que le site **ne fait pas** : aucun cookie déposé par le site, aucun stockage local (`localStorage`,
 `sessionStorage`), aucun outil de statistiques, aucun pixel publicitaire, aucune base de données clients,
