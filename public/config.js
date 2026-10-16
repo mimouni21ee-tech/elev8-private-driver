@@ -87,7 +87,7 @@ window.SITE_CONFIG = {
     surtitre: "La flotte",
     titre: "Deux véhicules, une même exigence",
     intro: "Choisissez le véhicule adapté à votre trajet et au nombre de passagers.",
-    afficherMentionPhotoProvisoire: true,   // Passez à false après avoir mis vos photos
+    afficherMentionPhotoProvisoire: false,  // true = affiche la mention « Photo provisoire » sur les photos des véhicules
     vehicules: [
       {
         id: "tesla",
