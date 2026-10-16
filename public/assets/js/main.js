@@ -35,10 +35,11 @@
   /* ---------- Mode passager à bord (QR code) ---------- */
   var root = document.documentElement;
 
-  /* Introduction : le logo central glisse exactement à la place du logo de la page */
+  /* Introduction : le logo central glisse exactement à la place du logo de la page
+     (mode passager : logo du haut de l'écran ; site classique : logo de l'en-tête, aligné avec MENU) */
   if (root.classList.contains("has-intro")) {
     if (root.classList.contains("intro-on")) $("#intro").hidden = false;   // à afficher avant de mesurer
-    var il = $("#introLogo"), pl = $(".bord__logo");
+    var il = $("#introLogo"), pl = root.classList.contains("is-bord") ? $(".bord__logo") : $(".top .brand__mono");
     if (il && pl) {
       var a = il.getBoundingClientRect(), b = pl.getBoundingClientRect();
       if (a.width && b.width) {

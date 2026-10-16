@@ -23,7 +23,7 @@
   --gutter: clamp(1.25rem, 5vw, 3rem);
   --ease: cubic-bezier(.2, .7, .1, 1);
   color-scheme: dark;
-  --elev8-css: 7;   /* version de la feuille de style : doit correspondre à assets/js/mode.js */
+  --elev8-css: 8;   /* version de la feuille de style : doit correspondre à assets/js/mode.js */
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -715,12 +715,30 @@ html.has-intro .bord__title .line > span { animation-delay: calc(2.35s + (var(--
 html.has-intro .bord__actions { animation: rise .7s var(--ease) 2.45s both; }
 html.has-intro .btn--save::after { animation-delay: 3.6s, 8s; }
 html.has-intro .bord__more { animation-delay: 2.9s; }
+/* Site classique (domaine principal, réseaux sociaux…) : même principe, l'accueil apparaît à la fin de l'introduction */
+html.has-intro:not(.is-bord) .top .brand__mono { animation: fade .12s linear 2.7s both; }
+html.has-intro:not(.is-bord) .top .brand__text { animation: fade .6s var(--ease) 2.72s both; }
+html.has-intro:not(.is-bord) .hero__eyebrow { animation-delay: 2.35s; }
+html.has-intro:not(.is-bord) .hero__title .line > span { animation-delay: calc(2.4s + var(--i, 0) * .1s); }
+html.has-intro:not(.is-bord) .hero__text { animation-delay: 2.65s; }
+html.has-intro:not(.is-bord) .hero__ctas { animation-delay: 2.75s; }
+html.has-intro:not(.is-bord) .pledges { animation-delay: 3.1s; }
+html.has-intro:not(.is-bord) .route__line { animation-delay: 2.6s; }
+html.has-intro:not(.is-bord) .route__stop { animation-delay: calc(var(--d, 1s) + 2.3s); }
 /* Introduction ignorée au toucher : la page s'affiche aussitôt */
 html.has-intro.intro-skip .bord__logo { animation: fade .2s linear 0s both; }
 html.has-intro.intro-skip .bord__welcome { animation-delay: 0s; }
 html.has-intro.intro-skip .bord__title .line > span { animation-delay: calc((var(--i, 0) - 3) * .08s); }
 html.has-intro.intro-skip .bord__actions { animation: rise .6s var(--ease) .1s both; }
 html.has-intro.intro-skip .bord__more { animation-delay: .4s; }
+html.has-intro.intro-skip:not(.is-bord) .top .brand__mono, html.has-intro.intro-skip:not(.is-bord) .top .brand__text { animation: fade .2s linear 0s both; }
+html.has-intro.intro-skip:not(.is-bord) .hero__eyebrow { animation-delay: 0s; }
+html.has-intro.intro-skip:not(.is-bord) .hero__title .line > span { animation-delay: calc(.1s + var(--i, 0) * .1s); }
+html.has-intro.intro-skip:not(.is-bord) .hero__text { animation-delay: .3s; }
+html.has-intro.intro-skip:not(.is-bord) .hero__ctas { animation-delay: .4s; }
+html.has-intro.intro-skip:not(.is-bord) .pledges { animation-delay: .7s; }
+html.has-intro.intro-skip:not(.is-bord) .route__line { animation-delay: .3s; }
+html.has-intro.intro-skip:not(.is-bord) .route__stop { animation-delay: var(--d, 1s); }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
