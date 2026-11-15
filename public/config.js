@@ -24,10 +24,12 @@ window.SITE_CONFIG = {
 
   /* ---------- Coordonnées ---------- */
   contact: {
-    telephoneAffiche: "+33 6 00 00 00 00",
-    telephone: "+33600000000",     // Format international, sans espaces
-    whatsapp: "33600000000",       // Indicatif pays + numéro, sans + ni espaces
+    telephoneAffiche: "06 26 92 72 18",
+    telephone: "+33626927218",     // Format international, sans espaces
+    whatsapp: "33626927218",       // Indicatif pays + numéro, sans + ni espaces
+    whatsappLien: "https://wa.me/message/MZT3HSC2R4HLG1",   // Lien officiel WhatsApp Business (boutons « WhatsApp »)
     email: "contact@elev8privatedriver.com", // Adresse de contact affichée : doit être une boîte e-mail réelle
+    boutonEnregistrer: "Enregistrer ELEV8 dans mes contacts",
     zone: "Genève & stations de ski · Côte d'Azur · Dijon & Bourgogne",
     disponibilite: "Sur réservation"
   },
@@ -57,7 +59,7 @@ window.SITE_CONFIG = {
      WhatsApp, site) et du logo assets/img/e8-contact.jpg. */
   ficheContact: {
     url: "/elev8-private-driver.vcf",
-    inclureEmail: false,     // Passez à true quand contact.email sera une boîte opérationnelle
+    inclureEmail: true,      // contact.email est une boîte opérationnelle
     fonction: "Chauffeur privé",
     note: "Chauffeur privé sur réservation · Genève et stations de ski · Côte d'Azur · Dijon et Bourgogne"
   },
