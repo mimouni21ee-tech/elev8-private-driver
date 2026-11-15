@@ -177,6 +177,19 @@ body.menu-open { overflow: hidden; }
 .hero__ctas { display: grid; gap: .75rem; margin-top: 2.25rem; max-width: 24rem; animation: rise 1.2s var(--ease) .7s both; }
 .hero__ctas .btn { justify-content: space-between; }
 .hero__ctas .btn--gold { justify-content: center; }
+/* Coordonnées sous les boutons de l'accueil : discrètes, cliquables, une par ligne sur mobile */
+.hero__contact {
+  list-style: none; margin: 1.6rem 0 0; padding: 0; display: grid; gap: .15rem; max-width: 24rem;
+  animation: fade 1.6s var(--ease) .95s both;
+}
+.hero__contact a, .footer__vcf {
+  display: inline-flex; align-items: center; gap: .7rem; min-height: 44px; text-decoration: none;
+  color: var(--ivoire-doux); font-size: var(--s-sm); letter-spacing: .02em; transition: color .4s var(--ease);
+}
+.hero__contact a svg, .footer__vcf svg { color: var(--champagne); flex: none; }
+.hero__contact a span { border-bottom: 1px solid transparent; transition: border-color .4s var(--ease); overflow-wrap: anywhere; }
+.hero__contact a:focus-visible span, .hero__contact a:active span { border-color: var(--champagne); }
+.footer__vcf { font-size: var(--s-sm) !important; color: var(--champagne-clair); }
 .pledges {
   list-style: none; margin: 2.75rem 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: .45rem 1.1rem;
   font-size: .66rem; letter-spacing: .22em; text-transform: uppercase; color: var(--gris);
@@ -477,6 +490,8 @@ body.menu-open { overflow: hidden; }
   .vchoice label:hover { border-color: var(--filet-fort); }
   .more summary:hover::before { border-color: var(--champagne); }
   .footer__contact a:hover, .footer__legal a:hover { color: var(--champagne-clair); }
+  .hero__contact a:hover { color: var(--champagne-clair); }
+  .hero__contact a:hover span { border-color: var(--champagne); }
   .dock__main:hover { border-color: var(--champagne); }
   .dock__wa:hover { background: var(--champagne-clair); }
 }
@@ -486,6 +501,7 @@ body.menu-open { overflow: hidden; }
   .hero__ctas { grid-template-columns: auto auto; max-width: none; justify-content: start; }
   .hero__ctas .btn { justify-content: center; }
   .reach { grid-template-columns: 1fr 1fr; }
+  .hero__contact { display: flex; flex-wrap: wrap; gap: 0 1.6rem; max-width: 46rem; }
   .form__actions { grid-template-columns: 1fr 1fr; }
   .services__list { grid-template-columns: repeat(3, 1fr); }
   .service { padding: 1.75rem 1.5rem 1.9rem; }
