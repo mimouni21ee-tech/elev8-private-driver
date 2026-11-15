@@ -1,0 +1,17 @@
+BEGIN:VCARD
+VERSION:3.0
+PRODID:-//ELEV8 Private Driver//Fiche contact//FR
+N:;ELEV8 Private Driver;;;
+FN:ELEV8 Private Driver
+ORG:ELEV8 Private Driver
+X-ABShowAs:COMPANY
+TITLE:Chauffeur privé
+TEL;TYPE=CELL,VOICE,pref:+33626927218
+EMAIL;TYPE=INTERNET,WORK:contact@elev8privatedriver.com
+URL:https://elev8privatedriver.com/?src=contact
+item1.URL:https://wa.me/33626927218
+item1.X-ABLabel:WhatsApp
+NOTE:Chauffeur privé sur réservation · Genève et stations de ski · Cô
+ te d'Azur · Dijon et Bourgogne
+REV:20261115T155351Z
+END:VCARD

@@ -1,0 +1,237 @@
+From 9bf432733feaac94f6ce173eaeb6986a396e4700 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 15 Nov 2026 16:52:15 +0100
+Subject: [PATCH] =?UTF-8?q?Coordonn=C3=A9es=20professionnelles=20:=20t?=
+ =?UTF-8?q?=C3=A9l=C3=A9phone,=20WhatsApp=20Business,=20e-mail,=20fiche=20?=
+ =?UTF-8?q?contact?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01RBFDraSh661tcpjtmKRyrk
+---
+ public/assets/css/style.css  | 16 ++++++++++++++++
+ public/assets/js/main.js     |  9 ++++++++-
+ public/confidentialite.html  |  4 ++--
+ public/config.js             | 10 ++++++----
+ public/index.html            | 24 +++++++++++++++++++++---
+ public/mentions-legales.html |  4 ++--
+ 6 files changed, 55 insertions(+), 12 deletions(-)
+
+diff --git a/public/assets/css/style.css b/public/assets/css/style.css
+index 07ac11b..9224268 100644
+--- a/public/assets/css/style.css
++++ b/public/assets/css/style.css
+@@ -177,6 +177,19 @@ body.menu-open { overflow: hidden; }
+ .hero__ctas { display: grid; gap: .75rem; margin-top: 2.25rem; max-width: 24rem; animation: rise 1.2s var(--ease) .7s both; }
+ .hero__ctas .btn { justify-content: space-between; }
+ .hero__ctas .btn--gold { justify-content: center; }
++/* Coordonnées sous les boutons de l'accueil : discrètes, cliquables, une par ligne sur mobile */
++.hero__contact {
++  list-style: none; margin: 1.6rem 0 0; padding: 0; display: grid; gap: .15rem; max-width: 24rem;
++  animation: fade 1.6s var(--ease) .95s both;
++}
++.hero__contact a, .footer__vcf {
++  display: inline-flex; align-items: center; gap: .7rem; min-height: 44px; text-decoration: none;
++  color: var(--ivoire-doux); font-size: var(--s-sm); letter-spacing: .02em; transition: color .4s var(--ease);
++}
++.hero__contact a svg, .footer__vcf svg { color: var(--champagne); flex: none; }
++.hero__contact a span { border-bottom: 1px solid transparent; transition: border-color .4s var(--ease); overflow-wrap: anywhere; }
++.hero__contact a:focus-visible span, .hero__contact a:active span { border-color: var(--champagne); }
++.footer__vcf { font-size: var(--s-sm) !important; color: var(--champagne-clair); }
+ .pledges {
+   list-style: none; margin: 2.75rem 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: .45rem 1.1rem;
+   font-size: .66rem; letter-spacing: .22em; text-transform: uppercase; color: var(--gris);
+@@ -477,6 +490,8 @@ body.menu-open { overflow: hidden; }
+   .vchoice label:hover { border-color: var(--filet-fort); }
+   .more summary:hover::before { border-color: var(--champagne); }
+   .footer__contact a:hover, .footer__legal a:hover { color: var(--champagne-clair); }
++  .hero__contact a:hover { color: var(--champagne-clair); }
++  .hero__contact a:hover span { border-color: var(--champagne); }
+   .dock__main:hover { border-color: var(--champagne); }
+   .dock__wa:hover { background: var(--champagne-clair); }
+ }
+@@ -486,6 +501,7 @@ body.menu-open { overflow: hidden; }
+   .hero__ctas { grid-template-columns: auto auto; max-width: none; justify-content: start; }
+   .hero__ctas .btn { justify-content: center; }
+   .reach { grid-template-columns: 1fr 1fr; }
++  .hero__contact { display: flex; flex-wrap: wrap; gap: 0 1.6rem; max-width: 46rem; }
+   .form__actions { grid-template-columns: 1fr 1fr; }
+   .services__list { grid-template-columns: repeat(3, 1fr); }
+   .service { padding: 1.75rem 1.5rem 1.9rem; }
+diff --git a/public/assets/js/main.js b/public/assets/js/main.js
+index fe84a13..70ac34e 100644
+--- a/public/assets/js/main.js
++++ b/public/assets/js/main.js
+@@ -161,6 +161,10 @@
+   $("#telLink").href = "tel:" + C.contact.telephone;
+   $("#callLink").href = "tel:" + C.contact.telephone;
+   $("#mailLink").href = "mailto:" + C.contact.email;
++  /* Coordonnées répétées (accueil, rubrique Contact, pied de page) : téléphone, e-mail, fiche contact */
++  $$(".js-tel").forEach(function (a) { a.href = "tel:" + C.contact.telephone; });
++  $$(".js-mail").forEach(function (a) { a.href = "mailto:" + C.contact.email; });
++  $$(".js-vcf").forEach(function (a) { a.href = (C.ficheContact && C.ficheContact.url) || "/elev8-private-driver.vcf"; });
+   $("#footerZone").textContent = C.contact.zone || "";
+   $("#year").textContent = new Date().getFullYear();
+ 
+@@ -189,8 +193,11 @@
+   var waNumber = String(C.contact.whatsapp).replace(/[^\d]/g, "");
+   var waDirectText = (C.reservation.messageWhatsAppDirect || "Bonjour, je souhaite des renseignements pour un trajet.") +
+     (ORIGINE.code ? "\n\n(Origine : " + ORIGINE.libelle + ")" : "");
++  /* Lien officiel WhatsApp Business ; pour une visite suivie (QR code, campagne), même numéro avec message
++     prérempli indiquant l'origine, car le lien officiel ne peut pas transporter de texte. */
+   $$("[data-wa-direct]").forEach(function (a) {
+-    a.href = "https://wa.me/" + waNumber + "?text=" + encodeURIComponent(waDirectText);
++    a.href = C.contact.whatsappLien && !ORIGINE.code ? C.contact.whatsappLien
++           : "https://wa.me/" + waNumber + "?text=" + encodeURIComponent(waDirectText);
+   });
+ 
+   /* ---------- Formulaire ---------- */
+diff --git a/public/confidentialite.html b/public/confidentialite.html
+index f786afe..475ec04 100644
+--- a/public/confidentialite.html
++++ b/public/confidentialite.html
+@@ -9,7 +9,7 @@
+ <meta name="theme-color" content="#0c0b09">
+ <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
+ <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;1,6..96,400&family=Jost:wght@300;400&display=swap">
+-<link rel="stylesheet" href="assets/css/style.css?v=20261016e">
++<link rel="stylesheet" href="assets/css/style.css?v=20261115a">
+ </head>
+ <body class="legal-page">
+ <header class="top">
+@@ -78,7 +78,7 @@
+ 
+   <p>Dernière mise à jour : <span data-c="legal.dateMiseAJour"></span></p>
+ </main>
+-<script src="config.js?v=20261016e"></script>
++<script src="config.js?v=20261115a"></script>
+ <script src="assets/js/legal.js?v=20261016e"></script>
+ </body>
+ </html>
+diff --git a/public/config.js b/public/config.js
+index b23955b..8aef019 100644
+--- a/public/config.js
++++ b/public/config.js
+@@ -24,10 +24,12 @@ window.SITE_CONFIG = {
+ 
+   /* ---------- Coordonnées ---------- */
+   contact: {
+-    telephoneAffiche: "+33 6 00 00 00 00",
+-    telephone: "+33600000000",     // Format international, sans espaces
+-    whatsapp: "33600000000",       // Indicatif pays + numéro, sans + ni espaces
++    telephoneAffiche: "06 26 92 72 18",
++    telephone: "+33626927218",     // Format international, sans espaces
++    whatsapp: "33626927218",       // Indicatif pays + numéro, sans + ni espaces
++    whatsappLien: "https://wa.me/message/MZT3HSC2R4HLG1",   // Lien officiel WhatsApp Business (boutons « WhatsApp »)
+     email: "contact@elev8privatedriver.com", // Adresse de contact affichée : doit être une boîte e-mail réelle
++    boutonEnregistrer: "Enregistrer ELEV8 dans mes contacts",
+     zone: "Genève & stations de ski · Côte d'Azur · Dijon & Bourgogne",
+     disponibilite: "Sur réservation"
+   },
+@@ -57,7 +59,7 @@ window.SITE_CONFIG = {
+      WhatsApp, site) et du logo assets/img/e8-contact.jpg. */
+   ficheContact: {
+     url: "/elev8-private-driver.vcf",
+-    inclureEmail: false,     // Passez à true quand contact.email sera une boîte opérationnelle
++    inclureEmail: true,      // contact.email est une boîte opérationnelle
+     fonction: "Chauffeur privé",
+     note: "Chauffeur privé sur réservation · Genève et stations de ski · Côte d'Azur · Dijon et Bourgogne"
+   },
+diff --git a/public/index.html b/public/index.html
+index e9a6ca1..82363f2 100644
+--- a/public/index.html
++++ b/public/index.html
+@@ -19,7 +19,7 @@
+ <link rel="preconnect" href="https://fonts.googleapis.com">
+ <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+ <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;0,6..96,500;1,6..96,400&family=Jost:wght@300;400;500&display=swap">
+-<link rel="stylesheet" href="assets/css/style.css?v=20261016f">
++<link rel="stylesheet" href="assets/css/style.css?v=20261115a">
+ <script src="assets/js/mode.js?v=20261016e"></script>
+ </head>
+ <body>
+@@ -65,6 +65,7 @@
+     <li><a href="#prestations">Prestations</a></li>
+     <li><a href="#destinations">Destinations</a></li>
+     <li><a href="#reservation">Réservation</a></li>
++    <li><a href="#contact">Contact</a></li>
+   </ul>
+   <div class="menu__foot">
+     <a class="menu__wa" data-wa-direct href="#" target="_blank" rel="noopener"><svg class="i-wa" viewBox="0 0 24 24" aria-hidden="true" width="18" height="18"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2c-1.5 0-3-.4-4.3-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3c-.2.3-.9.9-.9 2.2s1 2.6 1.1 2.7c.1.2 1.9 2.9 4.6 4 1.7.7 2.4.8 3.2.7.5-.1 1.5-.6 1.8-1.2.2-.6.2-1.1.1-1.2l-.4-.2Z"/></svg><span data-c="accueil.boutonWhatsApp">Contacter via WhatsApp</span></a>
+@@ -140,6 +141,11 @@
+         <a class="btn btn--solid" href="#reservation"><span data-c="accueil.boutonReservation">Demander une réservation</span><svg class="i-arrow" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.4"/></svg></a>
+         <a class="btn btn--gold" data-wa-direct href="#" target="_blank" rel="noopener"><svg class="i-wa" viewBox="0 0 24 24" aria-hidden="true" width="18" height="18"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2c-1.5 0-3-.4-4.3-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3c-.2.3-.9.9-.9 2.2s1 2.6 1.1 2.7c.1.2 1.9 2.9 4.6 4 1.7.7 2.4.8 3.2.7.5-.1 1.5-.6 1.8-1.2.2-.6.2-1.1.1-1.2l-.4-.2Z"/></svg><span data-c="accueil.boutonWhatsApp">Contacter via WhatsApp</span></a>
+       </div>
++      <ul class="hero__contact" aria-label="Coordonnées">
++        <li><a class="js-tel" href="tel:+33626927218"><svg viewBox="0 0 24 24" aria-hidden="true" width="18" height="18"><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" d="M5.2 3.5h3.1l1.5 4-2 1.3a11 11 0 0 0 5.4 5.4l1.3-2 4 1.5v3.1a2 2 0 0 1-2.1 2A16.5 16.5 0 0 1 3.2 5.6a2 2 0 0 1 2-2.1Z"/></svg><span data-c="contact.telephoneAffiche">06 26 92 72 18</span></a></li>
++        <li><a class="js-mail" href="mailto:contact@elev8privatedriver.com"><svg viewBox="0 0 24 24" aria-hidden="true" width="18" height="18"><g fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><rect x="3" y="5.5" width="18" height="13" rx="1.5"/><path d="m3.5 6.5 8.5 6.5 8.5-6.5"/></g></svg><span data-c="contact.email">contact@elev8privatedriver.com</span></a></li>
++        <li><a class="js-vcf" href="/elev8-private-driver.vcf"><svg viewBox="0 0 24 24" aria-hidden="true" width="18" height="18"><g fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><circle cx="9" cy="9.5" r="2.6"/><path d="M4.5 17c.6-2.4 2.4-3.6 4.5-3.6s3.9 1.2 4.5 3.6"/><path d="M16 8h4M18 6v4"/></g></svg><span data-c="contact.boutonEnregistrer">Enregistrer ELEV8 dans mes contacts</span></a></li>
++      </ul>
+       <ul class="pledges" id="pledges" aria-label="Nos engagements"></ul>
+     </div>
+     <a class="hero__scroll" href="#flotte" aria-label="Voir la flotte"><span></span></a>
+@@ -197,6 +203,16 @@
+           <span class="reach__txt"><span class="reach__t">Appeler</span><span class="reach__s" data-c="contact.telephoneAffiche"></span></span>
+           <svg class="i-arrow" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+         </a>
++        <a class="reach__item js-mail" href="mailto:contact@elev8privatedriver.com">
++          <span class="reach__icon"><svg viewBox="0 0 24 24" aria-hidden="true" width="18" height="18"><g fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><rect x="3" y="5.5" width="18" height="13" rx="1.5"/><path d="m3.5 6.5 8.5 6.5 8.5-6.5"/></g></svg></span>
++          <span class="reach__txt"><span class="reach__t">E-mail</span><span class="reach__s" data-c="contact.email"></span></span>
++          <svg class="i-arrow" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
++        </a>
++        <a class="reach__item js-vcf" href="/elev8-private-driver.vcf">
++          <span class="reach__icon"><svg viewBox="0 0 24 24" aria-hidden="true" width="18" height="18"><g fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><circle cx="9" cy="9.5" r="2.6"/><path d="M4.5 17c.6-2.4 2.4-3.6 4.5-3.6s3.9 1.2 4.5 3.6"/><path d="M16 8h4M18 6v4"/></g></svg></span>
++          <span class="reach__txt"><span class="reach__t">Contacts</span><span class="reach__s" data-c="contact.boutonEnregistrer"></span></span>
++          <svg class="i-arrow" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
++        </a>
+       </div>
+       <p class="reach__or"><span data-c="reservation.ouTexte">ou envoyez une demande détaillée</span></p>
+ 
+@@ -339,7 +355,9 @@
+       <p class="eyebrow">Contact</p>
+       <ul>
+         <li><span class="footer__label">Téléphone</span><a id="telLink" href="#" data-c="contact.telephoneAffiche"></a></li>
++        <li><span class="footer__label">WhatsApp</span><a data-wa-direct href="#" target="_blank" rel="noopener">Écrire sur WhatsApp</a></li>
+         <li><span class="footer__label">E-mail</span><a id="mailLink" href="#" data-c="contact.email"></a></li>
++        <li><a class="footer__vcf js-vcf" href="/elev8-private-driver.vcf"><svg viewBox="0 0 24 24" aria-hidden="true" width="18" height="18"><g fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><circle cx="9" cy="9.5" r="2.6"/><path d="M4.5 17c.6-2.4 2.4-3.6 4.5-3.6s3.9 1.2 4.5 3.6"/><path d="M16 8h4M18 6v4"/></g></svg><span data-c="contact.boutonEnregistrer">Enregistrer ELEV8 dans mes contacts</span></a></li>
+         <li><span class="footer__label">Disponibilité</span><span data-c="contact.disponibilite"></span></li>
+       </ul>
+     </div>
+@@ -359,8 +377,8 @@
+ 
+ <noscript><p class="noscript">Ce site nécessite JavaScript pour afficher son contenu.</p></noscript>
+ 
+-<script src="config.js?v=20261016e"></script>
+-<script src="assets/js/main.js?v=20261016e"></script>
++<script src="config.js?v=20261115a"></script>
++<script src="assets/js/main.js?v=20261115a"></script>
+ <script src="assets/js/adresses.js?v=20261016g"></script>
+ </body>
+ </html>
+diff --git a/public/mentions-legales.html b/public/mentions-legales.html
+index 419f749..e21bb05 100644
+--- a/public/mentions-legales.html
++++ b/public/mentions-legales.html
+@@ -9,7 +9,7 @@
+ <meta name="theme-color" content="#0c0b09">
+ <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
+ <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;1,6..96,400&family=Jost:wght@300;400&display=swap">
+-<link rel="stylesheet" href="assets/css/style.css?v=20261016e">
++<link rel="stylesheet" href="assets/css/style.css?v=20261115a">
+ </head>
+ <body class="legal-page">
+ <header class="top">
+@@ -50,7 +50,7 @@
+ 
+   <p>Dernière mise à jour : <span data-c="legal.dateMiseAJour"></span></p>
+ </main>
+-<script src="config.js?v=20261016e"></script>
++<script src="config.js?v=20261115a"></script>
+ <script src="assets/js/legal.js?v=20261016e"></script>
+ </body>
+ </html>
+-- 
+2.43.0
+
