@@ -161,6 +161,10 @@
   $("#telLink").href = "tel:" + C.contact.telephone;
   $("#callLink").href = "tel:" + C.contact.telephone;
   $("#mailLink").href = "mailto:" + C.contact.email;
+  /* Coordonnées répétées (accueil, rubrique Contact, pied de page) : téléphone, e-mail, fiche contact */
+  $$(".js-tel").forEach(function (a) { a.href = "tel:" + C.contact.telephone; });
+  $$(".js-mail").forEach(function (a) { a.href = "mailto:" + C.contact.email; });
+  $$(".js-vcf").forEach(function (a) { a.href = (C.ficheContact && C.ficheContact.url) || "/elev8-private-driver.vcf"; });
   $("#footerZone").textContent = C.contact.zone || "";
   $("#year").textContent = new Date().getFullYear();
 
@@ -189,8 +193,11 @@
   var waNumber = String(C.contact.whatsapp).replace(/[^\d]/g, "");
   var waDirectText = (C.reservation.messageWhatsAppDirect || "Bonjour, je souhaite des renseignements pour un trajet.") +
     (ORIGINE.code ? "\n\n(Origine : " + ORIGINE.libelle + ")" : "");
+  /* Lien officiel WhatsApp Business ; pour une visite suivie (QR code, campagne), même numéro avec message
+     prérempli indiquant l'origine, car le lien officiel ne peut pas transporter de texte. */
   $$("[data-wa-direct]").forEach(function (a) {
-    a.href = "https://wa.me/" + waNumber + "?text=" + encodeURIComponent(waDirectText);
+    a.href = C.contact.whatsappLien && !ORIGINE.code ? C.contact.whatsappLien
+           : "https://wa.me/" + waNumber + "?text=" + encodeURIComponent(waDirectText);
   });
 
   /* ---------- Formulaire ---------- */
