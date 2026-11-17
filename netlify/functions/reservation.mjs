@@ -27,6 +27,15 @@
         exacts quel que soit le nombre d'instances.
      3. Champ piège, durée minimale, origine, validation, Turnstile.
 
+   Parcours (17 nov. 2026) : demande GRATUITE, sans paiement ni acompte.
+   L'estimation affichée au client est reprise grâce à son jeton signé, ou
+   recalculée ici (netlify/lib/estimation.mjs) : un montant modifié dans le
+   navigateur n'est jamais pris en compte. La demande arrive chez ELEV8 avec le
+   statut « Demande reçue — en attente de validation » : seule ELEV8 confirme
+   le tarif final et la réservation. Un même envoi répété (double clic, réseau)
+   ne produit qu'un seul e-mail (identifiant de demande conservé 24 h, sans
+   aucune donnée personnelle).
+
    Aucune donnée personnelle n'est écrite dans les journaux (logs).
    ========================================================================== */
 
@@ -34,6 +43,9 @@ const MIN_FILL_MS = 3000;          // un humain met plus de 3 s à remplir le fo
 const MAX_BODY = 12_000;           // octets
 
 import { RULES, openStore, keyFor, ipFingerprint, consume } from "../lib/ratelimit.mjs";
+import { estimer, verifier, deps as estDeps } from "../lib/estimation.mjs";
+
+const ESTIMATION_MAX_MS = 6000;    // recalcul de l'estimation : au-delà, la demande part « tarif à établir »
 
 /* Point d'accès public de la fonction + limitation Netlify en périphérie
    (6 requêtes / 3 min par visiteur ; disponible sur toutes les offres Netlify). */
@@ -43,7 +55,7 @@ export const config = {
 };
 
 /* Dépendances remplaçables pour les tests automatisés */
-export const deps = { store: null };
+export const deps = { store: null, send: null };
 function rateStore() {
   if (deps.store) return deps.store;
   try { return openStore(); } catch { return null; }
@@ -80,7 +92,11 @@ export function validate(b) {
     heure: str(b.heure, 5),
     depart: str(b.depart, 200),
     destination: str(b.destination, 200),
+    allerRetour: b.allerRetour === true,
+    dateRetour: b.allerRetour === true ? str(b.dateRetour, 10) : "",
+    heureRetour: b.allerRetour === true ? str(b.heureRetour, 5) : "",
     passagers: Number.parseInt(b.passagers, 10),
+    bagages: b.bagages === "" || b.bagages == null ? null : Number.parseInt(b.bagages, 10),
     vehicule: str(b.vehicule, 60),
     nom: str(b.nom, 80),
     prenom: str(b.prenom, 80),
@@ -111,6 +127,12 @@ export function validate(b) {
   if (d.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(d.email)) bad.push("email");
   if (!Number.isInteger(d.passagers) || d.passagers < 1 || d.passagers > 8) bad.push("passagers");
   if (d.reference && !/^[A-Z0-9 \-]{2,20}$/.test(d.reference)) bad.push("reference");
+  if (d.bagages !== null && (!Number.isInteger(d.bagages) || d.bagages < 0 || d.bagages > 20)) bad.push("bagages");
+  if (d.allerRetour) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d.dateRetour) || Number.isNaN(Date.parse(d.dateRetour)) || d.dateRetour < d.date) bad.push("dateRetour");
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(d.heureRetour)) bad.push("heureRetour");
+    else if (d.dateRetour === d.date && d.heureRetour <= d.heure) bad.push("heureRetour");
+  }
   return { data: d, bad };
 }
 
@@ -124,44 +146,101 @@ function frDate(iso) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-export function buildEmail(d, ref, brand) {
+export const euros = (n) => (Math.round(n * 100) / 100).toFixed(2).replace(".", ",").replace(",00", "") + " €";
+const MOTIFS_DEVIS = {
+  hors_zone: "trajet hors de la zone d'estimation automatique (Dijon, 15 km)",
+  mise_a_disposition: "mise à disposition",
+  lieu_inconnu: "adresse non localisée automatiquement",
+  itineraire: "itinéraire non calculable automatiquement",
+  indisponible: "service de calcul momentanément indisponible"
+};
+/* Ligne « Estimation » de l'e-mail, telle qu'établie par le serveur (jamais par le navigateur) */
+export function texteEstimation(est) {
+  if (est && est.statut === "estimation" && est.montant > 0) {
+    return `${euros(est.montant)} — ${est.vehicule}${est.allerRetour ? " · aller-retour" : ""} · ${String(est.distanceKm).replace(".", ",")} km` +
+      (est.lignes && est.lignes.length ? "\n" + est.lignes.map((l) => `${l.libelle} : ${euros(l.montant)} (${l.detail})`).join("\n") : "");
+  }
+  return `Tarif à établir par ELEV8 — ${MOTIFS_DEVIS[(est && est.motif) || "indisponible"] || MOTIFS_DEVIS.indisponible}`;
+}
+
+/* Messages prêts à envoyer au client (e-mail ou WhatsApp) pour les étapes de validation */
+export function messagesClient(d, ref, est, brand) {
+  const quand = `${frDate(d.date).toLowerCase()} à ${d.heure.replace(":", "h")}`;
+  const trajet = `de ${d.depart} à ${d.destination}${d.allerRetour ? " (aller-retour)" : ""}`;
+  const montant = est && est.statut === "estimation" && est.montant > 0 ? euros(est.montant) : "";
+  const fin = `\n\nMerci de nous répondre « J'accepte » pour valider ce tarif : nous vous confirmerons alors votre réservation.\n\n${brand}`;
+  return {
+    confirmer: montant ? `Bonjour ${d.prenom},\n\nMerci pour votre demande ${ref} du ${quand}, ${trajet}.\n\nNous avons vérifié la disponibilité de votre chauffeur : le tarif de votre trajet est confirmé à ${montant}.${fin}` : "",
+    ajuster: `Bonjour ${d.prenom},\n\nMerci pour votre demande ${ref} du ${quand}, ${trajet}.\n\nAprès vérification, le tarif de votre trajet est de [MONTANT] €${montant ? ` (estimation initiale : ${montant})` : ""}, en raison de [PRÉCISION].${fin}`,
+    sujet: `${brand} — votre demande ${ref}`
+  };
+}
+
+export function buildEmail(d, ref, brand, est = null) {
   const rows = [
     ["Référence", ref],
+    ["Statut", "Demande reçue — en attente de validation par ELEV8"],
+    ["Reçue le", new Date().toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "full", timeStyle: "short" })],
+    ["Estimation", texteEstimation(est)],
     ["Prestation", d.prestation || "À préciser"],
     ...(d.reference ? [[REF_LABELS[d.typeReference] || "N° de vol / train", d.reference]] : []),
+    ["Trajet", d.allerRetour ? "Aller-retour" : "Aller simple"],
     ["Date", frDate(d.date)],
     ["Heure", d.heure.replace(":", "h")],
     ["Départ", d.depart],
     ["Destination", d.destination],
+    ...(d.allerRetour ? [["Retour", `${frDate(d.dateRetour)} à ${d.heureRetour.replace(":", "h")}`]] : []),
     ["Passagers", String(d.passagers)],
+    ["Bagages", d.bagages === null ? "Non précisé" : String(d.bagages)],
     ["Véhicule", d.vehicule || "Pas de préférence"],
+    ["Informations complémentaires", d.precisions || "Aucune"],
     ["Client", `${d.prenom} ${d.nom}`],
     ["Téléphone", d.telephone],
     ["E-mail", d.email || "Non renseigné"],
-    ...(d.precisions ? [["Précisions", d.precisions]] : []),
     ["Origine", d.origine.libelle || d.origine.code || "Accès direct"],
     ...(Object.keys(d.origine.utm).length ? [["UTM", Object.entries(d.origine.utm).map(([k, v]) => `${k}=${v}`).join(" · ")]] : [])
   ];
-  const subject = `Demande de réservation ${ref} — ${d.date.split("-").reverse().join("/")} ${d.heure.replace(":", "h")} — ${d.prenom} ${d.nom}`;
-  const text = `Nouvelle demande de réservation reçue depuis le site ${brand}.\n\n` +
+  const msg = messagesClient(d, ref, est, brand);
+  const waClient = (t) => `https://wa.me/${d.telephone.replace(/\D/g, "")}?text=${encodeURIComponent(t)}`;
+  const mailClient = (t) => `mailto:${d.email}?subject=${encodeURIComponent(msg.sujet)}&body=${encodeURIComponent(t)}`;
+  const montantSujet = est && est.statut === "estimation" && est.montant > 0 ? euros(est.montant) : "tarif à établir";
+  const subject = `[À valider] Demande ${ref} — ${d.date.split("-").reverse().join("/")} ${d.heure.replace(":", "h")} — ${d.prenom} ${d.nom} — ${montantSujet}`;
+  const etapes = "À FAIRE : vérifier la disponibilité et les informations complémentaires, puis confirmer le tarif estimé " +
+    "ou proposer un tarif ajusté. La réservation n'est confirmée qu'après l'accord du client sur le tarif final " +
+    "et votre confirmation. Le client n'a rien payé.";
+  const text = `Nouvelle demande de réservation reçue depuis le site ${brand}.\n${etapes}\n\n` +
     rows.map(([k, v]) => `${k} : ${v}`).join("\n") +
-    `\n\nAppeler : ${d.telephone}\nWhatsApp : https://wa.me/${d.telephone.replace(/\D/g, "")}\n`;
+    `\n\nAppeler : ${d.telephone}\nWhatsApp : https://wa.me/${d.telephone.replace(/\D/g, "")}\n` +
+    (msg.confirmer ? `\n--- Message pour confirmer le tarif estimé ---\n${msg.confirmer}\n` : "") +
+    `\n--- Message pour proposer un tarif ajusté (à compléter) ---\n${msg.ajuster}\n`;
+  const lien = (href, label, plein) => `<a href="${esc(href)}" style="display:inline-block;margin:0 6px 8px 0;padding:11px 16px;${plein ? "background:#1b1814;color:#e4d6b8" : "border:1px solid #1b1814;color:#1b1814"};text-decoration:none;font-size:13px;letter-spacing:.06em">${esc(label)}</a>`;
+  const blocMessages = [
+    ...(msg.confirmer ? [lien(waClient(msg.confirmer), "Confirmer le tarif par WhatsApp", true)] : []),
+    ...(msg.confirmer && d.email ? [lien(mailClient(msg.confirmer), "Confirmer le tarif par e-mail", false)] : []),
+    lien(waClient(msg.ajuster), "Proposer un tarif ajusté (WhatsApp)", false),
+    ...(d.email ? [lien(mailClient(msg.ajuster), "Proposer un tarif ajusté (e-mail)", false)] : [])
+  ].join("");
   const html = `<!doctype html><html lang="fr"><body style="margin:0;background:#f4f1ec;font-family:Helvetica,Arial,sans-serif;color:#1b1814">
 <div style="max-width:560px;margin:0 auto;padding:28px 20px">
 <p style="margin:0 0 4px;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#8a7650">${esc(brand)}</p>
-<h1 style="margin:0 0 20px;font:400 24px Georgia,serif">Nouvelle demande de réservation</h1>
+<h1 style="margin:0 0 12px;font:400 24px Georgia,serif">Nouvelle demande de réservation</h1>
+<p style="margin:0 0 18px;padding:12px 14px;background:#fff7e6;border-left:3px solid #b8955a;font-size:13px;line-height:1.5">${esc(etapes)}</p>
 <table role="presentation" style="width:100%;border-collapse:collapse;background:#fff">
-${rows.map(([k, v]) => `<tr><td style="padding:10px 14px;border-bottom:1px solid #eee;font-size:12px;color:#7a7266;width:34%;vertical-align:top">${esc(k)}</td><td style="padding:10px 14px;border-bottom:1px solid #eee;font-size:15px;white-space:pre-wrap">${esc(v)}</td></tr>`).join("\n")}
+${rows.map(([k, v]) => { const fort = k === "Estimation" || (k === "Informations complémentaires" && d.precisions); return `<tr><td style="padding:10px 14px;border-bottom:1px solid #eee;font-size:12px;color:#7a7266;width:34%;vertical-align:top">${esc(k)}</td><td style="padding:10px 14px;border-bottom:1px solid #eee;font-size:15px;white-space:pre-wrap${fort ? ";background:#fbf6ec;font-weight:600" : ""}">${esc(v)}</td></tr>`; }).join("\n")}
 </table>
 <p style="margin:22px 0 0">
 <a href="tel:${esc(d.telephone)}" style="display:inline-block;padding:12px 18px;background:#1b1814;color:#e4d6b8;text-decoration:none;font-size:13px;letter-spacing:.1em">Appeler ${esc(d.telephone)}</a>
 <a href="https://wa.me/${esc(d.telephone.replace(/\D/g, ""))}" style="display:inline-block;padding:12px 18px;margin-left:6px;border:1px solid #1b1814;color:#1b1814;text-decoration:none;font-size:13px;letter-spacing:.1em">WhatsApp</a>
-</p></div></body></html>`;
+</p>
+<p style="margin:22px 0 8px;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#8a7650">Répondre au client (message prérempli, modifiable avant l'envoi)</p>
+<p style="margin:0">${blocMessages}</p>
+</div></body></html>`;
   return { subject, text, html };
 }
 
 /* ---------- Envoi via le prestataire e-mail ---------- */
 async function sendEmail({ subject, text, html, replyTo }) {
+  if (deps.send) return deps.send({ subject, text, html, replyTo });
   const provider = env("EMAIL_PROVIDER").toLowerCase() || "brevo";
   const key = env("EMAIL_API_KEY");
   const to = env("MAIL_TO");
@@ -256,6 +335,20 @@ export default async (req, context) => {
   if (body.website) return json(400, { ok: false, error: "spam" });
   if (!(Number(body.duree) >= MIN_FILL_MS)) return json(400, { ok: false, error: "spam" });
 
+  /* Anti-doublon : un même identifiant de demande n'envoie qu'un seul e-mail (24 h).
+     Seuls l'identifiant aléatoire et la référence sont conservés, jamais les données du client. */
+  const idem = idemKey(body.demandeId);
+  if (idem && store) {
+    try {
+      const prev = await store.get(idem, { type: "json" });
+      if (prev && prev.ref && prev.etat === "envoye") return json(200, { ok: true, ref: prev.ref, deja: true, estimation: prev.estimation || null });
+      if (prev && prev.etat === "envoi") {
+        if (Date.now() - (prev.t || 0) < 60_000) return json(409, { ok: false, error: "pending" });
+        await store.delete(idem);                                  // tentative interrompue : on peut renvoyer
+      }
+    } catch (e) { console.error("Anti-doublon indisponible :", String(e && e.message).slice(0, 60)); }
+  }
+
   try {
     const t = await verifyTurnstile(body.turnstile, ip, new URL(req.url).hostname);
     if (!t.ok) return json(400, { ok: false, error: "captcha", code: t.code });
@@ -276,12 +369,42 @@ export default async (req, context) => {
     }
   }
 
+  // Estimation : jeton signé de /estimation pour ces mêmes trajet, horaire et véhicule ; sinon recalcul serveur
+  let est = verifier(body.estimation, data);
+  if (!est) {
+    if (store && !estDeps.store) estDeps.store = store;
+    est = await Promise.race([
+      estimer(data).catch((e) => ({ statut: "sur_devis", motif: (e && e.code) || "indisponible" })),
+      new Promise((r) => setTimeout(() => r({ statut: "sur_devis", motif: "indisponible" }), ESTIMATION_MAX_MS))
+    ]);
+  }
+  const estPublic = { statut: est.statut, montant: est.statut === "estimation" ? est.montant : null, motif: est.motif || null };
+
   const ref = makeRef();
+  if (idem && store) {
+    try {
+      const r = await store.setJSON(idem, { etat: "envoi", ref, t: Date.now() }, { onlyIfNew: true });
+      if (r && r.modified === false) return json(409, { ok: false, error: "pending" });   // envoi simultané du même formulaire
+    } catch { /* stockage indisponible : envoi sans anti-doublon */ }
+  }
   try {
-    await sendEmail({ ...buildEmail(data, ref, env("MAIL_FROM_NAME") || "ELEV8 Private Driver"), replyTo: data.email || "" });
+    await sendEmail({ ...buildEmail(data, ref, env("MAIL_FROM_NAME") || "ELEV8 Private Driver", est), replyTo: data.email || "" });
   } catch (e) {
     console.error("Envoi impossible :", String(e && e.message).slice(0, 80)); // aucune donnée client
+    if (idem && store) { try { await store.delete(idem); } catch { /* ignoré */ } }
     return json(502, { ok: false, error: "send" });
   }
-  return json(200, { ok: true, ref });
+  if (idem && store) {
+    try { await store.setJSON(idem, { etat: "envoye", ref, t: Date.now(), estimation: estPublic }); } catch { /* ignoré */ }
+  }
+  return json(200, { ok: true, ref, statut: "demande_recue", estimation: estPublic });
 };
+
+/* Identifiant de demande créé par le navigateur : « <secondes>-<aléa> », valable 24 h */
+export function idemKey(id, now = Date.now()) {
+  const m = typeof id === "string" && /^(\d{10})-([a-z0-9]{12,32})$/.exec(id);
+  if (!m) return "";
+  const t = +m[1] * 1000;
+  if (Math.abs(now - t) > 24 * 3600_000) return "";
+  return `idem/${m[1]}-${m[2]}`;
+}

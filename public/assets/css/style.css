@@ -394,9 +394,42 @@ body.menu-open { overflow: hidden; }
 .more .field { padding-bottom: 1rem; animation: rise .6s var(--ease); }
 .more textarea { border-bottom: 0; }
 
+/* Aller-retour (case à cocher) */
+.field--check { margin-top: -.2rem; }
+.check { display: inline-flex; align-items: center; gap: .7rem; min-height: 2.75rem; cursor: pointer; font-size: .8rem !important; letter-spacing: .04em !important; text-transform: none !important; color: var(--champagne-clair) !important; }
+.check input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.check__box { width: 1.15rem; height: 1.15rem; border: 1px solid var(--filet-fort); display: inline-grid; place-items: center; transition: border-color .4s var(--ease), background-color .4s var(--ease); }
+.check__box::after { content: ""; width: .32rem; height: .6rem; border: solid var(--noir); border-width: 0 1.5px 1.5px 0; transform: rotate(45deg) translate(-1px, -1px); opacity: 0; }
+.check input:checked + .check__box { background: var(--champagne); border-color: var(--champagne); }
+.check input:checked + .check__box::after { opacity: 1; }
+.check input:focus-visible + .check__box { outline: 1px solid var(--champagne); outline-offset: 3px; }
+.field__help { margin: .35rem 0 0; font-size: .74rem; line-height: 1.5; color: var(--gris); }
+
+/* Estimation du tarif */
+.estimate {
+  border: 1px solid var(--filet-fort); background: var(--noir-2); padding: 1.35rem clamp(1.1rem, 4vw, 1.75rem) 1.4rem;
+  display: grid; gap: .35rem; position: relative; overflow: hidden; transition: border-color .5s var(--ease);
+}
+.estimate::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 2px; background: var(--champagne); opacity: .35; transition: opacity .5s var(--ease); }
+.estimate[data-etat="ok"] { border-color: var(--champagne); }
+.estimate[data-etat="ok"]::before { opacity: 1; }
+.estimate__label { margin: 0; font-size: .66rem; letter-spacing: .22em; text-transform: uppercase; color: var(--gris); }
+.estimate__amount { margin: .1rem 0 0; font: 400 clamp(2.2rem, 9vw, 2.9rem)/1.05 var(--f-display); color: var(--ivoire); font-variant-numeric: lining-nums; }
+.estimate[data-etat="ok"] .estimate__amount { color: var(--champagne-clair); animation: rise .6s var(--ease); }
+.estimate[data-etat="devis"] .estimate__amount { font-size: clamp(1.7rem, 7vw, 2.1rem); font-style: italic; color: var(--champagne-clair); }
+.estimate[data-etat="attente"] .estimate__amount, .estimate[data-etat="erreur"] .estimate__amount { color: var(--gris); }
+.estimate[data-etat="calcul"] .estimate__amount { color: var(--gris); animation: pulse 1.2s ease-in-out infinite; }
+.estimate__meta { margin: 0; font-size: var(--s-sm); color: var(--ivoire-doux); }
+.estimate[data-etat="erreur"] .estimate__meta { color: var(--erreur); }
+.estimate__note { margin: .55rem 0 0; padding-top: .7rem; border-top: 1px solid var(--filet); font-size: .76rem; line-height: 1.55; color: var(--gris); font-style: italic; }
+@keyframes pulse { 50% { opacity: .35; } }
+.form__estimate { margin: -1rem 0 -1.1rem; font-size: var(--s-sm); color: var(--ivoire-doux); }
+.form__estimate strong { color: var(--champagne-clair); font-weight: 400; }
+
 .hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
 .turnstile:empty { display: none; }
 .form__actions { display: grid; gap: .7rem; }
+.form__actions .btn--main { justify-content: center; }
 .form__status { margin-top: -1rem; padding: 1rem 1.15rem; border: 1px solid var(--erreur); color: var(--ivoire); font-size: var(--s-sm); }
 .form__status .st { display: block; color: var(--erreur); font-weight: 400; margin-bottom: .25rem; }
 .form__status .tel { color: var(--champagne-clair); white-space: nowrap; }
@@ -405,6 +438,7 @@ body.menu-open { overflow: hidden; }
 
 .recap { border: 1px solid var(--filet-fort); padding: clamp(1.5rem, 6vw, 2.5rem); background: var(--noir-2); animation: rise .8s var(--ease); }
 .recap:focus { outline: none; }
+.recap, .form { scroll-margin-top: 5.5rem; }
 .recap__list { margin: 0 0 2rem; display: grid; }
 .recap__list div { display: grid; grid-template-columns: 7.5rem 1fr; gap: 1rem; padding: .7rem 0; border-bottom: 1px solid var(--filet); }
 .recap__list dt { font-size: .68rem; letter-spacing: .2em; text-transform: uppercase; color: var(--gris); padding-top: .2rem; }
@@ -503,6 +537,7 @@ body.menu-open { overflow: hidden; }
   .reach { grid-template-columns: 1fr 1fr; }
   .hero__contact { display: flex; flex-wrap: wrap; gap: 0 1.6rem; max-width: 46rem; }
   .form__actions { grid-template-columns: 1fr 1fr; }
+  .form__actions .btn--main { grid-column: 1 / -1; }
   .services__list { grid-template-columns: repeat(3, 1fr); }
   .service { padding: 1.75rem 1.5rem 1.9rem; }
 }
@@ -800,3 +835,57 @@ html.has-intro.intro-skip:not(.is-bord) .route__stop { animation-delay: var(--d,
 .ac__credit { padding: .45rem .95rem; text-align: right; font-size: .6rem; letter-spacing: .14em; color: rgba(143, 136, 125, .75); }
 @keyframes acIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
 @media (hover: hover) { .ac__opt:hover { background: rgba(188, 167, 131, .07); } }
+
+/* ==========================================================================
+   Page dédiée /reservation (publicités) — reprend les styles du formulaire
+   ========================================================================== */
+.page-resa { background: var(--noir); }
+.resa-top { position: sticky; }
+.resa-top__actions { display: flex; gap: .5rem; }
+.resa-top__btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: .55rem; min-width: 2.75rem; min-height: 2.75rem;
+  padding: 0 .8rem; border: 1px solid var(--filet-fort); color: var(--champagne-clair); text-decoration: none;
+  font-size: .66rem; letter-spacing: .2em; text-transform: uppercase; transition: border-color .4s var(--ease), color .4s var(--ease);
+}
+.resa-top__btn:active { border-color: var(--champagne); }
+.resa-top__lbl { display: none; }
+.resa-intro {
+  padding: clamp(2rem, 8vw, 5rem) 0 clamp(1rem, 4vw, 2.5rem);
+  background: radial-gradient(120% 70% at 85% 0%, rgba(188, 167, 131, .13), transparent 60%);
+}
+.resa-intro__title { font: 400 clamp(2.2rem, 9.5vw, 4.1rem)/1.04 var(--f-display); letter-spacing: -.01em; margin: 0 0 1.25rem; text-wrap: balance; }
+.resa-intro__text { margin: 0; color: var(--ivoire-doux); font-size: var(--s-md); line-height: 1.6; max-width: 38rem; }
+/* Trois étapes : une ligne compacte de trois colonnes, aussi sur téléphone */
+.resa-steps { list-style: none; margin: 1.6rem 0 0; padding: 1.25rem 0 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: .75rem; border-top: 1px solid var(--filet); }
+.resa-steps li { display: flex; flex-direction: column; align-items: flex-start; gap: .55rem; min-width: 0; }
+.resa-steps li > span:last-child { display: flex; flex-direction: column; gap: .15rem; font-size: .72rem; line-height: 1.35; color: var(--gris); }
+.resa-steps strong { font-weight: 400; color: var(--ivoire); font-size: .84rem; line-height: 1.25; }
+.resa-steps__n {
+  flex: none; display: inline-grid; place-items: center; width: 1.6rem; height: 1.6rem; border-radius: 50%;
+  border: 1px solid var(--champagne); color: var(--champagne); font-size: .68rem;
+}
+.resa-booking { padding: clamp(1.5rem, 5vw, 2.5rem) 0 clamp(3rem, 9vw, 5rem); }
+.resa-help { padding: 0 0 3rem; }
+.resa-help .booking__wrap { border-top: 1px solid var(--filet); padding-top: 2.25rem; }
+.resa-help__title { margin: 0 0 1.1rem; font: italic 400 1.35rem var(--f-display); color: var(--champagne-clair); }
+.resa-help__actions { display: grid; gap: .7rem; }
+.resa-help__mail { margin: 1.1rem 0 0; }
+.resa-help__mail a { display: inline-flex; align-items: center; gap: .6rem; color: var(--ivoire-doux); text-decoration: none; padding-block: .6rem; }
+.resa-footer { border-top: 1px solid var(--filet); padding: 1.75rem 0 calc(env(safe-area-inset-bottom, 0px) + 2rem); font-size: var(--s-sm); color: var(--gris); }
+.resa-footer__in { display: flex; flex-wrap: wrap; gap: .25rem 1.5rem; align-items: center; }
+.resa-footer a { color: var(--ivoire-doux); text-decoration: none; padding-block: .6rem; }
+.resa-footer p { margin: 0; width: 100%; }
+@media (min-width: 640px) {
+  .resa-top__lbl { display: inline; }
+  .resa-steps { gap: 1.5rem; }
+  .resa-steps li { flex-direction: row; align-items: center; gap: .8rem; }
+  .resa-steps strong { font-size: var(--s-md); }
+  .resa-steps li > span:last-child { font-size: var(--s-sm); }
+  .resa-intro__text { font-size: var(--s-lg); }
+  .resa-help__actions { grid-template-columns: 1fr 1fr; }
+  .resa-footer p { width: auto; margin-left: auto; }
+}
+@media (hover: hover) {
+  .resa-top__btn:hover { border-color: var(--champagne); color: var(--ivoire); }
+  .resa-footer a:hover, .resa-help__mail a:hover { color: var(--champagne-clair); }
+}

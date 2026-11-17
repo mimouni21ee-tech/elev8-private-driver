@@ -70,3 +70,21 @@ export async function cleanup(store, nowMs = Date.now()) {
   }
   return deleted;
 }
+
+/* Supprime les identifiants anti-doublon (« idem/<secondes>-… », 24 h) et les compteurs
+   journaliers d'itinéraires Google (« quota-routes/<AAAA-MM-JJ> ») périmés.
+   Ces entrées ne contiennent aucune donnée personnelle. */
+export async function cleanupDivers(store, nowMs = Date.now()) {
+  let deleted = 0;
+  const { blobs: idem } = await store.list({ prefix: "idem/" });
+  for (const b of idem) {
+    const t = Number(b.key.slice(5, 15)) * 1000;
+    if (!Number.isFinite(t) || t + 26 * 3600_000 < nowMs) { await store.delete(b.key); deleted++; }
+  }
+  const { blobs: quotas } = await store.list({ prefix: "quota-routes/" });
+  for (const b of quotas) {
+    const t = Date.parse(b.key.slice(13));
+    if (!Number.isFinite(t) || t + 2 * 86400_000 < nowMs) { await store.delete(b.key); deleted++; }
+  }
+  return deleted;
+}

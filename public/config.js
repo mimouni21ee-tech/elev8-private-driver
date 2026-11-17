@@ -81,7 +81,7 @@ window.SITE_CONFIG = {
     zones: ["Genève", "Stations de ski", "Côte d'Azur", "Dijon & Bourgogne"],
     lienDecouvrir: "Voir véhicules & prestations",
     lienSiteComplet: "Découvrir le site complet",
-    introReservation: "Indiquez votre trajet : votre chauffeur vous confirme la disponibilité."
+    introReservation: "Indiquez votre trajet : estimation immédiate, demande gratuite. Votre chauffeur vous confirme la disponibilité et le tarif."
   },
 
   /* ---------- 2. Flotte ---------- */
@@ -157,18 +157,51 @@ window.SITE_CONFIG = {
   reservation: {
     surtitre: "Réservation",
     titre: "Demander une réservation",
-    intro: "Écrivez-nous directement, ou envoyez une demande détaillée. Votre chauffeur vous confirme la disponibilité.",
+    intro: "Obtenez une estimation immédiate, puis envoyez votre demande gratuitement : ELEV8 vérifie la disponibilité et vous confirme le tarif. Aucun paiement, aucun compte à créer.",
     waTexte: "Écrire directement, sans formulaire",
-    ouTexte: "ou envoyez une demande détaillée",
+    ouTexte: "ou estimez votre trajet et envoyez votre demande",
     // Message prérempli du contact WhatsApp direct (boutons « Contacter via WhatsApp »)
     messageWhatsAppDirect: "Bonjour ELEV8, je souhaite des renseignements pour un trajet.",
-    boutonEnvoyer: "Envoyer ma demande",
-    boutonWhatsApp: "Envoyer par WhatsApp",        // Envoie le détail du formulaire dans WhatsApp
+    boutonEnvoyer: "Demander la réservation",      // Bouton principal : demande gratuite, sans paiement
+    boutonAppeler: "Nous appeler",
+    boutonWhatsApp: "WhatsApp",                    // Envoie le détail du formulaire (et l'estimation) dans WhatsApp
+    /* Estimation affichée dans le formulaire (calculée par le serveur, jamais modifiable par le client) */
+    estimation: {
+      titre: "Estimation de votre trajet",
+      mention: "Tarif indicatif, sous réserve de validation de la disponibilité et des conditions du trajet par ELEV8 Private Driver. Aucun paiement n'est demandé à cette étape.",
+      attente: "Renseignez le départ, la destination, la date et l'heure pour obtenir une estimation immédiate.",
+      calcul: "Calcul de votre estimation…",
+      surDevis: "Sur devis",
+      horsZone: "L'estimation automatique couvre Dijon et ses environs. Envoyez votre demande gratuitement : ELEV8 vous communique le tarif de ce trajet avant toute confirmation.",
+      miseADisposition: "Mise à disposition : le tarif dépend de la durée et du programme. Envoyez votre demande gratuitement : ELEV8 vous communique le tarif avant toute confirmation.",
+      aideInfos: "Une demande particulière peut modifier le tarif : ELEV8 vous confirme le montant final avant toute réservation."
+    },
+    /* Message affiché après l'envoi (jamais « réservation confirmée » : seule ELEV8 confirme) */
+    envoi: {
+      titre: "Votre demande a bien été envoyée !",
+      texte: "Merci d'avoir choisi ELEV8 Private Driver. Nous avons bien reçu votre demande et votre estimation. Notre équipe va vérifier la disponibilité et confirmer le tarif de votre trajet. Votre réservation sera définitive uniquement après notre confirmation.",
+      note: "Aucun paiement ne vous a été demandé. Pour toute question, appelez-nous ou écrivez-nous sur WhatsApp en indiquant votre référence."
+    },
     introMessage: "Bonjour, je souhaite faire une demande de réservation :",
     // Si vous modifiez legal.dureeDemandes, adaptez aussi la durée citée ici.
-    noteConfidentialite: "Les champs sans mention « facultatif » sont nécessaires. « Envoyer ma demande » transmet vos informations par e-mail à ELEV8 Private Driver, via notre prestataire d'envoi, uniquement pour traiter votre demande ; elles sont conservées au plus 12 mois si la demande reste sans suite. Vous pouvez y accéder ou demander leur suppression : <a href=\"confidentialite.html\">politique de confidentialité</a>.",
+    noteConfidentialite: "Les champs sans mention « facultatif » sont nécessaires. « Demander la réservation » est gratuit et sans engagement : aucun paiement n'est demandé. Ce bouton transmet vos informations par e-mail à ELEV8 Private Driver, via notre prestataire d'envoi, uniquement pour traiter votre demande ; elles sont conservées au plus 12 mois si la demande reste sans suite. Vous pouvez y accéder ou demander leur suppression : <a href=\"/confidentialite.html\">politique de confidentialité</a>.",
     noteWhatsApp: "WhatsApp s'ouvre avec votre message prérempli. Il ne part qu'après avoir appuyé sur « Envoyer » dans l'application, et l'échange est alors traité par WhatsApp (groupe Meta) selon ses propres conditions.",
     indicatifParDefaut: "+33"
+  },
+
+  /* ---------- Page dédiée /reservation (liens des publicités Google Ads, Facebook Ads…) ----------
+     Même formulaire et même estimation que la rubrique Réservation de l'accueil.
+     Lien conseillé dans les publicités : https://elev8privatedriver.com/reservation?src=google-ads
+     (ou ?src=facebook, ?src=instagram) : l'origine apparaît dans l'e-mail de chaque demande. */
+  pageReservation: {
+    surtitre: "Réservation · Chauffeur privé",
+    titre: "Votre trajet,<br><em>estimé en un instant.</em>",       // <br> = retour à la ligne
+    texte: "Indiquez votre trajet : l'estimation s'affiche aussitôt. Votre demande est gratuite et sans engagement : aucun paiement, aucun acompte, aucun compte à créer. ELEV8 vérifie la disponibilité de votre chauffeur et vous confirme le tarif avant toute réservation.",
+    etape1: "Estimation immédiate", etape1Texte: "selon notre grille tarifaire",
+    etape2: "Demande gratuite", etape2Texte: "sans paiement ni acompte",
+    etape3: "Confirmation par ELEV8", etape3Texte: "disponibilité et tarif final",
+    aideTitre: "Une question avant de réserver ?",
+    retour: "Découvrir le site ELEV8"
   },
 
   /* ---------- Envoi du formulaire ----------
