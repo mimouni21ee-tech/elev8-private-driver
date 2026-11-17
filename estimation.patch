@@ -1,0 +1,2056 @@
+From 552a706a6d9bba4db258687f77d40b49047d84b7 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 17 Nov 2026 20:29:20 +0100
+Subject: [PATCH 1/2] =?UTF-8?q?R=C3=A9servation=20:=20estimation=20imm?=
+ =?UTF-8?q?=C3=A9diate,=20demande=20gratuite,=20validation=20manuelle=20pa?=
+ =?UTF-8?q?r=20ELEV8?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01RBFDraSh661tcpjtmKRyrk
+---
+ netlify/functions/estimation.mjs    |  81 +++++++++
+ netlify/functions/reservation.mjs   | 145 +++++++++++++--
+ netlify/functions/rl-cleanup.mjs    |  11 +-
+ netlify/lib/estimation.mjs          | 270 ++++++++++++++++++++++++++++
+ netlify/lib/grille/dijon-config.cjs | 237 ++++++++++++++++++++++++
+ netlify/lib/grille/dijon-tarif.cjs  | 180 +++++++++++++++++++
+ netlify/lib/ratelimit.mjs           |  18 ++
+ package.json                        |   5 +-
+ public/assets/css/style.css         |  35 ++++
+ public/assets/js/main.js            | 155 ++++++++++++++--
+ public/confidentialite.html         |   9 +-
+ public/config.js                    |  30 +++-
+ public/index.html                   |  59 ++++--
+ public/mentions-legales.html        |   4 +-
+ tests/estimation.test.mjs           | 221 +++++++++++++++++++++++
+ 15 files changed, 1399 insertions(+), 61 deletions(-)
+ create mode 100644 netlify/functions/estimation.mjs
+ create mode 100644 netlify/lib/estimation.mjs
+ create mode 100644 netlify/lib/grille/dijon-config.cjs
+ create mode 100644 netlify/lib/grille/dijon-tarif.cjs
+ create mode 100644 tests/estimation.test.mjs
+
+diff --git a/netlify/functions/estimation.mjs b/netlify/functions/estimation.mjs
+new file mode 100644
+index 0000000..67d322e
+--- /dev/null
++++ b/netlify/functions/estimation.mjs
+@@ -0,0 +1,81 @@
++/* ==========================================================================
++   ELEV8 Private Driver — estimation du tarif (formulaire de réservation)
++   --------------------------------------------------------------------------
++   Adresse : POST /estimation   (appelée par public/assets/js/main.js)
++
++   Reçoit : départ, destination, date, heure, aller-retour éventuel, véhicule,
++   passagers, prestation. Aucune donnée personnelle (ni nom, ni téléphone).
++   Renvoie : une ESTIMATION (montant indicatif), ou « sur devis » (hors zone de
++   Dijon, mise à disposition), avec un jeton signé repris lors de l'envoi.
++   Le calcul est dans netlify/lib/estimation.mjs (grille de la préproduction, inchangée).
++
++   Aucun paiement, aucun enregistrement. Variables Netlify facultatives :
++     GOOGLE_MAPS_API_KEY     itinéraire Google (API « Routes » à activer) ; sinon relais gratuit IGN
++     ROUTES_GOOGLE_MAX_JOUR  plafond journalier d'itinéraires Google (défaut 800)
++     ESTIMATION_ITINERAIRE   "gratuit" pour ne jamais utiliser Google
++     ESTIMATION_SECRET       clé de signature (sinon dérivée de EMAIL_API_KEY)
++   ========================================================================== */
++import { estimer, signer, deps as estDeps } from "../lib/estimation.mjs";
++import { openStore } from "../lib/ratelimit.mjs";
++
++export const config = {
++  path: "/estimation",
++  rateLimit: { windowLimit: 30, windowSize: 60, aggregateBy: ["ip", "domain"] }
++};
++
++const MAX_BODY = 2000;
++const env = (k) => (process.env[k] || "").trim();
++const json = (status, body) => new Response(JSON.stringify(body), {
++  status, headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", "X-Robots-Tag": "noindex" }
++});
++
++/* Limite locale par instance, en plus de la limite Netlify ci-dessus */
++const hits = new Map();
++function allow(ip, now = Date.now()) {
++  const list = (hits.get(ip) || []).filter((t) => now - t < 600_000);
++  if (list.length >= 60) { hits.set(ip, list); return false; }
++  list.push(now); hits.set(ip, list);
++  if (hits.size > 5000) hits.delete(hits.keys().next().value);
++  return true;
++}
++
++const MESSAGES = {
++  lieu: "Indiquez le départ et la destination.",
++  horaire: "Indiquez une date et une heure valides.",
++  passe: "La date et l'heure indiquées sont déjà passées.",
++  retour: "Le retour doit être prévu après l'aller.",
++  identiques: "Le départ et la destination sont identiques.",
++  lieu_inconnu: "Nous n'avons pas pu localiser l'une des adresses. Choisissez-la dans les suggestions, ou envoyez votre demande : nous vous communiquerons le tarif.",
++  itineraire: "Aucun itinéraire routier trouvé entre ces deux lieux. Envoyez votre demande : nous vous communiquerons le tarif.",
++  indisponible: "Estimation momentanément indisponible. Vous pouvez tout de même envoyer votre demande : nous vous communiquerons le tarif."
++};
++
++export default async (req, context) => {
++  if (req.method !== "POST") return json(405, { ok: false, code: "methode" });
++  const origin = req.headers.get("origin");
++  if (origin) {
++    const allowed = env("ALLOWED_ORIGINS").split(",").map((s) => s.trim()).filter(Boolean);
++    if (origin !== new URL(req.url).origin && !allowed.includes(origin)) return json(403, { ok: false, code: "origine" });
++  }
++  let b;
++  try {
++    const raw = await req.text();
++    if (raw.length > MAX_BODY) return json(413, { ok: false, code: "taille" });
++    b = JSON.parse(raw);
++  } catch { return json(400, { ok: false, code: "format" }); }
++  if (!b || typeof b !== "object") return json(400, { ok: false, code: "format" });
++
++  const ip = (context && context.ip) || req.headers.get("x-nf-client-connection-ip") || "inconnue";
++  if (!allow(ip)) return json(429, { ok: false, code: "limite", message: "Trop de calculs demandés. Patientez quelques minutes." });
++
++  if (!estDeps.store) { try { estDeps.store = openStore(); } catch { estDeps.store = null; } }
++
++  try {
++    const r = await estimer(b);
++    return json(200, { ok: true, estimation: { ...r, jeton: signer(r) } });
++  } catch (e) {
++    const code = (e && e.code) || "indisponible";
++    if (!e || !e.code) console.error("Estimation impossible :", String(e && e.message).slice(0, 80));
++    return json(code === "indisponible" ? 502 : 422, { ok: false, code, message: MESSAGES[code] || MESSAGES.indisponible });
++  }
++};
+diff --git a/netlify/functions/reservation.mjs b/netlify/functions/reservation.mjs
+index 9dbe670..6fe276f 100644
+--- a/netlify/functions/reservation.mjs
++++ b/netlify/functions/reservation.mjs
+@@ -27,6 +27,15 @@
+         exacts quel que soit le nombre d'instances.
+      3. Champ piège, durée minimale, origine, validation, Turnstile.
+ 
++   Parcours (17 nov. 2026) : demande GRATUITE, sans paiement ni acompte.
++   L'estimation affichée au client est reprise grâce à son jeton signé, ou
++   recalculée ici (netlify/lib/estimation.mjs) : un montant modifié dans le
++   navigateur n'est jamais pris en compte. La demande arrive chez ELEV8 avec le
++   statut « Demande reçue — en attente de validation » : seule ELEV8 confirme
++   le tarif final et la réservation. Un même envoi répété (double clic, réseau)
++   ne produit qu'un seul e-mail (identifiant de demande conservé 24 h, sans
++   aucune donnée personnelle).
++
+    Aucune donnée personnelle n'est écrite dans les journaux (logs).
+    ========================================================================== */
+ 
+@@ -34,6 +43,9 @@ const MIN_FILL_MS = 3000;          // un humain met plus de 3 s à remplir le fo
+ const MAX_BODY = 12_000;           // octets
+ 
+ import { RULES, openStore, keyFor, ipFingerprint, consume } from "../lib/ratelimit.mjs";
++import { estimer, verifier, deps as estDeps } from "../lib/estimation.mjs";
++
++const ESTIMATION_MAX_MS = 6000;    // recalcul de l'estimation : au-delà, la demande part « tarif à établir »
+ 
+ /* Point d'accès public de la fonction + limitation Netlify en périphérie
+    (6 requêtes / 3 min par visiteur ; disponible sur toutes les offres Netlify). */
+@@ -43,7 +55,7 @@ export const config = {
+ };
+ 
+ /* Dépendances remplaçables pour les tests automatisés */
+-export const deps = { store: null };
++export const deps = { store: null, send: null };
+ function rateStore() {
+   if (deps.store) return deps.store;
+   try { return openStore(); } catch { return null; }
+@@ -80,7 +92,11 @@ export function validate(b) {
+     heure: str(b.heure, 5),
+     depart: str(b.depart, 200),
+     destination: str(b.destination, 200),
++    allerRetour: b.allerRetour === true,
++    dateRetour: b.allerRetour === true ? str(b.dateRetour, 10) : "",
++    heureRetour: b.allerRetour === true ? str(b.heureRetour, 5) : "",
+     passagers: Number.parseInt(b.passagers, 10),
++    bagages: b.bagages === "" || b.bagages == null ? null : Number.parseInt(b.bagages, 10),
+     vehicule: str(b.vehicule, 60),
+     nom: str(b.nom, 80),
+     prenom: str(b.prenom, 80),
+@@ -111,6 +127,12 @@ export function validate(b) {
+   if (d.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(d.email)) bad.push("email");
+   if (!Number.isInteger(d.passagers) || d.passagers < 1 || d.passagers > 8) bad.push("passagers");
+   if (d.reference && !/^[A-Z0-9 \-]{2,20}$/.test(d.reference)) bad.push("reference");
++  if (d.bagages !== null && (!Number.isInteger(d.bagages) || d.bagages < 0 || d.bagages > 20)) bad.push("bagages");
++  if (d.allerRetour) {
++    if (!/^\d{4}-\d{2}-\d{2}$/.test(d.dateRetour) || Number.isNaN(Date.parse(d.dateRetour)) || d.dateRetour < d.date) bad.push("dateRetour");
++    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(d.heureRetour)) bad.push("heureRetour");
++    else if (d.dateRetour === d.date && d.heureRetour <= d.heure) bad.push("heureRetour");
++  }
+   return { data: d, bad };
+ }
+ 
+@@ -124,44 +146,101 @@ function frDate(iso) {
+   return s.charAt(0).toUpperCase() + s.slice(1);
+ }
+ 
+-export function buildEmail(d, ref, brand) {
++export const euros = (n) => (Math.round(n * 100) / 100).toFixed(2).replace(".", ",").replace(",00", "") + " €";
++const MOTIFS_DEVIS = {
++  hors_zone: "trajet hors de la zone d'estimation automatique (Dijon, 15 km)",
++  mise_a_disposition: "mise à disposition",
++  lieu_inconnu: "adresse non localisée automatiquement",
++  itineraire: "itinéraire non calculable automatiquement",
++  indisponible: "service de calcul momentanément indisponible"
++};
++/* Ligne « Estimation » de l'e-mail, telle qu'établie par le serveur (jamais par le navigateur) */
++export function texteEstimation(est) {
++  if (est && est.statut === "estimation" && est.montant > 0) {
++    return `${euros(est.montant)} — ${est.vehicule}${est.allerRetour ? " · aller-retour" : ""} · ${String(est.distanceKm).replace(".", ",")} km` +
++      (est.lignes && est.lignes.length ? "\n" + est.lignes.map((l) => `${l.libelle} : ${euros(l.montant)} (${l.detail})`).join("\n") : "");
++  }
++  return `Tarif à établir par ELEV8 — ${MOTIFS_DEVIS[(est && est.motif) || "indisponible"] || MOTIFS_DEVIS.indisponible}`;
++}
++
++/* Messages prêts à envoyer au client (e-mail ou WhatsApp) pour les étapes de validation */
++export function messagesClient(d, ref, est, brand) {
++  const quand = `${frDate(d.date).toLowerCase()} à ${d.heure.replace(":", "h")}`;
++  const trajet = `de ${d.depart} à ${d.destination}${d.allerRetour ? " (aller-retour)" : ""}`;
++  const montant = est && est.statut === "estimation" && est.montant > 0 ? euros(est.montant) : "";
++  const fin = `\n\nMerci de nous répondre « J'accepte » pour valider ce tarif : nous vous confirmerons alors votre réservation.\n\n${brand}`;
++  return {
++    confirmer: montant ? `Bonjour ${d.prenom},\n\nMerci pour votre demande ${ref} du ${quand}, ${trajet}.\n\nNous avons vérifié la disponibilité de votre chauffeur : le tarif de votre trajet est confirmé à ${montant}.${fin}` : "",
++    ajuster: `Bonjour ${d.prenom},\n\nMerci pour votre demande ${ref} du ${quand}, ${trajet}.\n\nAprès vérification, le tarif de votre trajet est de [MONTANT] €${montant ? ` (estimation initiale : ${montant})` : ""}, en raison de [PRÉCISION].${fin}`,
++    sujet: `${brand} — votre demande ${ref}`
++  };
++}
++
++export function buildEmail(d, ref, brand, est = null) {
+   const rows = [
+     ["Référence", ref],
++    ["Statut", "Demande reçue — en attente de validation par ELEV8"],
++    ["Reçue le", new Date().toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "full", timeStyle: "short" })],
++    ["Estimation", texteEstimation(est)],
+     ["Prestation", d.prestation || "À préciser"],
+     ...(d.reference ? [[REF_LABELS[d.typeReference] || "N° de vol / train", d.reference]] : []),
++    ["Trajet", d.allerRetour ? "Aller-retour" : "Aller simple"],
+     ["Date", frDate(d.date)],
+     ["Heure", d.heure.replace(":", "h")],
+     ["Départ", d.depart],
+     ["Destination", d.destination],
++    ...(d.allerRetour ? [["Retour", `${frDate(d.dateRetour)} à ${d.heureRetour.replace(":", "h")}`]] : []),
+     ["Passagers", String(d.passagers)],
++    ["Bagages", d.bagages === null ? "Non précisé" : String(d.bagages)],
+     ["Véhicule", d.vehicule || "Pas de préférence"],
++    ["Informations complémentaires", d.precisions || "Aucune"],
+     ["Client", `${d.prenom} ${d.nom}`],
+     ["Téléphone", d.telephone],
+     ["E-mail", d.email || "Non renseigné"],
+-    ...(d.precisions ? [["Précisions", d.precisions]] : []),
+     ["Origine", d.origine.libelle || d.origine.code || "Accès direct"],
+     ...(Object.keys(d.origine.utm).length ? [["UTM", Object.entries(d.origine.utm).map(([k, v]) => `${k}=${v}`).join(" · ")]] : [])
+   ];
+-  const subject = `Demande de réservation ${ref} — ${d.date.split("-").reverse().join("/")} ${d.heure.replace(":", "h")} — ${d.prenom} ${d.nom}`;
+-  const text = `Nouvelle demande de réservation reçue depuis le site ${brand}.\n\n` +
++  const msg = messagesClient(d, ref, est, brand);
++  const waClient = (t) => `https://wa.me/${d.telephone.replace(/\D/g, "")}?text=${encodeURIComponent(t)}`;
++  const mailClient = (t) => `mailto:${d.email}?subject=${encodeURIComponent(msg.sujet)}&body=${encodeURIComponent(t)}`;
++  const montantSujet = est && est.statut === "estimation" && est.montant > 0 ? euros(est.montant) : "tarif à établir";
++  const subject = `[À valider] Demande ${ref} — ${d.date.split("-").reverse().join("/")} ${d.heure.replace(":", "h")} — ${d.prenom} ${d.nom} — ${montantSujet}`;
++  const etapes = "À FAIRE : vérifier la disponibilité et les informations complémentaires, puis confirmer le tarif estimé " +
++    "ou proposer un tarif ajusté. La réservation n'est confirmée qu'après l'accord du client sur le tarif final " +
++    "et votre confirmation. Le client n'a rien payé.";
++  const text = `Nouvelle demande de réservation reçue depuis le site ${brand}.\n${etapes}\n\n` +
+     rows.map(([k, v]) => `${k} : ${v}`).join("\n") +
+-    `\n\nAppeler : ${d.telephone}\nWhatsApp : https://wa.me/${d.telephone.replace(/\D/g, "")}\n`;
++    `\n\nAppeler : ${d.telephone}\nWhatsApp : https://wa.me/${d.telephone.replace(/\D/g, "")}\n` +
++    (msg.confirmer ? `\n--- Message pour confirmer le tarif estimé ---\n${msg.confirmer}\n` : "") +
++    `\n--- Message pour proposer un tarif ajusté (à compléter) ---\n${msg.ajuster}\n`;
++  const lien = (href, label, plein) => `<a href="${esc(href)}" style="display:inline-block;margin:0 6px 8px 0;padding:11px 16px;${plein ? "background:#1b1814;color:#e4d6b8" : "border:1px solid #1b1814;color:#1b1814"};text-decoration:none;font-size:13px;letter-spacing:.06em">${esc(label)}</a>`;
++  const blocMessages = [
++    ...(msg.confirmer ? [lien(waClient(msg.confirmer), "Confirmer le tarif par WhatsApp", true)] : []),
++    ...(msg.confirmer && d.email ? [lien(mailClient(msg.confirmer), "Confirmer le tarif par e-mail", false)] : []),
++    lien(waClient(msg.ajuster), "Proposer un tarif ajusté (WhatsApp)", false),
++    ...(d.email ? [lien(mailClient(msg.ajuster), "Proposer un tarif ajusté (e-mail)", false)] : [])
++  ].join("");
+   const html = `<!doctype html><html lang="fr"><body style="margin:0;background:#f4f1ec;font-family:Helvetica,Arial,sans-serif;color:#1b1814">
+ <div style="max-width:560px;margin:0 auto;padding:28px 20px">
+ <p style="margin:0 0 4px;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#8a7650">${esc(brand)}</p>
+-<h1 style="margin:0 0 20px;font:400 24px Georgia,serif">Nouvelle demande de réservation</h1>
++<h1 style="margin:0 0 12px;font:400 24px Georgia,serif">Nouvelle demande de réservation</h1>
++<p style="margin:0 0 18px;padding:12px 14px;background:#fff7e6;border-left:3px solid #b8955a;font-size:13px;line-height:1.5">${esc(etapes)}</p>
+ <table role="presentation" style="width:100%;border-collapse:collapse;background:#fff">
+-${rows.map(([k, v]) => `<tr><td style="padding:10px 14px;border-bottom:1px solid #eee;font-size:12px;color:#7a7266;width:34%;vertical-align:top">${esc(k)}</td><td style="padding:10px 14px;border-bottom:1px solid #eee;font-size:15px;white-space:pre-wrap">${esc(v)}</td></tr>`).join("\n")}
++${rows.map(([k, v]) => { const fort = k === "Estimation" || (k === "Informations complémentaires" && d.precisions); return `<tr><td style="padding:10px 14px;border-bottom:1px solid #eee;font-size:12px;color:#7a7266;width:34%;vertical-align:top">${esc(k)}</td><td style="padding:10px 14px;border-bottom:1px solid #eee;font-size:15px;white-space:pre-wrap${fort ? ";background:#fbf6ec;font-weight:600" : ""}">${esc(v)}</td></tr>`; }).join("\n")}
+ </table>
+ <p style="margin:22px 0 0">
+ <a href="tel:${esc(d.telephone)}" style="display:inline-block;padding:12px 18px;background:#1b1814;color:#e4d6b8;text-decoration:none;font-size:13px;letter-spacing:.1em">Appeler ${esc(d.telephone)}</a>
+ <a href="https://wa.me/${esc(d.telephone.replace(/\D/g, ""))}" style="display:inline-block;padding:12px 18px;margin-left:6px;border:1px solid #1b1814;color:#1b1814;text-decoration:none;font-size:13px;letter-spacing:.1em">WhatsApp</a>
+-</p></div></body></html>`;
++</p>
++<p style="margin:22px 0 8px;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#8a7650">Répondre au client (message prérempli, modifiable avant l'envoi)</p>
++<p style="margin:0">${blocMessages}</p>
++</div></body></html>`;
+   return { subject, text, html };
+ }
+ 
+ /* ---------- Envoi via le prestataire e-mail ---------- */
+ async function sendEmail({ subject, text, html, replyTo }) {
++  if (deps.send) return deps.send({ subject, text, html, replyTo });
+   const provider = env("EMAIL_PROVIDER").toLowerCase() || "brevo";
+   const key = env("EMAIL_API_KEY");
+   const to = env("MAIL_TO");
+@@ -256,6 +335,20 @@ export default async (req, context) => {
+   if (body.website) return json(400, { ok: false, error: "spam" });
+   if (!(Number(body.duree) >= MIN_FILL_MS)) return json(400, { ok: false, error: "spam" });
+ 
++  /* Anti-doublon : un même identifiant de demande n'envoie qu'un seul e-mail (24 h).
++     Seuls l'identifiant aléatoire et la référence sont conservés, jamais les données du client. */
++  const idem = idemKey(body.demandeId);
++  if (idem && store) {
++    try {
++      const prev = await store.get(idem, { type: "json" });
++      if (prev && prev.ref && prev.etat === "envoye") return json(200, { ok: true, ref: prev.ref, deja: true, estimation: prev.estimation || null });
++      if (prev && prev.etat === "envoi") {
++        if (Date.now() - (prev.t || 0) < 60_000) return json(409, { ok: false, error: "pending" });
++        await store.delete(idem);                                  // tentative interrompue : on peut renvoyer
++      }
++    } catch (e) { console.error("Anti-doublon indisponible :", String(e && e.message).slice(0, 60)); }
++  }
++
+   try {
+     const t = await verifyTurnstile(body.turnstile, ip, new URL(req.url).hostname);
+     if (!t.ok) return json(400, { ok: false, error: "captcha", code: t.code });
+@@ -276,12 +369,42 @@ export default async (req, context) => {
+     }
+   }
+ 
++  // Estimation : jeton signé de /estimation pour ces mêmes trajet, horaire et véhicule ; sinon recalcul serveur
++  let est = verifier(body.estimation, data);
++  if (!est) {
++    if (store && !estDeps.store) estDeps.store = store;
++    est = await Promise.race([
++      estimer(data).catch((e) => ({ statut: "sur_devis", motif: (e && e.code) || "indisponible" })),
++      new Promise((r) => setTimeout(() => r({ statut: "sur_devis", motif: "indisponible" }), ESTIMATION_MAX_MS))
++    ]);
++  }
++  const estPublic = { statut: est.statut, montant: est.statut === "estimation" ? est.montant : null, motif: est.motif || null };
++
+   const ref = makeRef();
++  if (idem && store) {
++    try {
++      const r = await store.setJSON(idem, { etat: "envoi", ref, t: Date.now() }, { onlyIfNew: true });
++      if (r && r.modified === false) return json(409, { ok: false, error: "pending" });   // envoi simultané du même formulaire
++    } catch { /* stockage indisponible : envoi sans anti-doublon */ }
++  }
+   try {
+-    await sendEmail({ ...buildEmail(data, ref, env("MAIL_FROM_NAME") || "ELEV8 Private Driver"), replyTo: data.email || "" });
++    await sendEmail({ ...buildEmail(data, ref, env("MAIL_FROM_NAME") || "ELEV8 Private Driver", est), replyTo: data.email || "" });
+   } catch (e) {
+     console.error("Envoi impossible :", String(e && e.message).slice(0, 80)); // aucune donnée client
++    if (idem && store) { try { await store.delete(idem); } catch { /* ignoré */ } }
+     return json(502, { ok: false, error: "send" });
+   }
+-  return json(200, { ok: true, ref });
++  if (idem && store) {
++    try { await store.setJSON(idem, { etat: "envoye", ref, t: Date.now(), estimation: estPublic }); } catch { /* ignoré */ }
++  }
++  return json(200, { ok: true, ref, statut: "demande_recue", estimation: estPublic });
+ };
++
++/* Identifiant de demande créé par le navigateur : « <secondes>-<aléa> », valable 24 h */
++export function idemKey(id, now = Date.now()) {
++  const m = typeof id === "string" && /^(\d{10})-([a-z0-9]{12,32})$/.exec(id);
++  if (!m) return "";
++  const t = +m[1] * 1000;
++  if (Math.abs(now - t) > 24 * 3600_000) return "";
++  return `idem/${m[1]}-${m[2]}`;
++}
+diff --git a/netlify/functions/rl-cleanup.mjs b/netlify/functions/rl-cleanup.mjs
+index faf9920..e1f7d2a 100644
+--- a/netlify/functions/rl-cleanup.mjs
++++ b/netlify/functions/rl-cleanup.mjs
+@@ -1,11 +1,14 @@
+ /* Fonction planifiée : supprime chaque heure les compteurs anti-abus expirés
+-   (empreintes d'adresses IP), conformément à la politique de confidentialité. */
+-import { openStore, cleanup } from "../lib/ratelimit.mjs";
++   (empreintes d'adresses IP), conformément à la politique de confidentialité,
++   ainsi que les identifiants anti-doublon (24 h) et les compteurs d'itinéraires périmés. */
++import { openStore, cleanup, cleanupDivers } from "../lib/ratelimit.mjs";
+ 
+ export default async () => {
+   try {
+-    const n = await cleanup(openStore());
+-    console.log(`Nettoyage limitation : ${n} compteur(s) expiré(s) supprimé(s)`);
++    const store = openStore();
++    const n = await cleanup(store);
++    const m = await cleanupDivers(store);
++    console.log(`Nettoyage limitation : ${n} compteur(s) expiré(s), ${m} identifiant(s) anti-doublon ou quota périmé(s) supprimé(s)`);
+   } catch (e) {
+     console.error("Nettoyage limitation impossible :", String(e && e.message).slice(0, 80));
+   }
+diff --git a/netlify/lib/estimation.mjs b/netlify/lib/estimation.mjs
+new file mode 100644
+index 0000000..83228f5
+--- /dev/null
++++ b/netlify/lib/estimation.mjs
+@@ -0,0 +1,270 @@
++/* ==========================================================================
++   ELEV8 Private Driver — estimation tarifaire (commune à /estimation et /envoi-reservation)
++   --------------------------------------------------------------------------
++   Exécutée uniquement sur les serveurs de Netlify : le navigateur n'envoie jamais
++   une distance ni un montant qui serait pris en compte.
++
++   Grille : netlify/lib/grille/dijon-tarif.cjs et dijon-config.cjs, COPIES CONFORMES
++   des fichiers de la préproduction (aucun prix, minimum ou coefficient modifié) :
++     prix = max(minimum de la catégorie et de la période, km routiers × tarif au km),
++     tarif de jour / majoré (nuit, dimanche, jours fériés) à l'heure de Paris,
++     chaque trajet d'un aller-retour calculé séparément.
++   Périmètre : trajets (aller simple, aller-retour) dont le départ ET l'arrivée sont
++   dans la zone de référence (Dijon, 15 km). Sinon, ou pour une mise à disposition :
++   « tarif sur devis », aucun montant affiché.
++
++   Le résultat est TOUJOURS une estimation : seule ELEV8 confirme le prix final.
++
++   Itinéraire :
++     1. Google Routes API (si GOOGLE_MAPS_API_KEY existe et que l'API Routes est activée),
++        adresses envoyées telles que saisies, sans trafic en temps réel (le moins cher) ;
++        plafond journalier partagé : ROUTES_GOOGLE_MAX_JOUR (défaut 800).
++     2. Relais gratuit : géocodage IGN / Photon (OpenStreetMap) puis itinéraire IGN.
++   Aucune donnée personnelle n'est transmise : seulement les deux adresses.
++   ========================================================================== */
++import { createHmac, timingSafeEqual } from "node:crypto";
++import TARIF from "./grille/dijon-tarif.cjs";
++import CONFIG from "./grille/dijon-config.cjs";
++
++const G = CONFIG.tarifs, ZONE = G.trajets.horsCharge.zoneReference;
++const TIMEOUT_MS = 4000, CACHE_MS = 6 * 3600_000, VALIDITE_JETON_MS = 24 * 3600_000;
++
++/* Dépendances remplaçables pour les tests automatisés */
++export const deps = { fetch: (...a) => fetch(...a), now: () => Date.now(), store: null };
++
++const env = (k) => (typeof process !== "undefined" && process.env && process.env[k] ? String(process.env[k]) : "").trim();
++const clean = (v, n = 200) => (typeof v === "string" ? v.replace(/[\u0000-\u001F\u007F<>]/g, " ").replace(/\s+/g, " ").trim().slice(0, n) : "");
++const reDate = /^\d{4}-\d{2}-\d{2}$/, reHeure = /^([01]\d|2[0-3]):[0-5]\d$/;
++
++/* ---------- Catégorie tarifaire selon le véhicule choisi ----------
++   Tesla Model Y → Confort ; Mercedes-Benz Classe V → Van ;
++   « Pas de préférence » → Confort jusqu'à 4 passagers, Van au-delà. */
++export function categorie(vehicule, passagers) {
++  const v = String(vehicule || "");
++  if (/classe\s*v|viano|\bvan\b/i.test(v)) return "van";
++  if (/tesla|model\s*y/i.test(v)) return "confort";
++  return (+passagers || 1) > 4 ? "van" : "confort";
++}
++export const LIBELLE_CATEGORIE = { confort: "Tesla Model Y", van: "Mercedes-Benz Classe V" };
++
++/* ---------- Heure de Paris → instant (heures d'été et d'hiver) ---------- */
++export function instantParis(date, heure) {
++  const [y, mo, d] = date.split("-").map(Number), [h, mi] = heure.split(":").map(Number);
++  const mur = Date.UTC(y, mo - 1, d, h, mi);
++  let t = mur;
++  for (let i = 0; i < 2; i++) {
++    const p = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Paris", hourCycle: "h23",
++      year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).formatToParts(new Date(t)).map((x) => [x.type, x.value]));
++    t = mur - (Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute) - t);
++  }
++  return t;
++}
++
++function volOiseau(a, b) {
++  const R = 6371, r = Math.PI / 180, dLat = (b.lat - a.lat) * r, dLon = (b.lon - a.lon) * r;
++  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLon / 2) ** 2;
++  return 2 * R * Math.asin(Math.sqrt(h));
++}
++export const dansZone = (p) => !!p && isFinite(p.lat) && isFinite(p.lon) && volOiseau(ZONE, p) <= ZONE.rayonKm;
++
++async function getJSON(url, init = {}) {
++  const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
++  try {
++    const r = await deps.fetch(url, { ...init, signal: ctrl.signal });
++    if (!r.ok) { const e = new Error("http " + r.status); e.status = r.status; throw e; }
++    return await r.json();
++  } finally { clearTimeout(timer); }
++}
++
++/* ---------- Plafond Google journalier, partagé par toutes les instances (Netlify Blobs) ---------- */
++async function budgetGoogle() {
++  const max = Number.parseInt(env("ROUTES_GOOGLE_MAX_JOUR"), 10) || 800;
++  const store = deps.store;
++  if (!store) return true;                                     // stockage indisponible : quotas Google Cloud seuls
++  const key = "quota-routes/" + new Date(deps.now()).toISOString().slice(0, 10);
++  try {
++    for (let i = 0; i < 6; i++) {
++      const cur = await store.getWithMetadata(key, { type: "json" });
++      const n = cur && cur.data && Number.isInteger(cur.data.n) ? cur.data.n : 0;
++      if (n >= max) return false;
++      const res = cur ? await store.setJSON(key, { n: n + 1 }, { onlyIfMatch: cur.etag }) : await store.setJSON(key, { n: 1 }, { onlyIfNew: true });
++      if (res && res.modified) return true;
++    }
++    return false;
++  } catch { return true; }
++}
++
++/* ---------- Itinéraire Google (adresses en texte) ---------- */
++export async function googleRoute(a, b, key) {
++  const data = await getJSON("https://routes.googleapis.com/directions/v2:computeRoutes", {
++    method: "POST",
++    headers: { "Content-Type": "application/json", "X-Goog-Api-Key": key,
++      "X-Goog-FieldMask": "routes.distanceMeters,routes.duration,routes.legs.startLocation,routes.legs.endLocation" },
++    body: JSON.stringify({ origin: { address: a }, destination: { address: b }, travelMode: "DRIVE",
++      routingPreference: "TRAFFIC_UNAWARE", computeAlternativeRoutes: false, languageCode: "fr-FR", regionCode: "fr", units: "METRIC" })
++  });
++  const r = data && data.routes && data.routes[0];
++  if (!r || !(r.distanceMeters > 0)) { const e = new Error("aucun itinéraire"); e.noRoute = true; throw e; }
++  const leg = (r.legs && r.legs[0]) || {};
++  const ll = (o) => (o && o.latLng && isFinite(o.latLng.latitude) ? { lat: o.latLng.latitude, lon: o.latLng.longitude } : null);
++  const debut = ll(leg.startLocation), fin = ll(leg.endLocation);
++  if (!debut || !fin) { const e = new Error("lieux non localisés"); e.noRoute = true; throw e; }
++  return { distanceKm: r.distanceMeters / 1000, dureeMin: Math.max(1, Math.ceil(parseFloat(r.duration || "0") / 60)), source: "google", debut, fin };
++}
++
++/* ---------- Relais gratuit : géocodage IGN (adresses) ou Photon (lieux), puis itinéraire IGN ---------- */
++export async function ignGeocode(q) {
++  const d = await getJSON("https://data.geopf.fr/geocodage/search?" + new URLSearchParams({ q, index: "address", limit: "1" }), { headers: { Accept: "application/json" } });
++  const f = d && d.features && d.features[0];
++  if (!f || !f.geometry || (f.properties && f.properties.score != null && f.properties.score < 0.5)) return null;
++  const [lon, lat] = f.geometry.coordinates || [];
++  return isFinite(lat) && isFinite(lon) ? { lat: +lat, lon: +lon } : null;
++}
++export async function photonGeocode(q) {
++  const d = await getJSON("https://photon.komoot.io/api/?" + new URLSearchParams({ q, lang: "fr", limit: "1", lat: String(ZONE.lat), lon: String(ZONE.lon), location_bias_scale: "0.3" }),
++    { headers: { Accept: "application/json", "User-Agent": "ELEV8-Private-Driver/1.0 (estimation)" } });
++  const f = d && d.features && d.features[0];
++  const c = f && f.geometry && f.geometry.coordinates;
++  return c && isFinite(c[1]) && isFinite(c[0]) ? { lat: +c[1], lon: +c[0] } : null;
++}
++export async function geocodeLibre(q) {
++  // Saisie commençant par un numéro : adresse postale (IGN d'abord) ; sinon lieu nommé (Photon d'abord)
++  const ordre = /^\s*\d/.test(q) ? [ignGeocode, photonGeocode] : [photonGeocode, ignGeocode];
++  for (const f of ordre) { try { const p = await f(q); if (p) return p; } catch { /* service suivant */ } }
++  return null;
++}
++export async function ignRoute(a, b) {
++  const q = new URLSearchParams({ resource: "bdtopo-osrm", profile: "car", optimization: "fastest",
++    start: a.lon + "," + a.lat, end: b.lon + "," + b.lat, distanceUnit: "kilometer", timeUnit: "minute", getSteps: "false", getBbox: "false" });
++  const d = await getJSON("https://data.geopf.fr/navigation/itineraire?" + q, { headers: { Accept: "application/json" } });
++  if (!d || !(+d.distance > 0)) { const e = new Error("aucun itinéraire"); e.noRoute = true; throw e; }
++  return { distanceKm: +d.distance, dureeMin: Math.max(1, Math.ceil(+d.duration)), source: "ign" };
++}
++
++const routeCache = new Map();
++export function _reset() { routeCache.clear(); }
++async function itineraire(a, b) {
++  const ck = a.toLowerCase() + ">" + b.toLowerCase(), hit = routeCache.get(ck);
++  if (hit && deps.now() - hit.t < CACHE_MS) return hit.v;
++  const key = env("GOOGLE_MAPS_API_KEY");
++  let v = null;
++  if (key && env("ESTIMATION_ITINERAIRE").toLowerCase() !== "gratuit" && await budgetGoogle()) {
++    try { v = await googleRoute(a, b, key); } catch { v = null; }       // API non activée, quota, panne → relais gratuit
++  }
++  if (!v) {
++    const [pa, pb] = await Promise.all([geocodeLibre(a), geocodeLibre(b)]);
++    if (!pa || !pb) { const e = new Error("lieu non localisé"); e.noPlace = true; throw e; }
++    // Hors zone : inutile de calculer l'itinéraire, le tarif sera « sur devis »
++    if (!dansZone(pa) || !dansZone(pb)) v = { distanceKm: 0, dureeMin: 0, source: "libre", debut: pa, fin: pb, horsZone: true };
++    else v = { ...(await ignRoute(pa, pb)), debut: pa, fin: pb };
++  }
++  routeCache.set(ck, { t: deps.now(), v });
++  if (routeCache.size > 500) routeCache.delete(routeCache.keys().next().value);
++  return v;
++}
++
++/* ---------- Données d'entrée (même format pour l'estimation et pour la demande) ---------- */
++export function entree(b) {
++  b = b || {};
++  return {
++    prestation: clean(b.prestation, 80),
++    depart: clean(b.depart, 200),
++    destination: clean(b.destination, 200),
++    date: clean(b.date, 10),
++    heure: clean(b.heure, 5),
++    allerRetour: b.allerRetour === true,
++    dateRetour: b.allerRetour === true ? clean(b.dateRetour, 10) : "",
++    heureRetour: b.allerRetour === true ? clean(b.heureRetour, 5) : "",
++    vehicule: clean(b.vehicule, 60),
++    passagers: Number.parseInt(b.passagers, 10) || 1
++  };
++}
++/* Empreinte des éléments qui déterminent le prix */
++const empreinte = (e) => JSON.stringify([e.prestation, e.depart.toLowerCase(), e.destination.toLowerCase(), e.date, e.heure,
++  e.allerRetour, e.dateRetour, e.heureRetour, categorie(e.vehicule, e.passagers)]);
++
++/* ---------- Calcul ----------
++   Renvoie { statut: "estimation" | "sur_devis", motif, montant, categorie, ... }
++   ou lève une erreur { code } si les informations sont incomplètes ou si le calcul est impossible. */
++export async function estimer(b) {
++  const e = entree(b);
++  const err = (code) => { const x = new Error(code); x.code = code; return x; };
++  if (e.depart.length < 3 || e.destination.length < 3) throw err("lieu");
++  if (!reDate.test(e.date) || !reHeure.test(e.heure)) throw err("horaire");
++  const t0 = instantParis(e.date, e.heure), now = deps.now();
++  if (t0 < now - 3600_000) throw err("passe");
++  if (t0 > now + 366 * 86400_000) throw err("horaire");
++  if (e.allerRetour) {
++    if (!reDate.test(e.dateRetour) || !reHeure.test(e.heureRetour)) throw err("retour");
++    if (instantParis(e.dateRetour, e.heureRetour) <= t0) throw err("retour");
++  }
++  const cat = categorie(e.vehicule, e.passagers);
++  const base = { categorie: cat, vehicule: LIBELLE_CATEGORIE[cat], allerRetour: e.allerRetour, empreinte: empreinte(e) };
++
++  if (/mise\s+à\s+disposition/i.test(e.prestation)) return { ...base, statut: "sur_devis", motif: "mise_a_disposition" };
++  if (e.depart.toLowerCase() === e.destination.toLowerCase()) throw err("identiques");
++
++  let aller;
++  try { aller = await itineraire(e.depart, e.destination); }
++  catch (x) { throw err(x && x.noPlace ? "lieu_inconnu" : x && x.noRoute ? "itineraire" : "indisponible"); }
++  if (aller.horsZone || !dansZone(aller.debut) || !dansZone(aller.fin)) return { ...base, statut: "sur_devis", motif: "hors_zone" };
++
++  const trajets = [{ distanceKm: aller.distanceKm, dureeMin: aller.dureeMin, depart: e.date + "T" + e.heure }];
++  const sources = [aller.source];
++  if (e.allerRetour) {
++    if (instantParis(e.dateRetour, e.heureRetour) < t0 + aller.dureeMin * 60_000) throw err("retour");
++    let retour;
++    try { retour = await itineraire(e.destination, e.depart); }
++    catch (x) { throw err(x && x.noRoute ? "itineraire" : "indisponible"); }
++    trajets.push({ distanceKm: retour.distanceKm, dureeMin: retour.dureeMin, depart: e.dateRetour + "T" + e.heureRetour });
++    sources.push(retour.source);
++  }
++  const q = TARIF.calculer({ type: e.allerRetour ? "ar" : "simple", trajets }, G);
++  if (q.partiel) return { ...base, statut: "sur_devis", motif: "hors_zone" };
++  const c = q.categories[cat];
++  return {
++    ...base,
++    statut: "estimation",
++    montant: c.total,
++    distanceKm: Math.round(q.distanceKm * 10) / 10,
++    dureeMin: q.dureeMin,
++    lignes: c.lignes.map((l) => ({ libelle: l.libelle, montant: l.montant, detail: l.detail || "" })),
++    source: [...new Set(sources)].join("+")
++  };
++}
++
++/* ---------- Jeton signé : permet à /envoi-reservation de reprendre l'estimation sans la recalculer ----------
++   Clé : ESTIMATION_SECRET si elle existe (32 caractères minimum), sinon dérivée de EMAIL_API_KEY
++   (déjà présente dans Netlify) : aucune nouvelle variable n'est nécessaire. */
++function cle() {
++  const s = env("ESTIMATION_SECRET");
++  if (s.length >= 32) return s;
++  const k = env("EMAIL_API_KEY");
++  return k ? createHmac("sha256", k).update("elev8-estimation-v1").digest("hex") : "";
++}
++const corpsJeton = (r, exp) => JSON.stringify([r.empreinte, r.statut, r.motif || "", r.montant ?? null, r.distanceKm ?? null,
++  r.dureeMin ?? null, r.categorie, r.source || "", (r.lignes || []).map((l) => [l.libelle, l.montant, l.detail]), exp]);
++export function signer(r) {
++  const k = cle(); if (!k) return null;
++  const exp = deps.now() + VALIDITE_JETON_MS;
++  return { exp, sig: createHmac("sha256", k).update(corpsJeton(r, exp)).digest("base64url") };
++}
++/* Vérifie un résultat renvoyé par le navigateur : signature valide, non expiré, et calculé
++   pour EXACTEMENT les mêmes adresses, horaires et véhicule que la demande envoyée. */
++export function verifier(r, demande) {
++  try {
++    if (!r || typeof r !== "object" || !r.jeton || typeof r.jeton.sig !== "string") return null;
++    const k = cle(); if (!k) return null;
++    const exp = +r.jeton.exp;
++    if (!(exp > deps.now()) || exp > deps.now() + VALIDITE_JETON_MS + 60_000) return null;
++    if (r.empreinte !== empreinte(entree(demande))) return null;
++    const a = Buffer.from(r.jeton.sig), b = Buffer.from(createHmac("sha256", k).update(corpsJeton(r, exp)).digest("base64url"));
++    if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
++    const lignes = Array.isArray(r.lignes) ? r.lignes.slice(0, 4).map((l) => ({ libelle: clean(l.libelle, 60), montant: +l.montant, detail: clean(l.detail, 160) })) : [];
++    return { statut: r.statut, motif: r.motif || null, montant: r.montant == null ? null : +r.montant, distanceKm: r.distanceKm ?? null,
++      dureeMin: r.dureeMin ?? null, categorie: r.categorie, vehicule: LIBELLE_CATEGORIE[r.categorie], allerRetour: !!r.allerRetour,
++      lignes, source: clean(r.source, 20), empreinte: r.empreinte };
++  } catch { return null; }
++}
++
++export const ZONE_ESTIMATION = { nom: ZONE.nom, rayonKm: ZONE.rayonKm };
+diff --git a/netlify/lib/grille/dijon-config.cjs b/netlify/lib/grille/dijon-config.cjs
+new file mode 100644
+index 0000000..a2c7739
+--- /dev/null
++++ b/netlify/lib/grille/dijon-config.cjs
+@@ -0,0 +1,237 @@
++/* ==========================================================================
++   ELEV8 Private Driver — réservation Dijon : réglages (prototype v4)
++   --------------------------------------------------------------------------
++   PROTOTYPE. Chaque valeur porte l'une de ces mentions :
++     [VALIDÉ]   décidé par ELEV8 (12 nov. 2026)
++     [DÉMO]     valeur de démonstration, À VALIDER avant toute mise en service
++   Tant que tarifs.statut n'est pas "valide", la page affiche « démonstration »
++   à côté de chaque prix.
++
++   En mode « serveur », la grille est appliquée par la fonction « devis-dijon » (avec
++   assets/js/dijon-tarif.js et CE fichier, lus côté serveur) : le navigateur affiche
++   le prix renvoyé et ne décide jamais du montant. Aucune clé ni secret ici.
++   ========================================================================== */
++var DIJON_CONFIG = {
++
++  mode: "serveur",             // simulation (aperçu) | serveur (préproduction : fonctions Netlify)
++  endpointDevis: "/devis-dijon",
++  endpointLieux: "/lieux-dijon",
++
++  /* Sécurités du prototype */
++  paiementReel: false,          // Stripe : aucun paiement débité
++  transmissionHubert: false,    // HUBERT : aucune course publiée
++
++  reservation: {
++    delaiMinimumHeures: 2,      // [DÉMO] départ au plus tôt dans 2 h
++    validiteDevisMinutes: 15    // [DÉMO] durée de garantie du prix affiché
++  },
++
++  tarifs: {
++    statut: "provisoire",          // grille des trajets VALIDÉE (12 nov. 2026, soir) ; forfait km de mise à disposition et acompte encore à confirmer
++    devise: "EUR",
++
++    /* ---------- Trajets classiques (aller simple, aller-retour) — GRILLE OFFICIELLE ELEV8 (validée le 12 nov. 2026, soir) ----------
++       prix_course = max(minimum de la catégorie ET de la période, distance_routiere_km × tarif_km_applicable)
++       Le minimum inclut les premiers kilomètres : il ne s'additionne jamais au prix kilométrique.
++       Tarif de jour : lundi → samedi, 7 h 00 → 18 h 59, hors jours fériés.
++       Tarif majoré : 19 h 00 → 6 h 59 chaque nuit, dimanche 0 h → 24 h, jours fériés 0 h → 24 h.
++       Heure locale de prise en charge, fuseau Europe/Paris. Aucune autre majoration (pas de +20 %). */
++    trajets: {
++      minimum: {                                              // [VALIDÉ] par course (chaque trajet d'un aller-retour), selon la période
++        confort: { jour: 10, majore: 15 },
++        van:     { jour: 20, majore: 25 }
++      },
++      tarifKm: {                                              // [VALIDÉ] € par km de distance routière avec le client
++        confort: { jour: 1.75, majore: 2.75 },
++        van:     { jour: 2.25, majore: 3.25 }
++      },
++      jour: { debut: "07:00", fin: "19:00" },                // [VALIDÉ] tarif de jour de 7 h 00 inclus à 19 h 00 exclu
++      majoreDimanche: true,                                  // [VALIDÉ]
++      majoreJoursFeries: true,                               // [VALIDÉ] jours fériés français calculés chaque année
++      feriesAlsaceMoselle: false,                            // Vendredi saint et 26 décembre : non applicables à Dijon
++      fuseau: "Europe/Paris",
++      arrondiDistanceKm: 0.1,                                // [À VALIDER] précision de la distance facturée
++      /* Kilomètres hors charge (approche, retour à vide) — DONNÉES INTERNES UNIQUEMENT.
++         Stratégie ELEV8 : aucun supplément automatique ; ces kilomètres ne sont jamais facturés.
++         Ils sont mesurés pour les simulations de rentabilité et transmis à HUBERT pour l'enchaînement des missions. */
++      horsCharge: {
++        coefficient_approche: null,                          // non utilisé pour la facturation (pas de supplément automatique)
++        coefficient_retour: null,                            // non utilisé pour la facturation
++        zoneReference: { nom: "Dijon", lat: 47.3220, lon: 5.0415, rayonKm: 15 }   // [À VALIDER] rayon de travail du prototype
++      },
++      /* Longues distances (départ ou arrivée hors de la zone de référence) : réservation sur devis,
++         sans paiement en ligne, tant que leurs règles commerciales et leur rentabilité ne sont pas validées. */
++      longueDistance: { reservableEnLigne: false }
++    },
++    /* Anciens paramètres retirés (historique, non appliqués) : prise en charge 12 €, 0,30 €/min,
++       paliers 1,90 / 1,60 / 1,40 €/km, minimum 35 €, majoration de nuit +20 %, Van = Confort +30 %,
++       tarifs de jour du 12 nov. 2026 (matin) : 2,42 €/km Confort et 3,00 €/km Van ;
++       grille remplacée le 12 nov. 2026 (soir) : minimum unique 25 € / 40 €, 2,28 / 3,42 €/km Confort,
++       2,86 / 4,20 €/km Van. */
++
++    /* ---------- Mise à disposition avec chauffeur ---------- */
++    miseADisposition: {
++      tarifHoraire: { confort: 50, van: 75 },     // [VALIDÉ] € par heure
++      prixKmSupplementaire: 2.50,                 // [VALIDÉ] € par km au-delà du forfait inclus (les deux catégories)
++      kmInclusParHeure: 20,                       // [PROVISOIRE] km compris dans le forfait, par heure réservée — à confirmer
++      majorationNuit: null,                       // [VALIDÉ] aucune majoration de nuit en mise à disposition avant validation
++      dureeMinimumHeures: 2,                      // [VALIDÉ, envisagé] minimum de réservation
++      durees: [2, 3, 4, 6, 8],                    // [VALIDÉ] durées proposées (+ durée personnalisée)
++      dureeMaximumHeures: 12,                     // [DÉMO] limite de la durée personnalisée
++      pasDureeHeures: 0.5,                        // [DÉMO] durée personnalisée par demi-heure
++      depassement: {
++        heureSupplementaire: "tarifHoraire",      // [DÉMO] tarif horaire de la catégorie…
++        trancheMinutes: 30,                       // [DÉMO] …facturé par tranche de 30 min entamée
++        peagesStationnement: "Péages et stationnement en sus, sur justificatif"   // [DÉMO] à valider
++      }
++    },
++
++    /* ---------- Acompte (commun) ---------- */
++    acompte: { taux: 0.25, minimum: 10 },          // [ÉTUDE] 25 % au centime près, 10 € minimum, plafonné au prix total
++    frais: []                                      // aucun frais ajouté au prix
++  },
++
++  /* Conditions affichées au récapitulatif — reprises du PROJET DE CGV du 12 nov. 2026 (page /dijon/cgv/).
++     Projet à valider juridiquement : rien n'est appliqué automatiquement. */
++  conditions: {
++    annulation: "Projet de CGV (art. 6) : annulation gratuite plus de 3 h avant la prise en charge, avec remboursement de toutes les sommes versées. À 3 h ou moins : frais de 25 % du prix total confirmé, 10 € minimum, jamais plus que le prix total ; le trop-versé est remboursé.",
++    confirmation: "Projet de CGV (art. 2) : votre réservation n'est confirmée qu'une fois le prix définitif accepté, un chauffeur disponible identifié, le premier paiement éventuel effectué, et après confirmation écrite d'ELEV8.",
++    fraisTrajet: "Projet de CGV (art. 3) : aucun frais supplémentaire sans annonce claire préalable. Toute modification substantielle peut donner lieu à un nouveau devis.",
++    attente: "Projet de CGV (art. 8) : attente gratuite de 5 min à une adresse, un hôtel ou une entreprise, 20 min en gare, 60 min à l'aéroport après l'atterrissage. Au-delà, 0,50 € TTC par minute, au maximum 20 min (10 €) à une adresse, 30 min (15 €) en gare ou à l'aéroport. Attente totale maximum : 25 min, 50 min ou 90 min ; le chauffeur peut ensuite partir.",
++    nonPresentation: "Projet de CGV (art. 8.5 et 8.6) : en cas de non-présentation après l'attente maximum, frais de 25 % du prix total confirmé, 10 € minimum, jamais plus que le prix total ; le reste est remboursé. Ces frais, comme ceux d'une annulation tardive, reviennent intégralement au chauffeur, sans commission ELEV8. Ils ne s'ajoutent ni aux frais d'attente ni aux frais d'annulation."
++  },
++
++  /* Conditions générales de vente : PROJET, non publié commercialement */
++  cgv: { version: "projet-2026-11-12-art8-revise", libelle: "projet du 12 novembre 2026, article 8 révisé", url: "/dijon/cgv/", statut: "projet" },
++
++  /* Échéancier de paiement (projet de CGV, art. 5) — AUCUN paiement, SMS ni lien Stripe n'est actif.
++     Calculé par assets/js/dijon-paiement.js pour l'affichage et les tests uniquement. */
++  paiements: {
++    actif: false,                                   // Stripe : désactivé
++    statut: "projet",
++    fuseau: "Europe/Paris",
++    premierPaiement: { taux: 0.25, minimum: 10 },   // étape 2 : payé AVANT la recherche du chauffeur
++    reglementIntegralSiMoinsDeHeures: 24,           // réservation à moins de 24 h : règlement intégral dès la réservation
++    rappelSolde: { actif: false, heuresAvant: 24, canal: "sms", moyen: "lien de paiement Stripe" },   // envoi réel non activé
++    /* Étape 2 (simulation) — décisions du 12 nov. 2026 */
++    lienPaiementMinutes: { reservation: 60, devis: 1440 },  // validité du lien du paiement initial (borné par le délai minimal ci-dessous)
++    delaiMinimumPaiementMinutes: 105,               // paiement en ligne seulement si le départ est dans 1 h 45 au moins (2 h, tolérance de saisie 15 min)
++    solde: { lienHeuresAvant: 24, relanceHeuresAvant: 8, echeanceHeuresAvant: 3, annulationAutomatique: false }
++  },
++
++  /* Garanties bancaires hybrides (étape 3, décisions du 12 nov. 2026, 23 h 13) — SIMULATION ou STRIPE MODE TEST uniquement.
++     < 24 h : autorisation du prix total · 24 h à 6 jours : empreinte 25 % (min. 10 €, plafonnée)
++     > 6 jours : carte enregistrée chez Stripe (consentement explicite), AUCUN fonds garanti.
++     J-1 : lien d'autorisation du total · H-3 : vérification · prise en charge effective : capture du total. */
++  garanties: {
++    totalSiMoinsDeHeures: 24,
++    empreinteJusquaJours: 6,
++    empreinte: { taux: 0.25, minimum: 10 },
++    validiteAutorisationJours: 7,                   // simulation ; en mode test Stripe, la date réelle (capture_before) fait foi
++    lienGarantieMinutes: { reservation: 60, devis: 1440 },
++    totalDemandeHeuresAvant: 24, relanceHeuresAvant: 8, verificationHeuresAvant: 3,
++    margeValiditeApresDepartMinutes: 120,           // une autorisation doit rester valable jusqu'au départ + 2 h (attente, non-présentation)
++    priseEnChargePossibleAvantMinutes: 60,          // confirmation de prise en charge au plus tôt 1 h avant l'heure prévue
++    autorisationHorsSessionAutomatique: false,      // à H-3 : aucune tentative automatique sur la carte enregistrée (décision du standard)
++    consentementCarte: { version: "carte-2026-11-13", texte: "J'autorise ELEV8 à enregistrer ma carte auprès de son prestataire de paiement Stripe et à l'utiliser, sans nouvelle intervention de ma part, uniquement pour autoriser et débiter le prix de cette course et, le cas échéant, les frais d'annulation tardive ou de non-présentation prévus aux CGV. Ma carte est supprimée à la clôture du dossier." }
++  },
++
++  /* Attribution du chauffeur après la garantie bancaire (décision du 13 nov. 2026, 1 h 16, option B)
++     Heure de Paris à l'obtention de la garantie :
++       8 h – 20 h : + 4 h ; échéance après 22 h → 12 h le lendemain
++       20 h – 8 h : 12 h (le jour même avant 8 h, sinon le lendemain)
++     Toujours au plus tard départ − 45 min. Rappel prioritaire au standard à 8 h pour les demandes de la nuit. */
++  attribution: {
++    jourDebut: "08:00",
++    jourFin: "20:00",
++    delaiJourMinutes: 240,
++    plafondSoir: "22:00",
++    limiteNuit: "12:00",
++    rappelNuit: "08:00",
++    margeAvantDepartMinutes: 45,
++    alerteAvantMinutes: 30,                         // alerte au standard ; à mi-délai si le délai total est inférieur à 1 h
++    delaiMinimalMinutes: 15                         // en dessous : pas de recherche possible → indisponible et remboursement intégral
++  },
++
++  contact: { telephone: null, message: "Pour une prise en charge urgente (départ dans moins de 2 h), contactez directement ELEV8." },
++
++  /* Annulation par le client (projet de CGV, art. 6) — calcul prévu, NON appliqué (aucun remboursement automatique) */
++  annulation: {
++    actif: false,
++    statut: "projet",
++    gratuiteAuDelaHeures: 3,                        // plus de 3 h avant : gratuite
++    frais: { taux: 0.25, minimum: 10 },             // 3 h ou moins : 25 % du prix total, 10 € minimum, plafonné au total
++    attribution: { chauffeur: 1, commissionElev8: 0 }   // art. 8.6 : frais retenus intégralement au chauffeur, sans commission
++  },
++
++  /* Attente (projet de CGV, art. 8 révisé) — calcul prévu, NON appliqué (aucun prélèvement automatique).
++     Aéroport : décompté à partir de l'atterrissage effectif ; adresse et gare : à partir de l'heure convenue. */
++  attente: {
++    actif: false,
++    statut: "projet",
++    prixMinute: 0.50,                                                     // € TTC par minute au-delà de la franchise
++    lieux: {
++      adresse:  { libelle: "Adresse, domicile, hôtel ou entreprise", gratuitMinutes: 5,  supplementMaxMinutes: 20, depuis: "heure de prise en charge convenue" },
++      gare:     { libelle: "Gare",                                    gratuitMinutes: 20, supplementMaxMinutes: 30, depuis: "heure de prise en charge convenue" },
++      aeroport: { libelle: "Aéroport",                                gratuitMinutes: 60, supplementMaxMinutes: 30, depuis: "atterrissage effectif du vol" }
++    }
++  },
++
++  /* Non-présentation du client (projet de CGV, art. 8.5 et 8.6) — calcul prévu, NON appliqué */
++  nonPresentation: {
++    actif: false,
++    statut: "projet",
++    frais: { taux: 0.25, minimum: 10 },             // 25 % du prix total confirmé, 10 € minimum, plafonné au total
++    attribution: { chauffeur: 1, commissionElev8: 0 },
++    cumulAvecAttente: false,                        // jamais ajoutés aux frais d'attente
++    cumulAvecAnnulation: false                      // jamais ajoutés aux frais d'annulation
++  },
++
++  /* Historique (non appliqué) : prototype v1 du 11 nov. 2026 — prise en charge 12 €, minimum 35 € par trajet,
++     acompte 30 % (minimum 20 €). Conservé pour mémoire uniquement. */
++
++  vehicules: {
++    confort: {
++      nom: "Confort",
++      categorie: "Berline ou SUV premium",
++      modele: "Berline ou SUV premium",
++      equivalent: "catégorie équivalente selon disponibilité",
++      passagersMax: 4, bagagesMax: 3,
++      image: "/assets/img/tesla-model-y.jpg?v=3",
++      texte: "Un véhicule premium récent, confortable et discret, pour vos trajets en ville comme sur la route."
++    },
++    van: {
++      nom: "Van Premium",
++      categorie: "Van haut de gamme",
++      modele: "Mercedes Classe V",
++      equivalent: "ou autre van haut de gamme équivalent",
++      passagersMax: 7, bagagesMax: 7,
++      image: "/assets/img/mercedes-classe-v.jpg?v=2",
++      texte: "Davantage d'espace et de confort, pour voyager à l'aise, seul ou à plusieurs."
++    }
++  },
++  noteVehicules: "Photos d'illustration. Le véhicule exact dépend du chauffeur attribué ; la catégorie réservée est garantie.",
++
++  /* Attentions offertes à bord, selon équipements et disponibilités — transmises au chauffeur */
++  attentions: [
++    { id: "eau_plate", libelle: "Eau plate" },
++    { id: "eau_gazeuse", libelle: "Eau gazeuse" },
++    { id: "douceurs", libelle: "Petites douceurs" },
++    { id: "chargeur", libelle: "Chargeur de téléphone" },
++    { id: "calme", libelle: "Trajet calme" },
++    { id: "musique", libelle: "Musique douce" },
++    { id: "demande", libelle: "Demande particulière", precision: true }
++  ],
++
++  /* Données préparées pour HUBERT (format provisoire, à aligner sur le rapport technique) */
++  /* Identité d'apporteur transmise à HUBERT (même raison sociale que les CGV) — aucune connexion dans cette version */
++  hubert: {
++    id: "ELEV8",
++    apporteur: "SASU ELEV8 Private Driver",
++    source: "ELEV8",
++    connecte: false
++  }
++};
++/* Même fichier lu par le navigateur (window.DIJON_CONFIG) et par la fonction serveur « devis-dijon ». */
++if (typeof window !== "undefined") window.DIJON_CONFIG = DIJON_CONFIG;
++if (typeof module !== "undefined" && module.exports) module.exports = DIJON_CONFIG;
+diff --git a/netlify/lib/grille/dijon-tarif.cjs b/netlify/lib/grille/dijon-tarif.cjs
+new file mode 100644
+index 0000000..0ffb80e
+--- /dev/null
++++ b/netlify/lib/grille/dijon-tarif.cjs
+@@ -0,0 +1,180 @@
++/* ==========================================================================
++   ELEV8 Private Driver — moteur de devis Dijon (v8 · grille officielle du 12 nov. 2026)
++   --------------------------------------------------------------------------
++   Fonction pure, sans dépendance : le même fichier sert côté serveur
++   (fonction « devis-dijon », seule à faire foi avant tout paiement) et, dans
++   le prototype, dans le navigateur pour simuler la réponse du serveur.
++
++   TRAJETS CLASSIQUES (chaque trajet d'un aller-retour est calculé séparément)
++     prix = max(minimum de la catégorie et de la période, distance_routière_km × tarif_km_applicable)
++     - tarif de jour : lundi → samedi, 7 h 00 → 18 h 59, hors jours fériés ;
++     - tarif majoré : 19 h 00 → 6 h 59, dimanche toute la journée, jours fériés
++       français toute la journée (calculés pour chaque année, Pâques compris) ;
++     - heure locale de prise en charge, fuseau Europe/Paris (heures d'été/hiver) ;
++     - aucune autre majoration ; le minimum inclut les premiers kilomètres.
++     Kilomètres hors charge (approche, retour à vide) : mesurés et transmis pour les
++     simulations internes, JAMAIS facturés en supplément (pas de double facturation).
++     Course hors de la zone de référence = « longue distance » : sur devis, sans
++     paiement en ligne tant que ses règles ne sont pas validées.
++
++   MISE À DISPOSITION
++     prix = heures × tarif_horaire + max(0, km_estimés − km_inclus) × prix_km_sup
++     (grille des trajets et majorations jamais appliquées)
++
++   Montants au centime (arrondi commercial) ; acompte au centime.
++   ========================================================================== */
++(function (root) {
++  "use strict";
++
++  var r2 = function (n) { return Math.round((n + 1e-9) * 100) / 100; };
++  var pad = function (n) { return (n < 10 ? "0" : "") + n; };
++  function minutes(hhmm) { var p = String(hhmm).split(":"); return (+p[0]) * 60 + (+p[1] || 0); }
++
++  /* ---------- Jours fériés français (calculés, jamais une liste figée) ---------- */
++  function paques(an) {                         // algorithme de Meeus / Jones / Butcher (calendrier grégorien)
++    var a = an % 19, b = Math.floor(an / 100), c = an % 100, d = Math.floor(b / 4), e = b % 4;
++    var f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
++    var i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
++    var mois = Math.floor((h + l - 7 * m + 114) / 31), jour = ((h + l - 7 * m + 114) % 31) + 1;
++    return new Date(Date.UTC(an, mois - 1, jour));
++  }
++  var cacheFeries = {};
++  function joursFeries(an, alsaceMoselle) {
++    var cle = an + (alsaceMoselle ? "am" : "");
++    if (cacheFeries[cle]) return cacheFeries[cle];
++    var f = {}, add = function (d, nom) { f[pad(d.getUTCMonth() + 1) + "-" + pad(d.getUTCDate())] = nom; };
++    var fixe = function (m, j, nom) { add(new Date(Date.UTC(an, m - 1, j)), nom); };
++    var p = paques(an), plus = function (n) { return new Date(p.getTime() + n * 864e5); };
++    fixe(1, 1, "Jour de l'an"); fixe(5, 1, "Fête du Travail"); fixe(5, 8, "Victoire 1945"); fixe(7, 14, "Fête nationale");
++    fixe(8, 15, "Assomption"); fixe(11, 1, "Toussaint"); fixe(11, 11, "Armistice 1918"); fixe(12, 25, "Noël");
++    add(plus(1), "Lundi de Pâques"); add(plus(39), "Ascension"); add(plus(50), "Lundi de Pentecôte");
++    if (alsaceMoselle) { add(plus(-2), "Vendredi saint"); fixe(12, 26, "Saint-Étienne"); }
++    return (cacheFeries[cle] = f);
++  }
++
++  /* ---------- Heure locale de prise en charge (Europe/Paris) ----------
++     « AAAA-MM-JJTHH:MM » sans fuseau = heure locale saisie par le client (déjà l'heure de Paris).
++     Un instant avec fuseau (ex. « …Z » ou Date) est converti en heure de Paris, été comme hiver. */
++  function heureLocale(depart, fuseau) {
++    var s = typeof depart === "string" ? depart : "";
++    var m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(s);
++    if (m) return { an: +m[1], mois: +m[2], jour: +m[3], h: +m[4], min: +m[5] };
++    var d = depart instanceof Date ? depart : new Date(depart);
++    var parts = {};
++    new Intl.DateTimeFormat("en-GB", { timeZone: fuseau || "Europe/Paris", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
++      .formatToParts(d).forEach(function (p) { parts[p.type] = p.value; });
++    return { an: +parts.year, mois: +parts.month, jour: +parts.day, h: +parts.hour % 24, min: +parts.minute };
++  }
++
++  /* Tarif applicable : { majore, motif: "jour" | "nuit" | "dimanche" | "ferie", ferie } */
++  function periodeTarifaire(depart, T) {
++    var L = heureLocale(depart, T.fuseau);
++    var jourSemaine = new Date(Date.UTC(L.an, L.mois - 1, L.jour)).getUTCDay();   // 0 = dimanche
++    var ferie = T.majoreJoursFeries ? joursFeries(L.an, T.feriesAlsaceMoselle)[pad(L.mois) + "-" + pad(L.jour)] : null;
++    var t = L.h * 60 + L.min, deJour = t >= minutes(T.jour.debut) && t < minutes(T.jour.fin);
++    if (ferie) return { majore: true, motif: "ferie", ferie: ferie, local: L };
++    if (T.majoreDimanche && jourSemaine === 0) return { majore: true, motif: "dimanche", local: L };
++    if (!deJour) return { majore: true, motif: "nuit", local: L };
++    return { majore: false, motif: "jour", local: L };
++  }
++  var MOTIF = { jour: "tarif de jour", nuit: "tarif de nuit", dimanche: "tarif dimanche", ferie: "tarif jour férié" };
++  function libelleMotif(p) { return MOTIF[p.motif] + (p.ferie ? " (" + p.ferie + ")" : ""); }
++  function euros(n) { return String(n.toFixed(2)).replace(".", ","); }
++
++  function acompte(total, a) {
++    var v = Math.min(total, Math.max(r2(total * a.taux), a.minimum));
++    return { total: r2(total), acompte: r2(v), solde: r2(total - v) };
++  }
++  function somme(lignes) { return r2(lignes.reduce(function (s, l) { return s + (l.montant || 0); }, 0)); }
++  function fraisLignes(g) { return (g.frais || []).map(function (f) { return { id: "frais", libelle: f.libelle, montant: r2(f.montant || 0) }; }); }
++
++  /* ---------- Trajets classiques ---------- */
++  function calculerTrajets(entree, g) {
++    var T = g.trajets, H = T.horsCharge || {}, pas = T.arrondiDistanceKm || 0.1;
++    var cats = { confort: [], van: [] }, legs = [], partiel = false;
++    entree.trajets.forEach(function (leg, i) {
++      var km = Math.round(leg.distanceKm / pas) * pas; km = Math.round(km * 10) / 10;
++      var per = periodeTarifaire(leg.depart, T);
++      var app = Math.max(0, +leg.distance_approche_km || 0), ret = Math.max(0, +leg.distance_retour_vide_km || 0);
++      if ((app || ret) && !(T.longueDistance && T.longueDistance.reservableEnLigne)) partiel = true;   // sur devis
++      var lib = i ? "Trajet retour" : (entree.trajets.length > 1 ? "Trajet aller" : "Trajet");
++      var info = { distance_en_charge_km: km, distance_approche_km: app, distance_retour_vide_km: ret, periode: per.motif, ferie: per.ferie || null, depart: leg.depart, dureeMin: leg.dureeMin, tarifs: {} };
++      ["confort", "van"].forEach(function (k) {
++        var periode = per.majore ? "majore" : "jour";
++        var tarif = T.tarifKm[k][periode], brut = r2(km * tarif);
++        var min = typeof T.minimum[k] === "number" ? T.minimum[k] : T.minimum[k][periode];   // minimum selon la période (grille officielle)
++        var prix = Math.max(min, brut);
++        info.tarifs[k] = { tarif_km: tarif, montant_km: brut, minimum: min, minimum_applique: brut < min, prix: prix };
++        cats[k].push({ id: i ? "retour" : "aller", libelle: lib, montant: prix,
++          detail: String(km).replace(".", ",") + " km × " + euros(tarif) + " € · " + libelleMotif(per) + (brut < min ? " → minimum " + min + " € appliqué" : "") });
++      });
++      legs.push(info);
++    });
++    var out = {};
++    ["confort", "van"].forEach(function (k) {
++      var lignes = cats[k].concat(fraisLignes(g));
++      out[k] = acompte(somme(lignes), g.acompte); out[k].lignes = lignes;
++    });
++    out.van.supplement = r2(out.van.total - out.confort.total);
++    return {
++      type: entree.type || "simple", legs: legs, partiel: partiel,
++      distanceKm: legs.reduce(function (s, l) { return s + l.distance_en_charge_km; }, 0),
++      dureeMin: entree.trajets.reduce(function (s, l) { return s + (l.dureeMin || 0); }, 0),
++      categories: out, conditions: []
++    };
++  }
++
++  /* ---------- Mise à disposition (inchangée, sans majoration) ---------- */
++  function calculerMAD(entree, g) {
++    var M = g.miseADisposition;
++    var h = Math.max(M.dureeMinimumHeures, +entree.heures || 0);
++    var km = Math.max(0, Math.round(+entree.kmEstimes || 0));
++    var inclus = Math.round(M.kmInclusParHeure * h);
++    var sup = Math.max(0, km - inclus);                       // seuls les km au-delà du forfait sont facturés
++    var hTxt = (h % 1 ? Math.floor(h) + " h 30" : h + " h");
++    var out = {};
++    ["confort", "van"].forEach(function (k) {
++      var taux = M.tarifHoraire[k];
++      var lignes = [
++        { id: "forfait", libelle: "Mise à disposition · " + hTxt, montant: r2(h * taux), detail: taux + " € / h · chauffeur et attente sur place compris" },
++        { id: "km_inclus", libelle: "Kilomètres inclus", montant: 0, detail: inclus + " km compris dans le forfait", inclus: true }
++      ];
++      if (sup) lignes.push({ id: "km_sup", libelle: "Kilomètres supplémentaires estimés", montant: r2(sup * M.prixKmSupplementaire), detail: sup + " km × " + euros(M.prixKmSupplementaire) + " €" });
++      lignes = lignes.concat(fraisLignes(g));
++      out[k] = acompte(somme(lignes), g.acompte); out[k].lignes = lignes;
++      out[k].tarifHoraire = taux;
++      out[k].depassementTranche = r2(taux * M.depassement.trancheMinutes / 60);
++    });
++    out.van.supplement = r2(out.van.total - out.confort.total);
++    return {
++      type: "mad", heures: h, kmEstimes: km, kmInclus: inclus, kmSupplementaires: sup, partiel: false,
++      prixKmSupplementaire: M.prixKmSupplementaire, trancheMinutes: M.depassement.trancheMinutes,
++      categories: out,
++      conditions: [
++        "Heure supplémentaire : tarif horaire de la catégorie, par tranche de " + M.depassement.trancheMinutes + " min entamée.",
++        "Kilomètre au-delà du forfait : " + euros(M.prixKmSupplementaire) + " €.",
++        M.depassement.peagesStationnement + "."
++      ]
++    };
++  }
++
++  function depassementMAD(reel, devis, g) {
++    var M = g.miseADisposition, cat = devis.categories[reel.categorie];
++    var minSup = Math.max(0, (reel.minutesReelles || 0) - devis.heures * 60);
++    var tranches = Math.ceil(minSup / M.depassement.trancheMinutes);
++    var kmSup = Math.max(0, (reel.kmReels || 0) - Math.max(devis.kmInclus, devis.kmEstimes));
++    return { heures: r2(tranches * cat.depassementTranche), km: r2(kmSup * M.prixKmSupplementaire), peagesStationnement: r2(reel.fraisJustifies || 0) };
++  }
++
++  function calculer(entree, g) {
++    if (!entree) throw new Error("demande vide");
++    var q = entree.type === "mad" ? calculerMAD(entree, g) : calculerTrajets(entree, g);
++    q.statut = g.statut; q.devise = g.devise;
++    return q;
++  }
++
++  var api = { calculer: calculer, calculerTrajets: calculerTrajets, calculerMAD: calculerMAD, depassementMAD: depassementMAD,
++              periodeTarifaire: periodeTarifaire, libelleMotif: libelleMotif, joursFeries: joursFeries, paques: paques, heureLocale: heureLocale };
++  if (typeof module !== "undefined" && module.exports) module.exports = api;
++  else root.ELEV8_TARIF = api;
++})(this);
+diff --git a/netlify/lib/ratelimit.mjs b/netlify/lib/ratelimit.mjs
+index 5cabbfc..3815a7f 100644
+--- a/netlify/lib/ratelimit.mjs
++++ b/netlify/lib/ratelimit.mjs
+@@ -70,3 +70,21 @@ export async function cleanup(store, nowMs = Date.now()) {
+   }
+   return deleted;
+ }
++
++/* Supprime les identifiants anti-doublon (« idem/<secondes>-… », 24 h) et les compteurs
++   journaliers d'itinéraires Google (« quota-routes/<AAAA-MM-JJ> ») périmés.
++   Ces entrées ne contiennent aucune donnée personnelle. */
++export async function cleanupDivers(store, nowMs = Date.now()) {
++  let deleted = 0;
++  const { blobs: idem } = await store.list({ prefix: "idem/" });
++  for (const b of idem) {
++    const t = Number(b.key.slice(5, 15)) * 1000;
++    if (!Number.isFinite(t) || t + 26 * 3600_000 < nowMs) { await store.delete(b.key); deleted++; }
++  }
++  const { blobs: quotas } = await store.list({ prefix: "quota-routes/" });
++  for (const b of quotas) {
++    const t = Date.parse(b.key.slice(13));
++    if (!Number.isFinite(t) || t + 2 * 86400_000 < nowMs) { await store.delete(b.key); deleted++; }
++  }
++  return deleted;
++}
+diff --git a/package.json b/package.json
+index 917bd0a..1da9353 100644
+--- a/package.json
++++ b/package.json
+@@ -1,9 +1,12 @@
+ {
+   "name": "elev8-private-driver",
+   "private": true,
+-  "description": "Site ELEV8 Private Driver — fonctions Netlify (envoi des réservations)",
++  "description": "Site ELEV8 Private Driver — fonctions Netlify (estimation, envoi des demandes de réservation)",
+   "type": "module",
+   "dependencies": {
+     "@netlify/blobs": "10.7.13"
++  },
++  "scripts": {
++    "test": "node tests/estimation.test.mjs"
+   }
+ }
+diff --git a/public/assets/css/style.css b/public/assets/css/style.css
+index 9224268..f93b630 100644
+--- a/public/assets/css/style.css
++++ b/public/assets/css/style.css
+@@ -394,9 +394,42 @@ body.menu-open { overflow: hidden; }
+ .more .field { padding-bottom: 1rem; animation: rise .6s var(--ease); }
+ .more textarea { border-bottom: 0; }
+ 
++/* Aller-retour (case à cocher) */
++.field--check { margin-top: -.2rem; }
++.check { display: inline-flex; align-items: center; gap: .7rem; min-height: 2.75rem; cursor: pointer; font-size: .8rem !important; letter-spacing: .04em !important; text-transform: none !important; color: var(--champagne-clair) !important; }
++.check input { position: absolute; opacity: 0; width: 1px; height: 1px; }
++.check__box { width: 1.15rem; height: 1.15rem; border: 1px solid var(--filet-fort); display: inline-grid; place-items: center; transition: border-color .4s var(--ease), background-color .4s var(--ease); }
++.check__box::after { content: ""; width: .32rem; height: .6rem; border: solid var(--noir); border-width: 0 1.5px 1.5px 0; transform: rotate(45deg) translate(-1px, -1px); opacity: 0; }
++.check input:checked + .check__box { background: var(--champagne); border-color: var(--champagne); }
++.check input:checked + .check__box::after { opacity: 1; }
++.check input:focus-visible + .check__box { outline: 1px solid var(--champagne); outline-offset: 3px; }
++.field__help { margin: .35rem 0 0; font-size: .74rem; line-height: 1.5; color: var(--gris); }
++
++/* Estimation du tarif */
++.estimate {
++  border: 1px solid var(--filet-fort); background: var(--noir-2); padding: 1.35rem clamp(1.1rem, 4vw, 1.75rem) 1.4rem;
++  display: grid; gap: .35rem; position: relative; overflow: hidden; transition: border-color .5s var(--ease);
++}
++.estimate::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 2px; background: var(--champagne); opacity: .35; transition: opacity .5s var(--ease); }
++.estimate[data-etat="ok"] { border-color: var(--champagne); }
++.estimate[data-etat="ok"]::before { opacity: 1; }
++.estimate__label { margin: 0; font-size: .66rem; letter-spacing: .22em; text-transform: uppercase; color: var(--gris); }
++.estimate__amount { margin: .1rem 0 0; font: 400 clamp(2.2rem, 9vw, 2.9rem)/1.05 var(--f-display); color: var(--ivoire); font-variant-numeric: lining-nums; }
++.estimate[data-etat="ok"] .estimate__amount { color: var(--champagne-clair); animation: rise .6s var(--ease); }
++.estimate[data-etat="devis"] .estimate__amount { font-size: clamp(1.7rem, 7vw, 2.1rem); font-style: italic; color: var(--champagne-clair); }
++.estimate[data-etat="attente"] .estimate__amount, .estimate[data-etat="erreur"] .estimate__amount { color: var(--gris); }
++.estimate[data-etat="calcul"] .estimate__amount { color: var(--gris); animation: pulse 1.2s ease-in-out infinite; }
++.estimate__meta { margin: 0; font-size: var(--s-sm); color: var(--ivoire-doux); }
++.estimate[data-etat="erreur"] .estimate__meta { color: var(--erreur); }
++.estimate__note { margin: .55rem 0 0; padding-top: .7rem; border-top: 1px solid var(--filet); font-size: .76rem; line-height: 1.55; color: var(--gris); font-style: italic; }
++@keyframes pulse { 50% { opacity: .35; } }
++.form__estimate { margin: -1rem 0 -1.1rem; font-size: var(--s-sm); color: var(--ivoire-doux); }
++.form__estimate strong { color: var(--champagne-clair); font-weight: 400; }
++
+ .hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+ .turnstile:empty { display: none; }
+ .form__actions { display: grid; gap: .7rem; }
++.form__actions .btn--main { justify-content: center; }
+ .form__status { margin-top: -1rem; padding: 1rem 1.15rem; border: 1px solid var(--erreur); color: var(--ivoire); font-size: var(--s-sm); }
+ .form__status .st { display: block; color: var(--erreur); font-weight: 400; margin-bottom: .25rem; }
+ .form__status .tel { color: var(--champagne-clair); white-space: nowrap; }
+@@ -405,6 +438,7 @@ body.menu-open { overflow: hidden; }
+ 
+ .recap { border: 1px solid var(--filet-fort); padding: clamp(1.5rem, 6vw, 2.5rem); background: var(--noir-2); animation: rise .8s var(--ease); }
+ .recap:focus { outline: none; }
++.recap, .form { scroll-margin-top: 5.5rem; }
+ .recap__list { margin: 0 0 2rem; display: grid; }
+ .recap__list div { display: grid; grid-template-columns: 7.5rem 1fr; gap: 1rem; padding: .7rem 0; border-bottom: 1px solid var(--filet); }
+ .recap__list dt { font-size: .68rem; letter-spacing: .2em; text-transform: uppercase; color: var(--gris); padding-top: .2rem; }
+@@ -503,6 +537,7 @@ body.menu-open { overflow: hidden; }
+   .reach { grid-template-columns: 1fr 1fr; }
+   .hero__contact { display: flex; flex-wrap: wrap; gap: 0 1.6rem; max-width: 46rem; }
+   .form__actions { grid-template-columns: 1fr 1fr; }
++  .form__actions .btn--main { grid-column: 1 / -1; }
+   .services__list { grid-template-columns: repeat(3, 1fr); }
+   .service { padding: 1.75rem 1.5rem 1.9rem; }
+ }
+diff --git a/public/assets/js/main.js b/public/assets/js/main.js
+index 70ac34e..22d8da4 100644
+--- a/public/assets/js/main.js
++++ b/public/assets/js/main.js
+@@ -241,6 +241,22 @@
+   fillPax();
+   form.addEventListener("change", function (e) { if (e.target.name === "vehicle") fillPax(); });
+ 
++  // Bagages (facultatif) : transmis à ELEV8 avec la demande
++  var bagsSel = $("#f-bags");
++  bagsSel.innerHTML = '<option value="">Non précisé</option>' + [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(function (n) {
++    return '<option value="' + n + '">' + (n === 0 ? "Aucun bagage" : n + (n > 1 ? " bagages" : " bagage")) + "</option>";
++  }).join("");
++
++  // Aller-retour : date et heure du retour affichées seulement si la case est cochée
++  var arBox = $("#f-ar");
++  function updateAR() {
++    $("#retDateField").hidden = $("#retTimeField").hidden = !arBox.checked;
++    if (arBox.checked && !$("#f-retdate").value && $("#f-date").value) $("#f-retdate").value = $("#f-date").value;
++    $("#f-retdate").min = $("#f-date").value || $("#f-date").min;
++  }
++  arBox.addEventListener("change", updateAR);
++  $("#f-date").addEventListener("change", function () { $("#f-retdate").min = $("#f-date").value || $("#f-date").min; });
++
+   // Présélection depuis la flotte et les destinations
+   document.addEventListener("click", function (e) {
+     var a = e.target.closest && e.target.closest("[data-pick],[data-service]");
+@@ -301,6 +317,12 @@
+     to: function (v) { return v.trim().length > 2; },
+     lastname: function (v) { return v.trim().length > 0; },
+     firstname: function (v) { return v.trim().length > 0; },
++    retdate: function (v) { return !arBox.checked || (!!v && v >= ($("#f-date").value || $("#f-date").min)); },
++    rettime: function (v) {
++      if (!arBox.checked) return true;
++      if (!/^\d{2}:\d{2}/.test(v)) return false;
++      return $("#f-retdate").value !== $("#f-date").value || v.slice(0, 5) > $("#f-time").value.slice(0, 5);
++    },
+     phone: function (v) { return validPhone(normalizePhone(ccSel.value, v)); },
+     email: function (v) { v = v.trim(); return !v || /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v); }
+   };
+@@ -342,11 +364,87 @@
+     } catch (e) { return iso; }
+   }
+ 
++  /* ---------- Estimation du tarif (calculée par le serveur, grille ELEV8) ----------
++     Recalculée dès que le trajet, l'horaire ou le véhicule change. Le montant reçu est
++     accompagné d'un jeton signé : le serveur d'envoi refuse tout montant modifié. */
++  var E = (C.reservation && C.reservation.estimation) || {};
++  var estBox = $("#estimate"), estAmount = $("#estAmount"), estMeta = $("#estMeta"), estRecap = $("#estRecap");
++  var estimation = null, estKey = "", estSeq = 0, estTimer = null;
++  var fmtEuro = function (n) { return (Math.round(n * 100) / 100).toFixed(2).replace(".", ",").replace(",00", "") + " €"; };
++  function vehicleName() {
++    var vId = (form.querySelector('input[name="vehicle"]:checked') || {}).value;
++    return (choices.filter(function (c) { return c.id === vId; })[0] || NO_PREF).nom;
++  }
++  function trip() {
++    var f = form.elements, ar = arBox.checked;
++    return {
++      prestation: f.service.value || "", depart: f.from.value.trim(), destination: f.to.value.trim(),
++      date: f.date.value, heure: f.time.value.slice(0, 5), allerRetour: ar,
++      dateRetour: ar ? f.retdate.value : "", heureRetour: ar ? f.rettime.value.slice(0, 5) : "",
++      vehicule: vehicleName(), passagers: parseInt(f.pax.value, 10) || 1
++    };
++  }
++  function tripReady(t) {
++    return t.depart.length > 2 && t.destination.length > 2 && validators.date(t.date) && validators.time(t.heure) &&
++      (!t.allerRetour || (validators.retdate(t.dateRetour) && validators.rettime(t.heureRetour)));
++  }
++  function showEstimate(etat, montant, meta) {
++    estBox.setAttribute("data-etat", etat);
++    estAmount.textContent = montant;
++    estMeta.textContent = meta;
++    if (etat === "ok" || etat === "devis") {
++      estRecap.hidden = false;
++      estRecap.innerHTML = etat === "ok"
++        ? "Estimation : <strong>" + esc(montant) + "</strong> · tarif indicatif, aucun paiement à cette étape"
++        : "Tarif <strong>sur devis</strong> · demande gratuite, ELEV8 vous communique le tarif";
++    } else estRecap.hidden = true;
++  }
++  function estimate() {
++    var t = trip(), key = JSON.stringify(t);
++    if (!tripReady(t)) { estimation = null; estKey = ""; estSeq++; showEstimate("attente", "—", E.attente || ""); return; }
++    if (key === estKey) return;
++    estKey = key; estimation = null;
++    var my = ++estSeq;
++    showEstimate("calcul", "…", E.calcul || "Calcul de votre estimation…");
++    fetch((C.formulaire && C.formulaire.endpointEstimation) || "/estimation", {
++      method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json" },
++      body: JSON.stringify(t), credentials: "same-origin"
++    }).then(function (r) { return r.json().catch(function () { return null; }); }).then(function (j) {
++      if (my !== estSeq) return;                                   // une saisie plus récente a pris le relais
++      if (!j || !j.ok || !j.estimation) {
++        estKey = (j && j.code && j.code !== "indisponible" && j.code !== "limite") ? key : "";   // erreur passagère : nouvel essai au prochain changement
++        showEstimate("erreur", "—", (j && j.message) || "Estimation momentanément indisponible. Vous pouvez tout de même envoyer votre demande : nous vous communiquerons le tarif.");
++        return;
++      }
++      var r = j.estimation; estimation = r;
++      if (r.statut === "estimation") {
++        showEstimate("ok", fmtEuro(r.montant), r.vehicule + (r.allerRetour ? " · aller-retour" : "") + " · " + String(r.distanceKm).replace(".", ",") + " km");
++      } else {
++        showEstimate("devis", E.surDevis || "Sur devis", r.motif === "mise_a_disposition" ? (E.miseADisposition || "") : (E.horsZone || ""));
++      }
++    }).catch(function () {
++      if (my !== estSeq) return;
++      estKey = "";
++      showEstimate("erreur", "—", "Estimation momentanément indisponible. Vous pouvez tout de même envoyer votre demande : nous vous communiquerons le tarif.");
++    });
++  }
++  function scheduleEstimate(delay) { clearTimeout(estTimer); estTimer = setTimeout(estimate, delay == null ? 500 : delay); }
++  // Adresses : au choix d'une suggestion ou en quittant le champ ; horaire et véhicule : à chaque changement
++  form.addEventListener("change", function (e) {
++    if (/^(from|to|date|time|ar|retdate|rettime|vehicle|pax|service)$/.test(e.target.name)) scheduleEstimate(e.target.name === "from" || e.target.name === "to" ? 150 : 400);
++  });
++  ["time", "rettime"].forEach(function (n) { form.elements[n].addEventListener("input", function () { scheduleEstimate(900); }); });
++  function estimationRow() {
++    if (estimation && estKey === JSON.stringify(trip())) {
++      return estimation.statut === "estimation" ? ["Estimation", fmtEuro(estimation.montant) + " (indicative, à confirmer par ELEV8)"] : ["Tarif", "Sur devis, communiqué par ELEV8"];
++    }
++    return null;
++  }
++
+   /* Rassemble la demande : données envoyées au serveur + lignes du récapitulatif */
+   function collect() {
+     var f = form.elements;
+-    var vId = (form.querySelector('input[name="vehicle"]:checked') || {}).value;
+-    var vName = (choices.filter(function (c) { return c.id === vId; })[0] || NO_PREF).nom;
++    var vName = vehicleName();
+     var kind = refKind();
+     var data = {
+       prestation: f.service.value || "",
+@@ -356,7 +454,11 @@
+       heure: f.time.value.slice(0, 5),
+       depart: f.from.value.trim(),
+       destination: f.to.value.trim(),
++      allerRetour: arBox.checked,
++      dateRetour: arBox.checked ? f.retdate.value : "",
++      heureRetour: arBox.checked ? f.rettime.value.slice(0, 5) : "",
+       passagers: parseInt(f.pax.value, 10) || 1,
++      bagages: f.bags.value,
+       vehicule: vName,
+       nom: f.lastname.value.trim(),
+       prenom: f.firstname.value.trim(),
+@@ -373,14 +475,16 @@
+       ["Date", longDate(data.date)],
+       ["Heure", data.heure.replace(":", "h")],
+       ["Départ", data.depart],
+-      ["Destination", data.destination],
+-      ["Passagers", String(data.passagers)],
+-      ["Véhicule", data.vehicule],
+-      ["Nom", data.prenom + " " + data.nom],
+-      ["Téléphone", formatPhone(data.telephone)]
++      ["Destination", data.destination]
+     );
++    if (data.allerRetour) rows.push(["Retour", longDate(data.dateRetour) + " à " + data.heureRetour.replace(":", "h")]);
++    rows.push(["Passagers", String(data.passagers)]);
++    if (data.bagages !== "") rows.push(["Bagages", data.bagages === "0" ? "Aucun" : data.bagages]);
++    rows.push(["Véhicule", data.vehicule]);
++    if (data.precisions) rows.push(["Informations complémentaires", data.precisions]);
++    var er = estimationRow(); if (er) rows.push(er);
++    rows.push(["Nom", data.prenom + " " + data.nom], ["Téléphone", formatPhone(data.telephone)]);
+     if (data.email) rows.push(["E-mail", data.email]);
+-    if (data.precisions) rows.push(["Précisions", data.precisions]);
+     return { data: data, rows: rows };
+   }
+   function rowsHtml(rows) {
+@@ -416,6 +520,16 @@
+   /* ----- Mode 2 : envoi direct au professionnel ----- */
+   var startedAt = Date.now();
+   var sending = false;
++  /* Identifiant de la demande : un double clic ou un renvoi après coupure réseau
++     ne crée jamais deux demandes (le serveur reconnaît l'identifiant pendant 24 h). */
++  function newDemandeId() {
++    var a = "";
++    try { var b = new Uint8Array(12); crypto.getRandomValues(b); for (var i = 0; i < b.length; i++) a += "0123456789abcdefghijklmnopqrstuvwxyz".charAt(b[i] % 36); }
++    catch (e) { a = (Math.random().toString(36) + Math.random().toString(36)).replace(/[^a-z0-9]/g, "").slice(0, 16); }
++    return Math.floor(Date.now() / 1000) + "-" + a;
++  }
++  var demandeId = newDemandeId();
++  $("#formCall").href = "tel:" + C.contact.telephone;
+   var cfgForm = C.formulaire || {};
+   var sendBtn = $("#sendBtn");
+   var fallbackHtml = function () {
+@@ -451,6 +565,8 @@
+ 
+     var c = collect();
+     var payload = c.data;
++    payload.demandeId = demandeId;                       // anti-doublon
++    if (estimation && estKey === JSON.stringify(trip())) payload.estimation = estimation;   // revérifiée par le serveur
+     payload.website = form.elements.website.value;      // piège anti-robot
+     payload.duree = Date.now() - startedAt;             // temps passé sur le formulaire
+     if (cfgForm.turnstileSiteKey) {
+@@ -458,7 +574,7 @@
+       if (!payload.turnstile) {
+         showError(turnstileFailed
+           ? "<strong class=\"st\">La vérification anti-robot n'a pas pu se charger.</strong> Un bloqueur de contenu ou la connexion peut en être la cause." + fallbackHtml()
+-          : "<strong class=\"st\">Vérification anti-robot en cours.</strong> Patientez quelques secondes, puis appuyez de nouveau sur « Envoyer ma demande ».");
++          : "<strong class=\"st\">Vérification anti-robot en cours.</strong> Patientez quelques secondes, puis appuyez de nouveau sur « Demander la réservation ».");
+         return;
+       }
+     }
+@@ -485,15 +601,20 @@
+     }).then(function (r) {
+       // Confirmation affichée UNIQUEMENT si le serveur confirme explicitement la transmission
+       if (r.res.ok && r.json && r.json.ok === true && r.json.ref) {
+-        $("#sentTitle").textContent = "Merci, " + payload.prenom;
+-        $("#sentText").innerHTML = "Votre demande a bien été transmise (référence <strong>" + esc(r.json.ref) +
+-          "</strong>). Votre chauffeur vous recontacte au <strong>" + esc(formatPhone(payload.telephone)) + "</strong> pour confirmer la disponibilité.";
+-        $("#sentList").innerHTML = rowsHtml(c.rows);
++        $("#sentRef").textContent = "Référence " + r.json.ref;
++        var rows = [["Référence", r.json.ref]].concat(c.rows.filter(function (x) { return x[0] !== "Estimation" && x[0] !== "Tarif"; }));
++        var se = r.json.estimation;                                  // montant établi par le serveur
++        if (se && se.statut === "estimation" && se.montant > 0) rows.splice(1, 0, ["Estimation", fmtEuro(se.montant) + " (indicative, à confirmer par ELEV8)"]);
++        else if (se) rows.splice(1, 0, ["Tarif", "Sur devis, communiqué par ELEV8"]);
++        rows.splice(1, 0, ["Statut", "Demande reçue · en attente de validation"]);
++        $("#sentList").innerHTML = rowsHtml(rows);
++        sent = true;
+         showPanel("sent");
+         return;
+       }
++      if (r.json && r.json.error === "pending") { showError("<strong class=\"st\">Votre demande est en cours d'envoi.</strong> Patientez quelques secondes avant de réessayer : elle ne sera pas envoyée deux fois."); return; }
+       if (r.json && r.json.error === "validation" && Array.isArray(r.json.fields)) {
+-        var map = { date: "date", heure: "time", depart: "from", destination: "to", nom: "lastname", prenom: "firstname", telephone: "phone", email: "email" };
++        var map = { date: "date", heure: "time", depart: "from", destination: "to", nom: "lastname", prenom: "firstname", telephone: "phone", email: "email", dateRetour: "retdate", heureRetour: "rettime" };
+         r.json.fields.forEach(function (k) { if (map[k]) { fieldOf(map[k]).classList.add("is-invalid"); } });
+         showError("<strong class=\"st\">Certaines informations sont à vérifier.</strong> Corrigez les champs signalés puis renvoyez la demande.");
+         return;
+@@ -514,9 +635,11 @@
+   });
+ 
+   $("#editBtn").addEventListener("click", function () { showPanel("form"); });
++  var sent = false;
+   $("#newBtn").addEventListener("click", function () {
+-    form.reset(); fillPax(); updateRef(); updatePhPlaceholder(); startedAt = Date.now();
+-    $("#moreDetails").open = false;
++    form.reset(); fillPax(); updateRef(); updatePhPlaceholder(); updateAR(); startedAt = Date.now();
++    demandeId = newDemandeId(); sent = false; estimation = null; estKey = ""; estSeq++;
++    showEstimate("attente", "—", E.attente || "");
+     ccSel.value = C.reservation.indicatifParDefaut || "+33";
+     showPanel("form");
+   });
+diff --git a/public/confidentialite.html b/public/confidentialite.html
+index 475ec04..34726cc 100644
+--- a/public/confidentialite.html
++++ b/public/confidentialite.html
+@@ -9,7 +9,7 @@
+ <meta name="theme-color" content="#0c0b09">
+ <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
+ <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;1,6..96,400&family=Jost:wght@300;400&display=swap">
+-<link rel="stylesheet" href="assets/css/style.css?v=20261115a">
++<link rel="stylesheet" href="assets/css/style.css?v=20261117a">
+ </head>
+ <body class="legal-page">
+ <header class="top">
+@@ -27,13 +27,13 @@
+   <p><strong data-c="legal.raisonSociale"></strong> — <span data-c="legal.adresse"></span><br>Contact : <span data-c="contact.email"></span></p>
+ 
+   <h2>Deux façons de nous envoyer une demande</h2>
+-  <p><strong>« Envoyer ma demande »</strong> : les informations du formulaire sont transmises de façon chiffrée (HTTPS) à un service d'envoi qui les adresse par e-mail au chauffeur. Le site ne conserve aucune copie dans une base de données.</p>
++  <p><strong>« Demander la réservation »</strong> : les informations du formulaire sont transmises de façon chiffrée (HTTPS) à un service d'envoi qui les adresse par e-mail au chauffeur. Aucun paiement n'est demandé. Le site ne conserve aucune copie dans une base de données : seul un identifiant aléatoire de la demande et sa référence, sans aucune donnée personnelle, sont gardés 24 heures pour éviter un double envoi.</p>
+   <p><strong>« Contacter via WhatsApp »</strong> : le site prépare un message dans WhatsApp sur votre téléphone. Rien n'est transmis tant que vous n'appuyez pas sur « Envoyer » dans l'application. L'échange relève alors des conditions de WhatsApp (WhatsApp Ireland Limited, groupe Meta).</p>
+ 
+   <h2>Données collectées</h2>
+   <ul>
+     <li>Identité et contact : nom, prénom, numéro de téléphone (obligatoires), adresse e-mail (facultative).</li>
+-    <li>Trajet : prestation, date, heure, adresses de départ et de destination, nombre de passagers, véhicule souhaité, numéro de vol ou de train (facultatif), précisions éventuelles.</li>
++    <li>Trajet : prestation, date, heure, adresses de départ et de destination, date et heure du retour (aller-retour), nombre de passagers et de bagages, véhicule souhaité, numéro de vol ou de train (facultatif), informations complémentaires éventuelles, estimation tarifaire calculée par le site.</li>
+     <li>Origine de la visite : le libellé du lien par lequel vous êtes arrivé sur le site (par exemple « QR code à bord » ou le nom d'une campagne), s'il en contient un. Cette information est lue dans l'adresse de la page et jointe à votre demande ; elle n'est ni stockée dans votre navigateur ni utilisée pour vous suivre.</li>
+     <li>Données techniques de sécurité : votre adresse IP sert à limiter le nombre d'envois par visiteur. Elle n'est jamais enregistrée en clair : seule une empreinte chiffrée (HMAC), impossible à reconvertir en adresse IP, est conservée le temps du contrôle. Aucune donnée saisie dans le formulaire n'est écrite dans les journaux techniques de l'application.</li>
+   </ul>
+@@ -53,6 +53,7 @@
+     <li>Réception des demandes : la messagerie électronique du professionnel (<span data-c="legal.messagerie"></span>).</li>
+     <li>Polices de caractères : Google Fonts (Google Ireland Limited), qui reçoit votre adresse IP lors de l'affichage du site.</li>
+     <li>Suggestions d'adresses : lorsque vous saisissez un lieu de départ ou de destination, notre serveur transmet uniquement le texte saisi (sans votre adresse IP ni aucune autre information) à un service de recherche d'adresses, Google Maps Platform (Google Ireland Limited) ou, à défaut, la Géoplateforme de l'IGN et le service Photon de komoot GmbH (données OpenStreetMap). Ce texte n'est pas conservé par le site.</li>
++    <li>Estimation du tarif : pour calculer la distance du trajet, notre serveur transmet uniquement les adresses de départ et de destination (sans votre nom, vos coordonnées ni votre adresse IP) à Google Maps Platform (Google Ireland Limited) ou, à défaut, à la Géoplateforme de l'IGN et au service Photon de komoot GmbH. Ces adresses ne sont pas conservées par le site.</li>
+     <li data-if="formulaire.turnstileSiteKey">Vérification anti-robot : Cloudflare Turnstile (Cloudflare, Inc.). Au moment de l'envoi, Cloudflare analyse des informations techniques sur votre navigateur et votre adresse IP afin de distinguer une personne d'un robot. Ces informations ne sont pas utilisées à des fins publicitaires.</li>
+   </ul>
+   <p>Certains de ces prestataires peuvent traiter des données hors de l'Union européenne. Dans ce cas, le transfert est encadré par les garanties prévues par le RGPD (décision d'adéquation ou clauses contractuelles types de la Commission européenne).</p>
+@@ -78,7 +79,7 @@
+ 
+   <p>Dernière mise à jour : <span data-c="legal.dateMiseAJour"></span></p>
+ </main>
+-<script src="config.js?v=20261115a"></script>
++<script src="config.js?v=20261117a"></script>
+ <script src="assets/js/legal.js?v=20261016e"></script>
+ </body>
+ </html>
+diff --git a/public/config.js b/public/config.js
+index 8aef019..1c5fd1a 100644
+--- a/public/config.js
++++ b/public/config.js
+@@ -81,7 +81,7 @@ window.SITE_CONFIG = {
+     zones: ["Genève", "Stations de ski", "Côte d'Azur", "Dijon & Bourgogne"],
+     lienDecouvrir: "Voir véhicules & prestations",
+     lienSiteComplet: "Découvrir le site complet",
+-    introReservation: "Indiquez votre trajet : votre chauffeur vous confirme la disponibilité."
++    introReservation: "Indiquez votre trajet : estimation immédiate, demande gratuite. Votre chauffeur vous confirme la disponibilité et le tarif."
+   },
+ 
+   /* ---------- 2. Flotte ---------- */
+@@ -157,16 +157,34 @@ window.SITE_CONFIG = {
+   reservation: {
+     surtitre: "Réservation",
+     titre: "Demander une réservation",
+-    intro: "Écrivez-nous directement, ou envoyez une demande détaillée. Votre chauffeur vous confirme la disponibilité.",
++    intro: "Obtenez une estimation immédiate, puis envoyez votre demande gratuitement : ELEV8 vérifie la disponibilité et vous confirme le tarif. Aucun paiement, aucun compte à créer.",
+     waTexte: "Écrire directement, sans formulaire",
+-    ouTexte: "ou envoyez une demande détaillée",
++    ouTexte: "ou estimez votre trajet et envoyez votre demande",
+     // Message prérempli du contact WhatsApp direct (boutons « Contacter via WhatsApp »)
+     messageWhatsAppDirect: "Bonjour ELEV8, je souhaite des renseignements pour un trajet.",
+-    boutonEnvoyer: "Envoyer ma demande",
+-    boutonWhatsApp: "Envoyer par WhatsApp",        // Envoie le détail du formulaire dans WhatsApp
++    boutonEnvoyer: "Demander la réservation",      // Bouton principal : demande gratuite, sans paiement
++    boutonAppeler: "Nous appeler",
++    boutonWhatsApp: "WhatsApp",                    // Envoie le détail du formulaire (et l'estimation) dans WhatsApp
++    /* Estimation affichée dans le formulaire (calculée par le serveur, jamais modifiable par le client) */
++    estimation: {
++      titre: "Estimation de votre trajet",
++      mention: "Tarif indicatif, sous réserve de validation de la disponibilité et des conditions du trajet par ELEV8 Private Driver. Aucun paiement n'est demandé à cette étape.",
++      attente: "Renseignez le départ, la destination, la date et l'heure pour obtenir une estimation immédiate.",
++      calcul: "Calcul de votre estimation…",
++      surDevis: "Sur devis",
++      horsZone: "L'estimation automatique couvre Dijon et ses environs. Envoyez votre demande gratuitement : ELEV8 vous communique le tarif de ce trajet avant toute confirmation.",
++      miseADisposition: "Mise à disposition : le tarif dépend de la durée et du programme. Envoyez votre demande gratuitement : ELEV8 vous communique le tarif avant toute confirmation.",
++      aideInfos: "Une demande particulière peut modifier le tarif : ELEV8 vous confirme le montant final avant toute réservation."
++    },
++    /* Message affiché après l'envoi (jamais « réservation confirmée » : seule ELEV8 confirme) */
++    envoi: {
++      titre: "Votre demande a bien été envoyée !",
++      texte: "Merci d'avoir choisi ELEV8 Private Driver. Nous avons bien reçu votre demande et votre estimation. Notre équipe va vérifier la disponibilité et confirmer le tarif de votre trajet. Votre réservation sera définitive uniquement après notre confirmation.",
++      note: "Aucun paiement ne vous a été demandé. Pour toute question, appelez-nous ou écrivez-nous sur WhatsApp en indiquant votre référence."
++    },
+     introMessage: "Bonjour, je souhaite faire une demande de réservation :",
+     // Si vous modifiez legal.dureeDemandes, adaptez aussi la durée citée ici.
+-    noteConfidentialite: "Les champs sans mention « facultatif » sont nécessaires. « Envoyer ma demande » transmet vos informations par e-mail à ELEV8 Private Driver, via notre prestataire d'envoi, uniquement pour traiter votre demande ; elles sont conservées au plus 12 mois si la demande reste sans suite. Vous pouvez y accéder ou demander leur suppression : <a href=\"confidentialite.html\">politique de confidentialité</a>.",
++    noteConfidentialite: "Les champs sans mention « facultatif » sont nécessaires. « Demander la réservation » est gratuit et sans engagement : aucun paiement n'est demandé. Ce bouton transmet vos informations par e-mail à ELEV8 Private Driver, via notre prestataire d'envoi, uniquement pour traiter votre demande ; elles sont conservées au plus 12 mois si la demande reste sans suite. Vous pouvez y accéder ou demander leur suppression : <a href=\"confidentialite.html\">politique de confidentialité</a>.",
+     noteWhatsApp: "WhatsApp s'ouvre avec votre message prérempli. Il ne part qu'après avoir appuyé sur « Envoyer » dans l'application, et l'échange est alors traité par WhatsApp (groupe Meta) selon ses propres conditions.",
+     indicatifParDefaut: "+33"
+   },
+diff --git a/public/index.html b/public/index.html
+index 82363f2..907d852 100644
+--- a/public/index.html
++++ b/public/index.html
+@@ -19,7 +19,7 @@
+ <link rel="preconnect" href="https://fonts.googleapis.com">
+ <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+ <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;0,6..96,500;1,6..96,400&family=Jost:wght@300;400;500&display=swap">
+-<link rel="stylesheet" href="assets/css/style.css?v=20261115a">
++<link rel="stylesheet" href="assets/css/style.css?v=20261117a">
+ <script src="assets/js/mode.js?v=20261016e"></script>
+ </head>
+ <body>
+@@ -247,17 +247,47 @@
+             <input id="f-to" name="to" type="text" enterkeyhint="next" autocomplete="off" placeholder="Adresse, gare, aéroport, hôtel…" required>
+             <p class="field__err" data-err="to">Indiquez la destination.</p>
+           </div>
++          <div class="field field--full field--check">
++            <label class="check" for="f-ar"><input id="f-ar" name="ar" type="checkbox"><span class="check__box" aria-hidden="true"></span><span>Aller-retour</span></label>
++          </div>
++          <div class="field" id="retDateField" hidden>
++            <label for="f-retdate">Date du retour</label>
++            <input id="f-retdate" name="retdate" type="date">
++            <p class="field__err">Indiquez une date de retour à partir de la date de l'aller.</p>
++          </div>
++          <div class="field" id="retTimeField" hidden>
++            <label for="f-rettime">Heure du retour</label>
++            <input id="f-rettime" name="rettime" type="time">
++            <p class="field__err">Indiquez une heure de retour après l'aller.</p>
++          </div>
+         </fieldset>
+ 
+         <fieldset class="form__group">
+           <legend><span class="legend__n">2</span>Véhicule</legend>
+           <div class="vehicle-choice" id="vehicleChoice" role="radiogroup" aria-label="Véhicule"></div>
+-          <div class="field field--full">
++          <div class="field">
+             <label for="f-pax">Passagers</label>
+             <select id="f-pax" name="pax"></select>
+           </div>
++          <div class="field">
++            <label for="f-bags">Bagages</label>
++            <select id="f-bags" name="bags"></select>
++          </div>
++          <div class="field field--full">
++            <label for="f-msg">Informations complémentaires <span class="opt">facultatif</span></label>
++            <textarea id="f-msg" name="msg" rows="2" maxlength="1500" placeholder="Remorque ou équipement, bagages volumineux, arrêts, attente, siège enfant…"></textarea>
++            <p class="field__help" data-c="reservation.estimation.aideInfos">Une demande particulière peut modifier le tarif : ELEV8 vous confirme le montant final avant toute réservation.</p>
++          </div>
+         </fieldset>
+ 
++        <!-- Estimation : calculée par le serveur dès que le trajet est renseigné -->
++        <div class="estimate" id="estimate" aria-live="polite" data-etat="attente">
++          <p class="estimate__label" data-c="reservation.estimation.titre">Estimation de votre trajet</p>
++          <p class="estimate__amount" id="estAmount">—</p>
++          <p class="estimate__meta" id="estMeta" data-c="reservation.estimation.attente">Renseignez le départ, la destination, la date et l'heure pour obtenir une estimation immédiate.</p>
++          <p class="estimate__note" data-c="reservation.estimation.mention">Tarif indicatif, sous réserve de validation de la disponibilité et des conditions du trajet par ELEV8 Private Driver. Aucun paiement n'est demandé à cette étape.</p>
++        </div>
++
+         <fieldset class="form__group">
+           <legend><span class="legend__n">3</span>Vos coordonnées</legend>
+           <div class="field">
+@@ -283,13 +313,6 @@
+             <input id="f-email" name="email" type="email" enterkeyhint="done" autocapitalize="off" autocomplete="email" inputmode="email" maxlength="120" spellcheck="false">
+             <p class="field__err">Adresse e-mail invalide.</p>
+           </div>
+-          <details class="more field--full" id="moreDetails">
+-            <summary>Ajouter une précision <span class="opt">bagages, siège enfant…</span></summary>
+-            <div class="field">
+-              <label for="f-msg" class="sr-only">Précisions</label>
+-              <textarea id="f-msg" name="msg" rows="3" placeholder="Bagages, siège enfant, arrêt en chemin…"></textarea>
+-            </div>
+-          </details>
+         </fieldset>
+ 
+         <!-- Anti-spam : champ invisible pour les personnes, rempli par les robots -->
+@@ -299,11 +322,13 @@
+         </div>
+         <div class="turnstile" id="turnstileBox" hidden></div>
+ 
++        <p class="form__estimate" id="estRecap" hidden></p>
+         <div class="form__actions">
+-          <button class="btn btn--solid" type="submit" id="sendBtn"><span data-c="reservation.boutonEnvoyer">Envoyer ma demande</span></button>
++          <button class="btn btn--solid btn--main" type="submit" id="sendBtn"><span data-c="reservation.boutonEnvoyer">Demander la réservation</span></button>
++          <a class="btn btn--quiet" id="formCall" href="tel:+33626927218"><svg viewBox="0 0 24 24" aria-hidden="true" width="18" height="18"><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" d="M5.2 3.5h3.1l1.5 4-2 1.3a11 11 0 0 0 5.4 5.4l1.3-2 4 1.5v3.1a2 2 0 0 1-2.1 2A16.5 16.5 0 0 1 3.2 5.6a2 2 0 0 1 2-2.1Z"/></svg><span data-c="reservation.boutonAppeler">Nous appeler</span></a>
+           <button class="btn btn--gold" type="button" id="waBtn">
+             <svg class="i-wa" viewBox="0 0 24 24" aria-hidden="true" width="18" height="18"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2c-1.5 0-3-.4-4.3-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3c-.2.3-.9.9-.9 2.2s1 2.6 1.1 2.7c.1.2 1.9 2.9 4.6 4 1.7.7 2.4.8 3.2.7.5-.1 1.5-.6 1.8-1.2.2-.6.2-1.1.1-1.2l-.4-.2Z"/></svg>
+-            <span data-c="reservation.boutonWhatsApp">Envoyer par WhatsApp</span>
++            <span data-c="reservation.boutonWhatsApp">WhatsApp</span>
+           </button>
+         </div>
+         <div class="form__status" id="formStatus" role="alert" hidden></div>
+@@ -312,11 +337,11 @@
+ 
+       <!-- Confirmation : affichée uniquement si le serveur a confirmé la transmission -->
+       <div class="recap" id="sent" hidden tabindex="-1">
+-        <p class="eyebrow">Demande transmise</p>
+-        <h3 class="h3" id="sentTitle">Merci</h3>
+-        <p class="sent__text" id="sentText"></p>
++        <p class="eyebrow">Demande transmise · <span id="sentRef"></span></p>
++        <h3 class="h3" id="sentTitle" data-c="reservation.envoi.titre">Votre demande a bien été envoyée !</h3>
++        <p class="sent__text" id="sentText" data-c="reservation.envoi.texte">Merci d'avoir choisi ELEV8 Private Driver. Nous avons bien reçu votre demande et votre estimation. Notre équipe va vérifier la disponibilité et confirmer le tarif de votre trajet. Votre réservation sera définitive uniquement après notre confirmation.</p>
+         <dl class="recap__list" id="sentList"></dl>
+-        <p class="recap__hint">Cette demande ne vaut pas réservation tant que votre chauffeur ne l'a pas confirmée.</p>
++        <p class="recap__hint" data-c="reservation.envoi.note">Aucun paiement ne vous a été demandé. Pour toute question, appelez-nous ou écrivez-nous sur WhatsApp en indiquant votre référence.</p>
+         <div class="recap__actions">
+           <button class="link-btn" type="button" id="newBtn">Faire une nouvelle demande</button>
+         </div>
+@@ -377,8 +402,8 @@
+ 
+ <noscript><p class="noscript">Ce site nécessite JavaScript pour afficher son contenu.</p></noscript>
+ 
+-<script src="config.js?v=20261115a"></script>
+-<script src="assets/js/main.js?v=20261115a"></script>
++<script src="config.js?v=20261117a"></script>
++<script src="assets/js/main.js?v=20261117a"></script>
+ <script src="assets/js/adresses.js?v=20261016g"></script>
+ </body>
+ </html>
+diff --git a/public/mentions-legales.html b/public/mentions-legales.html
+index e21bb05..4577c92 100644
+--- a/public/mentions-legales.html
++++ b/public/mentions-legales.html
+@@ -9,7 +9,7 @@
+ <meta name="theme-color" content="#0c0b09">
+ <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
+ <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;1,6..96,400&family=Jost:wght@300;400&display=swap">
+-<link rel="stylesheet" href="assets/css/style.css?v=20261115a">
++<link rel="stylesheet" href="assets/css/style.css?v=20261117a">
+ </head>
+ <body class="legal-page">
+ <header class="top">
+@@ -50,7 +50,7 @@
+ 
+   <p>Dernière mise à jour : <span data-c="legal.dateMiseAJour"></span></p>
+ </main>
+-<script src="config.js?v=20261115a"></script>
++<script src="config.js?v=20261117a"></script>
+ <script src="assets/js/legal.js?v=20261016e"></script>
+ </body>
+ </html>
+diff --git a/tests/estimation.test.mjs b/tests/estimation.test.mjs
+new file mode 100644
+index 0000000..7f0fdb7
+--- /dev/null
++++ b/tests/estimation.test.mjs
+@@ -0,0 +1,221 @@
++/* Tests automatisés : estimation tarifaire et envoi de la demande sans paiement.
++   Lancement : node tests/estimation.test.mjs   (aucun service extérieur appelé : réponses simulées) */
++import assert from "node:assert/strict";
++import { createHash } from "node:crypto";
++import { readFileSync } from "node:fs";
++import * as EST from "../netlify/lib/estimation.mjs";
++import handler, { deps as resDeps, idemKey } from "../netlify/functions/reservation.mjs";
++import estimationHandler from "../netlify/functions/estimation.mjs";
++
++let ok = 0;
++const t = async (nom, f) => { try { await f(); ok++; console.log("✓ " + nom); } catch (e) { console.error("✗ " + nom + "\n  " + (e && e.stack || e)); process.exitCode = 1; } };
++
++/* ---------- Faux services ---------- */
++const DIJON_GARE = { lat: 47.3233, lon: 5.0274 }, DIJON_SUD = { lat: 47.2900, lon: 5.0500 }, GENEVE = { lat: 46.2382, lon: 6.1089 };
++const LIEUX = { "gare de dijon-ville, 21000 dijon, france": DIJON_GARE, "12 rue de longvic, 21000 dijon, france": DIJON_SUD, "aéroport de genève, genève, suisse": GENEVE };
++let appels = [];
++function fauxFetch({ km = 8.3, min = 15, google = true } = {}) {
++  return async (url, init = {}) => {
++    appels.push(String(url).split("?")[0]);
++    const rep = (o, s = 200) => ({ ok: s < 400, status: s, json: async () => o });
++    if (String(url).startsWith("https://routes.googleapis.com")) {
++      if (!google) return rep({}, 403);
++      const b = JSON.parse(init.body), a = LIEUX[b.origin.address.toLowerCase()], z = LIEUX[b.destination.address.toLowerCase()];
++      if (!a || !z) return rep({ routes: [] });
++      return rep({ routes: [{ distanceMeters: km * 1000, duration: min * 60 + "s", legs: [{ startLocation: { latLng: { latitude: a.lat, longitude: a.lon } }, endLocation: { latLng: { latitude: z.lat, longitude: z.lon } } }] }] });
++    }
++    if (String(url).startsWith("https://photon.komoot.io") || String(url).startsWith("https://data.geopf.fr/geocodage")) {
++      const q = new URL(url).searchParams.get("q").toLowerCase(), p = LIEUX[q];
++      return rep({ features: p ? [{ geometry: { coordinates: [p.lon, p.lat] }, properties: { score: 0.9 } }] : [] });
++    }
++    if (String(url).startsWith("https://data.geopf.fr/navigation/itineraire")) return rep({ distance: km, duration: min });
++    throw new Error("URL inattendue " + url);
++  };
++}
++function fauxStore() {
++  const m = new Map(); let v = 0;
++  return {
++    m,
++    async get(k) { return m.has(k) ? structuredClone(m.get(k).d) : null; },
++    async getWithMetadata(k) { return m.has(k) ? { data: structuredClone(m.get(k).d), etag: m.get(k).e } : null; },
++    async setJSON(k, d, o = {}) {
++      if (o.onlyIfNew && m.has(k)) return { modified: false };
++      if (o.onlyIfMatch && (!m.has(k) || m.get(k).e !== o.onlyIfMatch)) return { modified: false };
++      m.set(k, { d: structuredClone(d), e: "e" + (++v) }); return { modified: true };
++    },
++    async delete(k) { m.delete(k); },
++    async list({ prefix }) { return { blobs: [...m.keys()].filter((k) => k.startsWith(prefix)).map((key) => ({ key })) }; }
++  };
++}
++
++process.env.GOOGLE_MAPS_API_KEY = "cle-de-test";
++process.env.EMAIL_API_KEY = "cle-email-de-test";
++process.env.MAIL_TO = "contact@elev8privatedriver.com";
++process.env.MAIL_FROM = "reservations@example.test";
++EST.deps.now = () => Date.parse("2026-11-17T12:00:00Z");
++const base = { prestation: "Transferts gares", depart: "Gare de Dijon-Ville, 21000 Dijon, France", destination: "12 rue de Longvic, 21000 Dijon, France",
++  date: "2026-11-18", heure: "10:00", vehicule: "Tesla Model Y", passagers: 2 };
++
++/* ---------- 1. Grille inchangée ---------- */
++await t("copies conformes de la grille de la préproduction", () => {
++  const h = (f) => createHash("sha256").update(readFileSync(f)).digest("hex").slice(0, 16);
++  assert.equal(h(new URL("../netlify/lib/grille/dijon-tarif.cjs", import.meta.url)), "74628511857cd825");
++  assert.equal(h(new URL("../netlify/lib/grille/dijon-config.cjs", import.meta.url)), "717eb0c7d6737fdd");
++});
++await t("jour, Tesla : 8,3 km × 1,75 € = 14,53 €", async () => {
++  EST._reset(); EST.deps.fetch = fauxFetch();
++  const r = await EST.estimer(base);
++  assert.equal(r.statut, "estimation"); assert.equal(r.montant, 14.53); assert.equal(r.categorie, "confort"); assert.equal(r.distanceKm, 8.3);
++});
++await t("jour, Classe V : minimum 20 € appliqué", async () => {
++  const r = await EST.estimer({ ...base, vehicule: "Mercedes-Benz Classe V" });
++  assert.equal(r.montant, 20); assert.equal(r.categorie, "van");
++});
++await t("nuit (20 h) : 8,3 × 2,75 = 22,83 €", async () => {
++  assert.equal((await EST.estimer({ ...base, heure: "20:00" })).montant, 22.83);
++});
++await t("dimanche (22 nov. 2026, 10 h) : tarif majoré", async () => {
++  assert.equal((await EST.estimer({ ...base, date: "2026-11-22" })).montant, 22.83);
++});
++await t("jour férié (25 déc. 2026) : tarif majoré", async () => {
++  assert.equal((await EST.estimer({ ...base, date: "2026-12-25" })).montant, 22.83);
++});
++await t("court trajet de nuit : minimum 15 € (Confort)", async () => {
++  EST._reset(); EST.deps.fetch = fauxFetch({ km: 2 });
++  assert.equal((await EST.estimer({ ...base, heure: "23:00" })).montant, 15);
++  EST._reset(); EST.deps.fetch = fauxFetch();
++});
++await t("« Pas de préférence » : Confort jusqu'à 4 passagers, Van au-delà", async () => {
++  assert.equal((await EST.estimer({ ...base, vehicule: "Pas de préférence", passagers: 4 })).categorie, "confort");
++  assert.equal((await EST.estimer({ ...base, vehicule: "Pas de préférence", passagers: 5 })).categorie, "van");
++});
++await t("aller-retour : chaque trajet calculé séparément (jour + nuit)", async () => {
++  const r = await EST.estimer({ ...base, allerRetour: true, dateRetour: "2026-11-18", heureRetour: "21:00" });
++  assert.equal(r.montant, 37.36); assert.equal(r.lignes.length, 2);
++});
++await t("retour avant l'aller : refusé", async () => {
++  await assert.rejects(EST.estimer({ ...base, allerRetour: true, dateRetour: "2026-11-18", heureRetour: "09:00" }), { code: "retour" });
++});
++await t("hors zone (Genève) : sur devis, aucun montant", async () => {
++  const r = await EST.estimer({ ...base, destination: "Aéroport de Genève, Genève, Suisse" });
++  assert.equal(r.statut, "sur_devis"); assert.equal(r.motif, "hors_zone"); assert.equal(r.montant, undefined);
++});
++await t("mise à disposition : sur devis, sans calcul d'itinéraire", async () => {
++  appels = [];
++  const r = await EST.estimer({ ...base, prestation: "Mise à disposition" });
++  assert.equal(r.statut, "sur_devis"); assert.equal(r.motif, "mise_a_disposition"); assert.equal(appels.length, 0);
++});
++await t("relais gratuit (Google refusé) : même prix via IGN", async () => {
++  EST._reset(); EST.deps.fetch = fauxFetch({ google: false }); appels = [];
++  const r = await EST.estimer(base);
++  assert.equal(r.montant, 14.53); assert.equal(r.source, "ign");
++  assert.ok(appels.includes("https://data.geopf.fr/navigation/itineraire"));
++  EST._reset(); EST.deps.fetch = fauxFetch();
++});
++await t("adresse introuvable : erreur explicite (la demande reste possible)", async () => {
++  EST._reset(); EST.deps.fetch = fauxFetch({ google: false });
++  await assert.rejects(EST.estimer({ ...base, depart: "Lieu imaginaire" }), { code: "lieu_inconnu" });
++  EST._reset(); EST.deps.fetch = fauxFetch();
++});
++await t("date passée : refusée", async () => {
++  await assert.rejects(EST.estimer({ ...base, date: "2026-11-16" }), { code: "passe" });
++});
++
++/* ---------- 2. Jeton signé ---------- */
++await t("jeton : accepté pour la même demande, refusé si le montant, l'adresse ou le véhicule changent", async () => {
++  const r = await EST.estimer(base); r.jeton = EST.signer(r);
++  const rt = JSON.parse(JSON.stringify(r));
++  assert.equal(EST.verifier(rt, base).montant, 14.53);
++  assert.equal(EST.verifier({ ...rt, montant: 1 }, base), null);
++  assert.equal(EST.verifier(rt, { ...base, destination: "Ailleurs" }), null);
++  assert.equal(EST.verifier(rt, { ...base, vehicule: "Mercedes-Benz Classe V" }), null);
++  const now = EST.deps.now; EST.deps.now = () => now() + 25 * 3600_000;
++  assert.equal(EST.verifier(rt, base), null);
++  EST.deps.now = now;
++});
++
++/* ---------- 3. Fonction /estimation ---------- */
++const req = (path, body, h = {}) => new Request("https://elev8privatedriver.com" + path, { method: "POST", headers: { "content-type": "application/json", origin: "https://elev8privatedriver.com", ...h }, body: JSON.stringify(body) });
++await t("/estimation : renvoie le montant et un jeton, sans aucune donnée personnelle demandée", async () => {
++  const r = await (await estimationHandler(req("/estimation", base), { ip: "1.2.3.4" })).json();
++  assert.equal(r.ok, true); assert.equal(r.estimation.montant, 14.53); assert.ok(r.estimation.jeton.sig);
++});
++await t("/estimation : autre origine refusée", async () => {
++  assert.equal((await estimationHandler(req("/estimation", base, { origin: "https://pirate.example" }), {})).status, 403);
++});
++
++/* ---------- 4. Envoi de la demande ---------- */
++const envoyes = [];
++resDeps.send = async (m) => { envoyes.push(m); };
++const store = fauxStore(); resDeps.store = store;
++const demande = (extra = {}) => ({ ...base, nom: "Martin", prenom: "Claire", telephone: "+33612345678", email: "claire@example.test", bagages: "2",
++  precisions: "Remorque à vélo, attente 10 min", duree: 9000, website: "", origine: { code: "carte", libelle: "Carte de visite", utm: {} }, ...extra });
++const idDemande = () => Math.floor(Date.now() / 1000) + "-" + Math.random().toString(36).slice(2, 16).padEnd(14, "x");
++
++await t("demande sans paiement : e-mail complet, statut « en attente de validation », estimation du serveur", async () => {
++  envoyes.length = 0;
++  const est = (await (await estimationHandler(req("/estimation", base), { ip: "1.2.3.5" })).json()).estimation;
++  const r = await handler(req("/envoi-reservation", demande({ estimation: est, demandeId: idDemande() })), { ip: "5.6.7.8" });
++  const j = await r.json();
++  assert.equal(r.status, 200); assert.equal(j.ok, true); assert.match(j.ref, /^E8-\d{6}-[A-Z2-9]{3}$/);
++  assert.equal(j.statut, "demande_recue"); assert.equal(j.estimation.montant, 14.53);
++  assert.equal(envoyes.length, 1);
++  const m = envoyes[0];
++  for (const attendu of ["en attente de validation", "14,53 €", "Remorque à vélo", "Bagages : 2", "Aller simple", "Carte de visite", "Claire Martin", "+33612345678", "Le client n'a rien payé"])
++    assert.ok(m.text.includes(attendu), "absent de l'e-mail : " + attendu);
++  assert.ok(!/réservation (est )?confirmée/i.test(m.text), "l'e-mail ne doit jamais annoncer une réservation confirmée");
++  assert.ok(!/acompte|paiement requis/i.test(m.text));
++  assert.match(m.subject, /^\[À valider\] Demande E8-/);
++  assert.ok(m.html.includes("Proposer un tarif ajusté"));
++});
++await t("montant falsifié dans le navigateur : ignoré, recalculé par le serveur", async () => {
++  envoyes.length = 0;
++  const est = (await (await estimationHandler(req("/estimation", base), { ip: "1.2.3.6" })).json()).estimation;
++  est.montant = 1;
++  const j = await (await handler(req("/envoi-reservation", demande({ estimation: est, demandeId: idDemande() })), { ip: "5.6.7.9" })).json();
++  assert.equal(j.estimation.montant, 14.53); assert.ok(envoyes[0].text.includes("14,53 €")); assert.ok(!envoyes[0].text.includes(" 1 €"));
++});
++await t("double clic / renvoi : un seul e-mail, même référence", async () => {
++  envoyes.length = 0;
++  const id = idDemande(), body = demande({ demandeId: id });
++  const [a, b] = await Promise.all([handler(req("/envoi-reservation", body), { ip: "9.9.9.1" }), handler(req("/envoi-reservation", body), { ip: "9.9.9.1" })]);
++  const c = await handler(req("/envoi-reservation", body), { ip: "9.9.9.1" });
++  const ja = await a.json(), jb = await b.json(), jc = await c.json();
++  assert.equal(envoyes.length, 1);
++  const okRef = [ja, jb].find((x) => x.ok).ref;
++  assert.equal(jc.ok, true); assert.equal(jc.ref, okRef); assert.equal(jc.deja, true);
++  assert.ok([ja, jb].some((x) => x.error === "pending" || x.deja));
++});
++await t("échec d'envoi : la demande peut être renvoyée", async () => {
++  envoyes.length = 0; const id = idDemande();
++  resDeps.send = async () => { throw new Error("provider:500"); };
++  assert.equal((await handler(req("/envoi-reservation", demande({ demandeId: id })), { ip: "9.9.9.2" })).status, 502);
++  resDeps.send = async (m) => { envoyes.push(m); };
++  assert.equal((await handler(req("/envoi-reservation", demande({ demandeId: id })), { ip: "9.9.9.3" })).status, 200);
++  assert.equal(envoyes.length, 1);
++});
++await t("hors zone : demande transmise « tarif à établir », sans montant", async () => {
++  envoyes.length = 0;
++  const j = await (await handler(req("/envoi-reservation", demande({ destination: "Aéroport de Genève, Genève, Suisse", demandeId: idDemande() })), { ip: "9.9.9.4" })).json();
++  assert.equal(j.ok, true); assert.equal(j.estimation.statut, "sur_devis"); assert.equal(j.estimation.montant, null);
++  assert.ok(envoyes[0].text.includes("Tarif à établir par ELEV8"));
++});
++await t("calcul indisponible : la demande part quand même", async () => {
++  envoyes.length = 0; EST._reset();
++  EST.deps.fetch = async () => { throw new Error("réseau"); };
++  const j = await (await handler(req("/envoi-reservation", demande({ demandeId: idDemande() })), { ip: "9.9.9.5" })).json();
++  assert.equal(j.ok, true); assert.equal(envoyes.length, 1); assert.ok(envoyes[0].text.includes("Tarif à établir"));
++  EST.deps.fetch = fauxFetch();
++});
++await t("aller-retour : retour avant l'aller refusé par le serveur", async () => {
++  const r = await handler(req("/envoi-reservation", demande({ allerRetour: true, dateRetour: "2026-11-18", heureRetour: "08:00", demandeId: idDemande() })), { ip: "9.9.9.6" });
++  assert.equal(r.status, 422); assert.deepEqual((await r.json()).fields, ["heureRetour"]);
++});
++await t("identifiant anti-doublon : format et durée de validité contrôlés", () => {
++  const now = Date.now(), s = Math.floor(now / 1000);
++  assert.ok(idemKey(s + "-abcdefghijkl", now));
++  assert.equal(idemKey("../../x", now), "");
++  assert.equal(idemKey((s - 2 * 86400) + "-abcdefghijkl", now), "");
++});
++
++console.log(`\n${ok} test(s) réussi(s)` + (process.exitCode ? " — ÉCHECS ci-dessus" : ""));
+-- 
+2.43.0
+
+
+From 881f6bd96d1e35fa9b92654b00d45fa1b7dca02f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 17 Nov 2026 20:35:28 +0100
+Subject: [PATCH 2/2] =?UTF-8?q?Grille=20:=20Tesla=20Model=20Y=20de=20jour?=
+ =?UTF-8?q?=201,90=20=E2=82=AC/km,=20minimum=2020=20=E2=82=AC?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01RBFDraSh661tcpjtmKRyrk
+---
+ netlify/lib/estimation.mjs          |  6 ++++--
+ netlify/lib/grille/dijon-config.cjs |  4 ++--
+ tests/estimation.test.mjs           | 32 ++++++++++++++++++-----------
+ 3 files changed, 26 insertions(+), 16 deletions(-)
+
+diff --git a/netlify/lib/estimation.mjs b/netlify/lib/estimation.mjs
+index 83228f5..796c6ea 100644
+--- a/netlify/lib/estimation.mjs
++++ b/netlify/lib/estimation.mjs
+@@ -4,8 +4,10 @@
+    Exécutée uniquement sur les serveurs de Netlify : le navigateur n'envoie jamais
+    une distance ni un montant qui serait pris en compte.
+ 
+-   Grille : netlify/lib/grille/dijon-tarif.cjs et dijon-config.cjs, COPIES CONFORMES
+-   des fichiers de la préproduction (aucun prix, minimum ou coefficient modifié) :
++   Grille : netlify/lib/grille/dijon-tarif.cjs (moteur de calcul, copie conforme de la
++   préproduction) et dijon-config.cjs (grille ELEV8). Seul changement par rapport à la
++   préproduction (17 nov. 2026) : Tesla Model Y de jour 1,90 €/km, minimum 20 € ;
++   nuit, dimanche, jours fériés et Classe V inchangés :
+      prix = max(minimum de la catégorie et de la période, km routiers × tarif au km),
+      tarif de jour / majoré (nuit, dimanche, jours fériés) à l'heure de Paris,
+      chaque trajet d'un aller-retour calculé séparément.
+diff --git a/netlify/lib/grille/dijon-config.cjs b/netlify/lib/grille/dijon-config.cjs
+index a2c7739..499ab2b 100644
+--- a/netlify/lib/grille/dijon-config.cjs
++++ b/netlify/lib/grille/dijon-config.cjs
+@@ -38,11 +38,11 @@ var DIJON_CONFIG = {
+        Heure locale de prise en charge, fuseau Europe/Paris. Aucune autre majoration (pas de +20 %). */
+     trajets: {
+       minimum: {                                              // [VALIDÉ] par course (chaque trajet d'un aller-retour), selon la période
+-        confort: { jour: 10, majore: 15 },
++        confort: { jour: 20, majore: 15 },                   // [VALIDÉ 17 nov. 2026] minimum de jour 20 € (au lieu de 10 €) ; majoré inchangé
+         van:     { jour: 20, majore: 25 }
+       },
+       tarifKm: {                                              // [VALIDÉ] € par km de distance routière avec le client
+-        confort: { jour: 1.75, majore: 2.75 },
++        confort: { jour: 1.90, majore: 2.75 },               // [VALIDÉ 17 nov. 2026] jour 1,90 €/km (au lieu de 1,75 €) ; majoré inchangé
+         van:     { jour: 2.25, majore: 3.25 }
+       },
+       jour: { debut: "07:00", fin: "19:00" },                // [VALIDÉ] tarif de jour de 7 h 00 inclus à 19 h 00 exclu
+diff --git a/tests/estimation.test.mjs b/tests/estimation.test.mjs
+index 7f0fdb7..7edc8d6 100644
+--- a/tests/estimation.test.mjs
++++ b/tests/estimation.test.mjs
+@@ -57,15 +57,23 @@ const base = { prestation: "Transferts gares", depart: "Gare de Dijon-Ville, 210
+   date: "2026-11-18", heure: "10:00", vehicule: "Tesla Model Y", passagers: 2 };
+ 
+ /* ---------- 1. Grille inchangée ---------- */
+-await t("copies conformes de la grille de la préproduction", () => {
++await t("moteur de calcul identique à la préproduction ; grille ELEV8 du 17 nov. 2026", async () => {
+   const h = (f) => createHash("sha256").update(readFileSync(f)).digest("hex").slice(0, 16);
+   assert.equal(h(new URL("../netlify/lib/grille/dijon-tarif.cjs", import.meta.url)), "74628511857cd825");
+-  assert.equal(h(new URL("../netlify/lib/grille/dijon-config.cjs", import.meta.url)), "717eb0c7d6737fdd");
++  const T = (await import("../netlify/lib/grille/dijon-config.cjs")).default.tarifs.trajets;
++  assert.deepEqual(T.minimum, { confort: { jour: 20, majore: 15 }, van: { jour: 20, majore: 25 } });
++  assert.deepEqual(T.tarifKm, { confort: { jour: 1.90, majore: 2.75 }, van: { jour: 2.25, majore: 3.25 } });
+ });
+-await t("jour, Tesla : 8,3 km × 1,75 € = 14,53 €", async () => {
++await t("jour, Tesla : 8,3 km × 1,90 € = 15,77 € → minimum 20 €", async () => {
+   EST._reset(); EST.deps.fetch = fauxFetch();
+   const r = await EST.estimer(base);
+-  assert.equal(r.statut, "estimation"); assert.equal(r.montant, 14.53); assert.equal(r.categorie, "confort"); assert.equal(r.distanceKm, 8.3);
++  assert.equal(r.statut, "estimation"); assert.equal(r.montant, 20); assert.equal(r.categorie, "confort"); assert.equal(r.distanceKm, 8.3);
++  assert.match(r.lignes[0].detail, /1,90 € .*minimum 20 € appliqué/);
++});
++await t("jour, Tesla, 15 km : 15 × 1,90 € = 28,50 €", async () => {
++  EST._reset(); EST.deps.fetch = fauxFetch({ km: 15 });
++  assert.equal((await EST.estimer(base)).montant, 28.5);
++  EST._reset(); EST.deps.fetch = fauxFetch();
+ });
+ await t("jour, Classe V : minimum 20 € appliqué", async () => {
+   const r = await EST.estimer({ ...base, vehicule: "Mercedes-Benz Classe V" });
+@@ -89,9 +97,9 @@ await t("« Pas de préférence » : Confort jusqu'à 4 passagers, Van au-delà"
+   assert.equal((await EST.estimer({ ...base, vehicule: "Pas de préférence", passagers: 4 })).categorie, "confort");
+   assert.equal((await EST.estimer({ ...base, vehicule: "Pas de préférence", passagers: 5 })).categorie, "van");
+ });
+-await t("aller-retour : chaque trajet calculé séparément (jour + nuit)", async () => {
++await t("aller-retour : chaque trajet calculé séparément (jour 20 € + nuit 22,83 €)", async () => {
+   const r = await EST.estimer({ ...base, allerRetour: true, dateRetour: "2026-11-18", heureRetour: "21:00" });
+-  assert.equal(r.montant, 37.36); assert.equal(r.lignes.length, 2);
++  assert.equal(r.montant, 42.83); assert.equal(r.lignes.length, 2);
+ });
+ await t("retour avant l'aller : refusé", async () => {
+   await assert.rejects(EST.estimer({ ...base, allerRetour: true, dateRetour: "2026-11-18", heureRetour: "09:00" }), { code: "retour" });
+@@ -108,7 +116,7 @@ await t("mise à disposition : sur devis, sans calcul d'itinéraire", async () =
+ await t("relais gratuit (Google refusé) : même prix via IGN", async () => {
+   EST._reset(); EST.deps.fetch = fauxFetch({ google: false }); appels = [];
+   const r = await EST.estimer(base);
+-  assert.equal(r.montant, 14.53); assert.equal(r.source, "ign");
++  assert.equal(r.montant, 20); assert.equal(r.source, "ign");
+   assert.ok(appels.includes("https://data.geopf.fr/navigation/itineraire"));
+   EST._reset(); EST.deps.fetch = fauxFetch();
+ });
+@@ -125,7 +133,7 @@ await t("date passée : refusée", async () => {
+ await t("jeton : accepté pour la même demande, refusé si le montant, l'adresse ou le véhicule changent", async () => {
+   const r = await EST.estimer(base); r.jeton = EST.signer(r);
+   const rt = JSON.parse(JSON.stringify(r));
+-  assert.equal(EST.verifier(rt, base).montant, 14.53);
++  assert.equal(EST.verifier(rt, base).montant, 20);
+   assert.equal(EST.verifier({ ...rt, montant: 1 }, base), null);
+   assert.equal(EST.verifier(rt, { ...base, destination: "Ailleurs" }), null);
+   assert.equal(EST.verifier(rt, { ...base, vehicule: "Mercedes-Benz Classe V" }), null);
+@@ -138,7 +146,7 @@ await t("jeton : accepté pour la même demande, refusé si le montant, l'adress
+ const req = (path, body, h = {}) => new Request("https://elev8privatedriver.com" + path, { method: "POST", headers: { "content-type": "application/json", origin: "https://elev8privatedriver.com", ...h }, body: JSON.stringify(body) });
+ await t("/estimation : renvoie le montant et un jeton, sans aucune donnée personnelle demandée", async () => {
+   const r = await (await estimationHandler(req("/estimation", base), { ip: "1.2.3.4" })).json();
+-  assert.equal(r.ok, true); assert.equal(r.estimation.montant, 14.53); assert.ok(r.estimation.jeton.sig);
++  assert.equal(r.ok, true); assert.equal(r.estimation.montant, 20); assert.ok(r.estimation.jeton.sig);
+ });
+ await t("/estimation : autre origine refusée", async () => {
+   assert.equal((await estimationHandler(req("/estimation", base, { origin: "https://pirate.example" }), {})).status, 403);
+@@ -158,10 +166,10 @@ await t("demande sans paiement : e-mail complet, statut « en attente de validat
+   const r = await handler(req("/envoi-reservation", demande({ estimation: est, demandeId: idDemande() })), { ip: "5.6.7.8" });
+   const j = await r.json();
+   assert.equal(r.status, 200); assert.equal(j.ok, true); assert.match(j.ref, /^E8-\d{6}-[A-Z2-9]{3}$/);
+-  assert.equal(j.statut, "demande_recue"); assert.equal(j.estimation.montant, 14.53);
++  assert.equal(j.statut, "demande_recue"); assert.equal(j.estimation.montant, 20);
+   assert.equal(envoyes.length, 1);
+   const m = envoyes[0];
+-  for (const attendu of ["en attente de validation", "14,53 €", "Remorque à vélo", "Bagages : 2", "Aller simple", "Carte de visite", "Claire Martin", "+33612345678", "Le client n'a rien payé"])
++  for (const attendu of ["en attente de validation", "20 €", "Remorque à vélo", "Bagages : 2", "Aller simple", "Carte de visite", "Claire Martin", "+33612345678", "Le client n'a rien payé"])
+     assert.ok(m.text.includes(attendu), "absent de l'e-mail : " + attendu);
+   assert.ok(!/réservation (est )?confirmée/i.test(m.text), "l'e-mail ne doit jamais annoncer une réservation confirmée");
+   assert.ok(!/acompte|paiement requis/i.test(m.text));
+@@ -173,7 +181,7 @@ await t("montant falsifié dans le navigateur : ignoré, recalculé par le serve
+   const est = (await (await estimationHandler(req("/estimation", base), { ip: "1.2.3.6" })).json()).estimation;
+   est.montant = 1;
+   const j = await (await handler(req("/envoi-reservation", demande({ estimation: est, demandeId: idDemande() })), { ip: "5.6.7.9" })).json();
+-  assert.equal(j.estimation.montant, 14.53); assert.ok(envoyes[0].text.includes("14,53 €")); assert.ok(!envoyes[0].text.includes(" 1 €"));
++  assert.equal(j.estimation.montant, 20); assert.ok(envoyes[0].text.includes("Estimation : 20 €")); assert.ok(!envoyes[0].text.includes(" 1 €"));
+ });
+ await t("double clic / renvoi : un seul e-mail, même référence", async () => {
+   envoyes.length = 0;
+-- 
+2.43.0
+

@@ -241,6 +241,22 @@
   fillPax();
   form.addEventListener("change", function (e) { if (e.target.name === "vehicle") fillPax(); });
 
+  // Bagages (facultatif) : transmis à ELEV8 avec la demande
+  var bagsSel = $("#f-bags");
+  bagsSel.innerHTML = '<option value="">Non précisé</option>' + [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(function (n) {
+    return '<option value="' + n + '">' + (n === 0 ? "Aucun bagage" : n + (n > 1 ? " bagages" : " bagage")) + "</option>";
+  }).join("");
+
+  // Aller-retour : date et heure du retour affichées seulement si la case est cochée
+  var arBox = $("#f-ar");
+  function updateAR() {
+    $("#retDateField").hidden = $("#retTimeField").hidden = !arBox.checked;
+    if (arBox.checked && !$("#f-retdate").value && $("#f-date").value) $("#f-retdate").value = $("#f-date").value;
+    $("#f-retdate").min = $("#f-date").value || $("#f-date").min;
+  }
+  arBox.addEventListener("change", updateAR);
+  $("#f-date").addEventListener("change", function () { $("#f-retdate").min = $("#f-date").value || $("#f-date").min; });
+
   // Présélection depuis la flotte et les destinations
   document.addEventListener("click", function (e) {
     var a = e.target.closest && e.target.closest("[data-pick],[data-service]");
@@ -301,6 +317,12 @@
     to: function (v) { return v.trim().length > 2; },
     lastname: function (v) { return v.trim().length > 0; },
     firstname: function (v) { return v.trim().length > 0; },
+    retdate: function (v) { return !arBox.checked || (!!v && v >= ($("#f-date").value || $("#f-date").min)); },
+    rettime: function (v) {
+      if (!arBox.checked) return true;
+      if (!/^\d{2}:\d{2}/.test(v)) return false;
+      return $("#f-retdate").value !== $("#f-date").value || v.slice(0, 5) > $("#f-time").value.slice(0, 5);
+    },
     phone: function (v) { return validPhone(normalizePhone(ccSel.value, v)); },
     email: function (v) { v = v.trim(); return !v || /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v); }
   };
@@ -342,11 +364,87 @@
     } catch (e) { return iso; }
   }
 
+  /* ---------- Estimation du tarif (calculée par le serveur, grille ELEV8) ----------
+     Recalculée dès que le trajet, l'horaire ou le véhicule change. Le montant reçu est
+     accompagné d'un jeton signé : le serveur d'envoi refuse tout montant modifié. */
+  var E = (C.reservation && C.reservation.estimation) || {};
+  var estBox = $("#estimate"), estAmount = $("#estAmount"), estMeta = $("#estMeta"), estRecap = $("#estRecap");
+  var estimation = null, estKey = "", estSeq = 0, estTimer = null;
+  var fmtEuro = function (n) { return (Math.round(n * 100) / 100).toFixed(2).replace(".", ",").replace(",00", "") + " €"; };
+  function vehicleName() {
+    var vId = (form.querySelector('input[name="vehicle"]:checked') || {}).value;
+    return (choices.filter(function (c) { return c.id === vId; })[0] || NO_PREF).nom;
+  }
+  function trip() {
+    var f = form.elements, ar = arBox.checked;
+    return {
+      prestation: f.service.value || "", depart: f.from.value.trim(), destination: f.to.value.trim(),
+      date: f.date.value, heure: f.time.value.slice(0, 5), allerRetour: ar,
+      dateRetour: ar ? f.retdate.value : "", heureRetour: ar ? f.rettime.value.slice(0, 5) : "",
+      vehicule: vehicleName(), passagers: parseInt(f.pax.value, 10) || 1
+    };
+  }
+  function tripReady(t) {
+    return t.depart.length > 2 && t.destination.length > 2 && validators.date(t.date) && validators.time(t.heure) &&
+      (!t.allerRetour || (validators.retdate(t.dateRetour) && validators.rettime(t.heureRetour)));
+  }
+  function showEstimate(etat, montant, meta) {
+    estBox.setAttribute("data-etat", etat);
+    estAmount.textContent = montant;
+    estMeta.textContent = meta;
+    if (etat === "ok" || etat === "devis") {
+      estRecap.hidden = false;
+      estRecap.innerHTML = etat === "ok"
+        ? "Estimation : <strong>" + esc(montant) + "</strong> · tarif indicatif, aucun paiement à cette étape"
+        : "Tarif <strong>sur devis</strong> · demande gratuite, ELEV8 vous communique le tarif";
+    } else estRecap.hidden = true;
+  }
+  function estimate() {
+    var t = trip(), key = JSON.stringify(t);
+    if (!tripReady(t)) { estimation = null; estKey = ""; estSeq++; showEstimate("attente", "—", E.attente || ""); return; }
+    if (key === estKey) return;
+    estKey = key; estimation = null;
+    var my = ++estSeq;
+    showEstimate("calcul", "…", E.calcul || "Calcul de votre estimation…");
+    fetch((C.formulaire && C.formulaire.endpointEstimation) || "/estimation", {
+      method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify(t), credentials: "same-origin"
+    }).then(function (r) { return r.json().catch(function () { return null; }); }).then(function (j) {
+      if (my !== estSeq) return;                                   // une saisie plus récente a pris le relais
+      if (!j || !j.ok || !j.estimation) {
+        estKey = (j && j.code && j.code !== "indisponible" && j.code !== "limite") ? key : "";   // erreur passagère : nouvel essai au prochain changement
+        showEstimate("erreur", "—", (j && j.message) || "Estimation momentanément indisponible. Vous pouvez tout de même envoyer votre demande : nous vous communiquerons le tarif.");
+        return;
+      }
+      var r = j.estimation; estimation = r;
+      if (r.statut === "estimation") {
+        showEstimate("ok", fmtEuro(r.montant), r.vehicule + (r.allerRetour ? " · aller-retour" : "") + " · " + String(r.distanceKm).replace(".", ",") + " km");
+      } else {
+        showEstimate("devis", E.surDevis || "Sur devis", r.motif === "mise_a_disposition" ? (E.miseADisposition || "") : (E.horsZone || ""));
+      }
+    }).catch(function () {
+      if (my !== estSeq) return;
+      estKey = "";
+      showEstimate("erreur", "—", "Estimation momentanément indisponible. Vous pouvez tout de même envoyer votre demande : nous vous communiquerons le tarif.");
+    });
+  }
+  function scheduleEstimate(delay) { clearTimeout(estTimer); estTimer = setTimeout(estimate, delay == null ? 500 : delay); }
+  // Adresses : au choix d'une suggestion ou en quittant le champ ; horaire et véhicule : à chaque changement
+  form.addEventListener("change", function (e) {
+    if (/^(from|to|date|time|ar|retdate|rettime|vehicle|pax|service)$/.test(e.target.name)) scheduleEstimate(e.target.name === "from" || e.target.name === "to" ? 150 : 400);
+  });
+  ["time", "rettime"].forEach(function (n) { form.elements[n].addEventListener("input", function () { scheduleEstimate(900); }); });
+  function estimationRow() {
+    if (estimation && estKey === JSON.stringify(trip())) {
+      return estimation.statut === "estimation" ? ["Estimation", fmtEuro(estimation.montant) + " (indicative, à confirmer par ELEV8)"] : ["Tarif", "Sur devis, communiqué par ELEV8"];
+    }
+    return null;
+  }
+
   /* Rassemble la demande : données envoyées au serveur + lignes du récapitulatif */
   function collect() {
     var f = form.elements;
-    var vId = (form.querySelector('input[name="vehicle"]:checked') || {}).value;
-    var vName = (choices.filter(function (c) { return c.id === vId; })[0] || NO_PREF).nom;
+    var vName = vehicleName();
     var kind = refKind();
     var data = {
       prestation: f.service.value || "",
@@ -356,7 +454,11 @@
       heure: f.time.value.slice(0, 5),
       depart: f.from.value.trim(),
       destination: f.to.value.trim(),
+      allerRetour: arBox.checked,
+      dateRetour: arBox.checked ? f.retdate.value : "",
+      heureRetour: arBox.checked ? f.rettime.value.slice(0, 5) : "",
       passagers: parseInt(f.pax.value, 10) || 1,
+      bagages: f.bags.value,
       vehicule: vName,
       nom: f.lastname.value.trim(),
       prenom: f.firstname.value.trim(),
@@ -373,14 +475,16 @@
       ["Date", longDate(data.date)],
       ["Heure", data.heure.replace(":", "h")],
       ["Départ", data.depart],
-      ["Destination", data.destination],
-      ["Passagers", String(data.passagers)],
-      ["Véhicule", data.vehicule],
-      ["Nom", data.prenom + " " + data.nom],
-      ["Téléphone", formatPhone(data.telephone)]
+      ["Destination", data.destination]
     );
+    if (data.allerRetour) rows.push(["Retour", longDate(data.dateRetour) + " à " + data.heureRetour.replace(":", "h")]);
+    rows.push(["Passagers", String(data.passagers)]);
+    if (data.bagages !== "") rows.push(["Bagages", data.bagages === "0" ? "Aucun" : data.bagages]);
+    rows.push(["Véhicule", data.vehicule]);
+    if (data.precisions) rows.push(["Informations complémentaires", data.precisions]);
+    var er = estimationRow(); if (er) rows.push(er);
+    rows.push(["Nom", data.prenom + " " + data.nom], ["Téléphone", formatPhone(data.telephone)]);
     if (data.email) rows.push(["E-mail", data.email]);
-    if (data.precisions) rows.push(["Précisions", data.precisions]);
     return { data: data, rows: rows };
   }
   function rowsHtml(rows) {
@@ -416,6 +520,16 @@
   /* ----- Mode 2 : envoi direct au professionnel ----- */
   var startedAt = Date.now();
   var sending = false;
+  /* Identifiant de la demande : un double clic ou un renvoi après coupure réseau
+     ne crée jamais deux demandes (le serveur reconnaît l'identifiant pendant 24 h). */
+  function newDemandeId() {
+    var a = "";
+    try { var b = new Uint8Array(12); crypto.getRandomValues(b); for (var i = 0; i < b.length; i++) a += "0123456789abcdefghijklmnopqrstuvwxyz".charAt(b[i] % 36); }
+    catch (e) { a = (Math.random().toString(36) + Math.random().toString(36)).replace(/[^a-z0-9]/g, "").slice(0, 16); }
+    return Math.floor(Date.now() / 1000) + "-" + a;
+  }
+  var demandeId = newDemandeId();
+  $("#formCall").href = "tel:" + C.contact.telephone;
   var cfgForm = C.formulaire || {};
   var sendBtn = $("#sendBtn");
   var fallbackHtml = function () {
@@ -451,6 +565,8 @@
 
     var c = collect();
     var payload = c.data;
+    payload.demandeId = demandeId;                       // anti-doublon
+    if (estimation && estKey === JSON.stringify(trip())) payload.estimation = estimation;   // revérifiée par le serveur
     payload.website = form.elements.website.value;      // piège anti-robot
     payload.duree = Date.now() - startedAt;             // temps passé sur le formulaire
     if (cfgForm.turnstileSiteKey) {
@@ -458,7 +574,7 @@
       if (!payload.turnstile) {
         showError(turnstileFailed
           ? "<strong class=\"st\">La vérification anti-robot n'a pas pu se charger.</strong> Un bloqueur de contenu ou la connexion peut en être la cause." + fallbackHtml()
-          : "<strong class=\"st\">Vérification anti-robot en cours.</strong> Patientez quelques secondes, puis appuyez de nouveau sur « Envoyer ma demande ».");
+          : "<strong class=\"st\">Vérification anti-robot en cours.</strong> Patientez quelques secondes, puis appuyez de nouveau sur « Demander la réservation ».");
         return;
       }
     }
@@ -485,15 +601,20 @@
     }).then(function (r) {
       // Confirmation affichée UNIQUEMENT si le serveur confirme explicitement la transmission
       if (r.res.ok && r.json && r.json.ok === true && r.json.ref) {
-        $("#sentTitle").textContent = "Merci, " + payload.prenom;
-        $("#sentText").innerHTML = "Votre demande a bien été transmise (référence <strong>" + esc(r.json.ref) +
-          "</strong>). Votre chauffeur vous recontacte au <strong>" + esc(formatPhone(payload.telephone)) + "</strong> pour confirmer la disponibilité.";
-        $("#sentList").innerHTML = rowsHtml(c.rows);
+        $("#sentRef").textContent = "Référence " + r.json.ref;
+        var rows = [["Référence", r.json.ref]].concat(c.rows.filter(function (x) { return x[0] !== "Estimation" && x[0] !== "Tarif"; }));
+        var se = r.json.estimation;                                  // montant établi par le serveur
+        if (se && se.statut === "estimation" && se.montant > 0) rows.splice(1, 0, ["Estimation", fmtEuro(se.montant) + " (indicative, à confirmer par ELEV8)"]);
+        else if (se) rows.splice(1, 0, ["Tarif", "Sur devis, communiqué par ELEV8"]);
+        rows.splice(1, 0, ["Statut", "Demande reçue · en attente de validation"]);
+        $("#sentList").innerHTML = rowsHtml(rows);
+        sent = true;
         showPanel("sent");
         return;
       }
+      if (r.json && r.json.error === "pending") { showError("<strong class=\"st\">Votre demande est en cours d'envoi.</strong> Patientez quelques secondes avant de réessayer : elle ne sera pas envoyée deux fois."); return; }
       if (r.json && r.json.error === "validation" && Array.isArray(r.json.fields)) {
-        var map = { date: "date", heure: "time", depart: "from", destination: "to", nom: "lastname", prenom: "firstname", telephone: "phone", email: "email" };
+        var map = { date: "date", heure: "time", depart: "from", destination: "to", nom: "lastname", prenom: "firstname", telephone: "phone", email: "email", dateRetour: "retdate", heureRetour: "rettime" };
         r.json.fields.forEach(function (k) { if (map[k]) { fieldOf(map[k]).classList.add("is-invalid"); } });
         showError("<strong class=\"st\">Certaines informations sont à vérifier.</strong> Corrigez les champs signalés puis renvoyez la demande.");
         return;
@@ -514,9 +635,11 @@
   });
 
   $("#editBtn").addEventListener("click", function () { showPanel("form"); });
+  var sent = false;
   $("#newBtn").addEventListener("click", function () {
-    form.reset(); fillPax(); updateRef(); updatePhPlaceholder(); startedAt = Date.now();
-    $("#moreDetails").open = false;
+    form.reset(); fillPax(); updateRef(); updatePhPlaceholder(); updateAR(); startedAt = Date.now();
+    demandeId = newDemandeId(); sent = false; estimation = null; estKey = ""; estSeq++;
+    showEstimate("attente", "—", E.attente || "");
     ccSel.value = C.reservation.indicatifParDefaut || "+33";
     showPanel("form");
   });

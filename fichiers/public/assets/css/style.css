@@ -394,9 +394,42 @@ body.menu-open { overflow: hidden; }
 .more .field { padding-bottom: 1rem; animation: rise .6s var(--ease); }
 .more textarea { border-bottom: 0; }
 
+/* Aller-retour (case à cocher) */
+.field--check { margin-top: -.2rem; }
+.check { display: inline-flex; align-items: center; gap: .7rem; min-height: 2.75rem; cursor: pointer; font-size: .8rem !important; letter-spacing: .04em !important; text-transform: none !important; color: var(--champagne-clair) !important; }
+.check input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.check__box { width: 1.15rem; height: 1.15rem; border: 1px solid var(--filet-fort); display: inline-grid; place-items: center; transition: border-color .4s var(--ease), background-color .4s var(--ease); }
+.check__box::after { content: ""; width: .32rem; height: .6rem; border: solid var(--noir); border-width: 0 1.5px 1.5px 0; transform: rotate(45deg) translate(-1px, -1px); opacity: 0; }
+.check input:checked + .check__box { background: var(--champagne); border-color: var(--champagne); }
+.check input:checked + .check__box::after { opacity: 1; }
+.check input:focus-visible + .check__box { outline: 1px solid var(--champagne); outline-offset: 3px; }
+.field__help { margin: .35rem 0 0; font-size: .74rem; line-height: 1.5; color: var(--gris); }
+
+/* Estimation du tarif */
+.estimate {
+  border: 1px solid var(--filet-fort); background: var(--noir-2); padding: 1.35rem clamp(1.1rem, 4vw, 1.75rem) 1.4rem;
+  display: grid; gap: .35rem; position: relative; overflow: hidden; transition: border-color .5s var(--ease);
+}
+.estimate::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 2px; background: var(--champagne); opacity: .35; transition: opacity .5s var(--ease); }
+.estimate[data-etat="ok"] { border-color: var(--champagne); }
+.estimate[data-etat="ok"]::before { opacity: 1; }
+.estimate__label { margin: 0; font-size: .66rem; letter-spacing: .22em; text-transform: uppercase; color: var(--gris); }
+.estimate__amount { margin: .1rem 0 0; font: 400 clamp(2.2rem, 9vw, 2.9rem)/1.05 var(--f-display); color: var(--ivoire); font-variant-numeric: lining-nums; }
+.estimate[data-etat="ok"] .estimate__amount { color: var(--champagne-clair); animation: rise .6s var(--ease); }
+.estimate[data-etat="devis"] .estimate__amount { font-size: clamp(1.7rem, 7vw, 2.1rem); font-style: italic; color: var(--champagne-clair); }
+.estimate[data-etat="attente"] .estimate__amount, .estimate[data-etat="erreur"] .estimate__amount { color: var(--gris); }
+.estimate[data-etat="calcul"] .estimate__amount { color: var(--gris); animation: pulse 1.2s ease-in-out infinite; }
+.estimate__meta { margin: 0; font-size: var(--s-sm); color: var(--ivoire-doux); }
+.estimate[data-etat="erreur"] .estimate__meta { color: var(--erreur); }
+.estimate__note { margin: .55rem 0 0; padding-top: .7rem; border-top: 1px solid var(--filet); font-size: .76rem; line-height: 1.55; color: var(--gris); font-style: italic; }
+@keyframes pulse { 50% { opacity: .35; } }
+.form__estimate { margin: -1rem 0 -1.1rem; font-size: var(--s-sm); color: var(--ivoire-doux); }
+.form__estimate strong { color: var(--champagne-clair); font-weight: 400; }
+
 .hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
 .turnstile:empty { display: none; }
 .form__actions { display: grid; gap: .7rem; }
+.form__actions .btn--main { justify-content: center; }
 .form__status { margin-top: -1rem; padding: 1rem 1.15rem; border: 1px solid var(--erreur); color: var(--ivoire); font-size: var(--s-sm); }
 .form__status .st { display: block; color: var(--erreur); font-weight: 400; margin-bottom: .25rem; }
 .form__status .tel { color: var(--champagne-clair); white-space: nowrap; }
@@ -405,6 +438,7 @@ body.menu-open { overflow: hidden; }
 
 .recap { border: 1px solid var(--filet-fort); padding: clamp(1.5rem, 6vw, 2.5rem); background: var(--noir-2); animation: rise .8s var(--ease); }
 .recap:focus { outline: none; }
+.recap, .form { scroll-margin-top: 5.5rem; }
 .recap__list { margin: 0 0 2rem; display: grid; }
 .recap__list div { display: grid; grid-template-columns: 7.5rem 1fr; gap: 1rem; padding: .7rem 0; border-bottom: 1px solid var(--filet); }
 .recap__list dt { font-size: .68rem; letter-spacing: .2em; text-transform: uppercase; color: var(--gris); padding-top: .2rem; }
@@ -503,6 +537,7 @@ body.menu-open { overflow: hidden; }
   .reach { grid-template-columns: 1fr 1fr; }
   .hero__contact { display: flex; flex-wrap: wrap; gap: 0 1.6rem; max-width: 46rem; }
   .form__actions { grid-template-columns: 1fr 1fr; }
+  .form__actions .btn--main { grid-column: 1 / -1; }
   .services__list { grid-template-columns: repeat(3, 1fr); }
   .service { padding: 1.75rem 1.5rem 1.9rem; }
 }

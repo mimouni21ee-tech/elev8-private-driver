@@ -9,7 +9,7 @@
 <meta name="theme-color" content="#0c0b09">
 <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;1,6..96,400&family=Jost:wght@300;400&display=swap">
-<link rel="stylesheet" href="assets/css/style.css?v=20261115a">
+<link rel="stylesheet" href="assets/css/style.css?v=20261117a">
 </head>
 <body class="legal-page">
 <header class="top">
@@ -27,13 +27,13 @@
   <p><strong data-c="legal.raisonSociale"></strong> — <span data-c="legal.adresse"></span><br>Contact : <span data-c="contact.email"></span></p>
 
   <h2>Deux façons de nous envoyer une demande</h2>
-  <p><strong>« Envoyer ma demande »</strong> : les informations du formulaire sont transmises de façon chiffrée (HTTPS) à un service d'envoi qui les adresse par e-mail au chauffeur. Le site ne conserve aucune copie dans une base de données.</p>
+  <p><strong>« Demander la réservation »</strong> : les informations du formulaire sont transmises de façon chiffrée (HTTPS) à un service d'envoi qui les adresse par e-mail au chauffeur. Aucun paiement n'est demandé. Le site ne conserve aucune copie dans une base de données : seul un identifiant aléatoire de la demande et sa référence, sans aucune donnée personnelle, sont gardés 24 heures pour éviter un double envoi.</p>
   <p><strong>« Contacter via WhatsApp »</strong> : le site prépare un message dans WhatsApp sur votre téléphone. Rien n'est transmis tant que vous n'appuyez pas sur « Envoyer » dans l'application. L'échange relève alors des conditions de WhatsApp (WhatsApp Ireland Limited, groupe Meta).</p>
 
   <h2>Données collectées</h2>
   <ul>
     <li>Identité et contact : nom, prénom, numéro de téléphone (obligatoires), adresse e-mail (facultative).</li>
-    <li>Trajet : prestation, date, heure, adresses de départ et de destination, nombre de passagers, véhicule souhaité, numéro de vol ou de train (facultatif), précisions éventuelles.</li>
+    <li>Trajet : prestation, date, heure, adresses de départ et de destination, date et heure du retour (aller-retour), nombre de passagers et de bagages, véhicule souhaité, numéro de vol ou de train (facultatif), informations complémentaires éventuelles, estimation tarifaire calculée par le site.</li>
     <li>Origine de la visite : le libellé du lien par lequel vous êtes arrivé sur le site (par exemple « QR code à bord » ou le nom d'une campagne), s'il en contient un. Cette information est lue dans l'adresse de la page et jointe à votre demande ; elle n'est ni stockée dans votre navigateur ni utilisée pour vous suivre.</li>
     <li>Données techniques de sécurité : votre adresse IP sert à limiter le nombre d'envois par visiteur. Elle n'est jamais enregistrée en clair : seule une empreinte chiffrée (HMAC), impossible à reconvertir en adresse IP, est conservée le temps du contrôle. Aucune donnée saisie dans le formulaire n'est écrite dans les journaux techniques de l'application.</li>
   </ul>
@@ -53,6 +53,7 @@
     <li>Réception des demandes : la messagerie électronique du professionnel (<span data-c="legal.messagerie"></span>).</li>
     <li>Polices de caractères : Google Fonts (Google Ireland Limited), qui reçoit votre adresse IP lors de l'affichage du site.</li>
     <li>Suggestions d'adresses : lorsque vous saisissez un lieu de départ ou de destination, notre serveur transmet uniquement le texte saisi (sans votre adresse IP ni aucune autre information) à un service de recherche d'adresses, Google Maps Platform (Google Ireland Limited) ou, à défaut, la Géoplateforme de l'IGN et le service Photon de komoot GmbH (données OpenStreetMap). Ce texte n'est pas conservé par le site.</li>
+    <li>Estimation du tarif : pour calculer la distance du trajet, notre serveur transmet uniquement les adresses de départ et de destination (sans votre nom, vos coordonnées ni votre adresse IP) à Google Maps Platform (Google Ireland Limited) ou, à défaut, à la Géoplateforme de l'IGN et au service Photon de komoot GmbH. Ces adresses ne sont pas conservées par le site.</li>
     <li data-if="formulaire.turnstileSiteKey">Vérification anti-robot : Cloudflare Turnstile (Cloudflare, Inc.). Au moment de l'envoi, Cloudflare analyse des informations techniques sur votre navigateur et votre adresse IP afin de distinguer une personne d'un robot. Ces informations ne sont pas utilisées à des fins publicitaires.</li>
   </ul>
   <p>Certains de ces prestataires peuvent traiter des données hors de l'Union européenne. Dans ce cas, le transfert est encadré par les garanties prévues par le RGPD (décision d'adéquation ou clauses contractuelles types de la Commission européenne).</p>
@@ -78,7 +79,7 @@
 
   <p>Dernière mise à jour : <span data-c="legal.dateMiseAJour"></span></p>
 </main>
-<script src="config.js?v=20261115a"></script>
+<script src="config.js?v=20261117a"></script>
 <script src="assets/js/legal.js?v=20261016e"></script>
 </body>
 </html>

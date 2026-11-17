@@ -1,0 +1,29 @@
+✓ moteur de calcul identique à la préproduction ; grille ELEV8 du 17 nov. 2026
+✓ jour, Tesla : 8,3 km × 1,90 € = 15,77 € → minimum 20 €
+✓ jour, Tesla, 15 km : 15 × 1,90 € = 28,50 €
+✓ jour, Classe V : minimum 20 € appliqué
+✓ nuit (20 h) : 8,3 × 2,75 = 22,83 €
+✓ dimanche (22 nov. 2026, 10 h) : tarif majoré
+✓ jour férié (25 déc. 2026) : tarif majoré
+✓ court trajet de nuit : minimum 15 € (Confort)
+✓ « Pas de préférence » : Confort jusqu'à 4 passagers, Van au-delà
+✓ aller-retour : chaque trajet calculé séparément (jour 20 € + nuit 22,83 €)
+✓ retour avant l'aller : refusé
+✓ hors zone (Genève) : sur devis, aucun montant
+✓ mise à disposition : sur devis, sans calcul d'itinéraire
+✓ relais gratuit (Google refusé) : même prix via IGN
+✓ adresse introuvable : erreur explicite (la demande reste possible)
+✓ date passée : refusée
+✓ jeton : accepté pour la même demande, refusé si le montant, l'adresse ou le véhicule changent
+✓ /estimation : renvoie le montant et un jeton, sans aucune donnée personnelle demandée
+✓ /estimation : autre origine refusée
+✓ demande sans paiement : e-mail complet, statut « en attente de validation », estimation du serveur
+✓ montant falsifié dans le navigateur : ignoré, recalculé par le serveur
+✓ double clic / renvoi : un seul e-mail, même référence
+✓ échec d'envoi : la demande peut être renvoyée
+✓ hors zone : demande transmise « tarif à établir », sans montant
+✓ calcul indisponible : la demande part quand même
+✓ aller-retour : retour avant l'aller refusé par le serveur
+✓ identifiant anti-doublon : format et durée de validité contrôlés
+
+27 test(s) réussi(s)
