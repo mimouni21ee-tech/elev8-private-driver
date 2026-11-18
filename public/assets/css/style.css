@@ -925,7 +925,10 @@ html.has-intro.intro-skip:not(.is-bord) .route__stop { animation-delay: var(--d,
 .resa-pro__lien { color: var(--champagne-clair); text-decoration: underline; text-decoration-color: var(--filet-fort); text-underline-offset: .25em; padding-block: .5rem; }
 .resa-pro__actions { margin: .35rem 0 0; display: flex; flex-wrap: wrap; gap: .25rem 1.25rem; font-size: var(--s-sm); }
 .resa-pro__actions a { color: var(--ivoire-doux); text-decoration: none; padding-block: .55rem; border-bottom: 1px solid var(--filet-fort); }
-.form__urgent { margin: -1.15rem 0 -.5rem; padding: 0 .5rem; text-align: center; font-size: .78rem; font-style: italic; letter-spacing: .02em; line-height: 1.5; color: var(--gris); }
+/* Boutons « Appeler ELEV8 » et « WhatsApp » du formulaire : petit sous-texte dans le bouton */
+.btn--sous { flex-direction: column; gap: .45rem; padding-block: .9rem; min-height: 4.25rem; }
+.btn__ligne { display: inline-flex; align-items: center; justify-content: center; gap: .75rem; }
+.btn__sous { font: italic 300 .72rem/1.25 var(--f-body); letter-spacing: .02em; text-transform: none; opacity: .72; text-align: center; }
 .sent__vcf { justify-content: center; }
 #sent .recap__actions { display: grid; gap: .9rem; justify-items: start; }
 /* Téléphone : le formulaire arrive vite (étapes masquées, intro resserrée) */

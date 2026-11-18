@@ -172,13 +172,12 @@
         <p class="form__estimate" id="estRecap" hidden></p>
         <div class="form__actions">
           <button class="btn btn--solid btn--main" type="submit" id="sendBtn"><span data-c="reservation.boutonEnvoyer">Demander ma réservation</span></button>
-          <a class="btn btn--quiet" id="formCall" href="tel:+33626927218"><svg viewBox="0 0 24 24" aria-hidden="true" width="18" height="18"><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" d="M5.2 3.5h3.1l1.5 4-2 1.3a11 11 0 0 0 5.4 5.4l1.3-2 4 1.5v3.1a2 2 0 0 1-2.1 2A16.5 16.5 0 0 1 3.2 5.6a2 2 0 0 1 2-2.1Z"/></svg><span data-c="reservation.boutonAppeler">Appeler ELEV8</span></a>
-          <button class="btn btn--gold" type="button" id="waBtn">
-            <svg class="i-wa" viewBox="0 0 24 24" aria-hidden="true" width="18" height="18"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2c-1.5 0-3-.4-4.3-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3c-.2.3-.9.9-.9 2.2s1 2.6 1.1 2.7c.1.2 1.9 2.9 4.6 4 1.7.7 2.4.8 3.2.7.5-.1 1.5-.6 1.8-1.2.2-.6.2-1.1.1-1.2l-.4-.2Z"/></svg>
-            <span data-c="reservation.boutonWhatsApp">WhatsApp</span>
+          <a class="btn btn--quiet btn--sous" id="formCall" href="tel:+33626927218"><span class="btn__ligne"><svg viewBox="0 0 24 24" aria-hidden="true" width="18" height="18"><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" d="M5.2 3.5h3.1l1.5 4-2 1.3a11 11 0 0 0 5.4 5.4l1.3-2 4 1.5v3.1a2 2 0 0 1-2.1 2A16.5 16.5 0 0 1 3.2 5.6a2 2 0 0 1 2-2.1Z"/></svg><span data-c="reservation.boutonAppeler">Appeler ELEV8</span></span><span class="btn__sous" data-c="reservation.sousTitreAppeler">Pour une demande urgente.</span></a>
+          <button class="btn btn--gold btn--sous" type="button" id="waBtn">
+            <span class="btn__ligne"><svg class="i-wa" viewBox="0 0 24 24" aria-hidden="true" width="18" height="18"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2c-1.5 0-3-.4-4.3-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3c-.2.3-.9.9-.9 2.2s1 2.6 1.1 2.7c.1.2 1.9 2.9 4.6 4 1.7.7 2.4.8 3.2.7.5-.1 1.5-.6 1.8-1.2.2-.6.2-1.1.1-1.2l-.4-.2Z"/></svg><span data-c="reservation.boutonWhatsApp">WhatsApp</span></span>
+            <span class="btn__sous" data-c="reservation.sousTitreWhatsApp">Pour échanger directement.</span>
           </button>
         </div>
-        <p class="form__urgent" data-c="reservation.aideUrgence">Pour une demande urgente, appelez-nous directement.</p>
         <div class="form__status" id="formStatus" role="alert" hidden></div>
         <p class="form__note" data-html="reservation.noteConfidentialite"></p>
       </form>

@@ -164,7 +164,8 @@ window.SITE_CONFIG = {
     messageWhatsAppDirect: "Bonjour ELEV8, je souhaite des renseignements pour un trajet.",
     boutonEnvoyer: "Demander ma réservation",      // Bouton principal : demande gratuite, sans paiement
     boutonAppeler: "Appeler ELEV8",
-    aideUrgence: "Pour une demande urgente, appelez-nous directement.",
+    sousTitreAppeler: "Pour une demande urgente.",       // petit texte sous « Appeler ELEV8 », dans le bouton
+    sousTitreWhatsApp: "Pour échanger directement.",     // petit texte sous « WhatsApp », dans le bouton
     boutonFicheContact: "Enregistrer ELEV8 dans mes contacts",   // proposé après l'envoi réussi d'une demande
     boutonWhatsApp: "WhatsApp",                    // Envoie le détail du formulaire (et l'estimation) dans WhatsApp
     /* Estimation affichée dans le formulaire (calculée par le serveur, jamais modifiable par le client) */
