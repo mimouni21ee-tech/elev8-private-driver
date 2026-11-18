@@ -44,6 +44,7 @@ const MAX_BODY = 12_000;           // octets
 
 import { RULES, openStore, keyFor, ipFingerprint, consume } from "../lib/ratelimit.mjs";
 import { estimer, verifier, deps as estDeps, ZONE_ESTIMATION } from "../lib/estimation.mjs";
+import { magasin as magasinDemandes, enregistrer as enregistrerDemande, supprimer as supprimerDemande } from "../lib/demandes.mjs";
 
 const ESTIMATION_MAX_MS = 6000;    // recalcul de l'estimation : au-delà, la demande part « tarif à établir »
 
@@ -164,23 +165,15 @@ export function texteEstimation(est) {
   return `Tarif à établir par ELEV8 — ${MOTIFS_DEVIS[(est && est.motif) || "indisponible"] || MOTIFS_DEVIS.indisponible}`;
 }
 
-/* Lien vers la page /documents (réservée à ELEV8) : les informations de la demande sont
-   placées après « # » (jamais envoyées à un serveur) et préremplissent le devis et la facture. */
-export function lienDocuments(d, ref, est, origin) {
-  const vehicule = /pas de préférence/i.test(d.vehicule || "") && est && est.vehicule ? est.vehicule : d.vehicule;
-  const data = {
-    v: 1, ref, recu: new Date().toLocaleDateString("fr-FR", { timeZone: "Europe/Paris" }),
-    client: { prenom: d.prenom, nom: d.nom, societe: d.societe || "", email: d.email || "", telephone: d.telephone },
-    prestation: { date: d.date, heure: d.heure, depart: d.depart, destination: d.destination, allerRetour: !!d.allerRetour,
-      dateRetour: d.dateRetour || "", heureRetour: d.heureRetour || "", vehicule, passagers: d.passagers,
-      bagages: d.bagages == null ? "" : d.bagages, precisions: d.precisions || "", reference: d.reference || "",
-      distanceKm: est && est.statut === "estimation" ? est.distanceKm : "" },
-    montant: est && est.statut === "estimation" && est.montant > 0 ? est.montant : null
-  };
-  return `${origin}/documents/#d=${Buffer.from(JSON.stringify(data), "utf8").toString("base64url")}`;
+/* Lien vers la page /documents (réservée à ELEV8). Il ne contient qu'un identifiant opaque :
+   la demande est enregistrée côté serveur (netlify/lib/demandes.mjs) et n'est lisible
+   qu'après authentification. Aucune donnée personnelle dans l'adresse. */
+export function lienDocuments(idDemande, origin, etape = "") {
+  if (!idDemande) return "";
+  return `${origin}/documents/?r=${encodeURIComponent(idDemande)}${etape ? "&etape=" + etape : ""}`;
 }
 
-export function buildEmail(d, ref, brand, est = null, origin = "https://elev8privatedriver.com") {
+export function buildEmail(d, ref, brand, est = null, origin = "https://elev8privatedriver.com", idDemande = "") {
   const rows = [
     ["Référence", ref],
     ["Statut", "Demande reçue — en attente de validation par ELEV8"],
@@ -208,7 +201,9 @@ export function buildEmail(d, ref, brand, est = null, origin = "https://elev8pri
   /* Validation du tarif : page protégée /documents (rubrique 4), préremplie avec cette demande.
      ELEV8 y saisit le tarif DÉFINITIF (pas l'estimation), coche la disponibilité vérifiée, ajoute
      éventuellement un lien de paiement Indy vérifié, puis ouvre l'e-mail ou le WhatsApp du client. */
-  const lienValidation = lienDocuments(d, ref, est, origin) + "&etape=validation";
+  const lienValidation = lienDocuments(idDemande, origin, "validation");
+  const lienDocs = lienDocuments(idDemande, origin);
+  const sansLien = "Ouvrez " + origin + "/documents/ et saisissez la référence " + ref + " (enregistrement momentanément indisponible : si elle est introuvable, saisissez la demande manuellement).";
   const montantSujet = est && est.statut === "estimation" && est.montant > 0 ? euros(est.montant) : "tarif à établir";
   const subject = `[À valider] Demande ${ref} — ${d.date.split("-").reverse().join("/")} ${d.heure.replace(":", "h")} — ${d.prenom} ${d.nom}${d.societe ? ` (${d.societe})` : ""} — ${montantSujet}`;
   const etapes = "À FAIRE : vérifier la disponibilité et les informations complémentaires, puis « Valider le tarif » : " +
@@ -217,8 +212,8 @@ export function buildEmail(d, ref, brand, est = null, origin = "https://elev8pri
   const text = `Nouvelle demande de réservation reçue depuis le site ${brand}.\n${etapes}\n\n` +
     rows.map(([k, v]) => `${k} : ${v}`).join("\n") +
     `\n\nAppeler : ${d.telephone}\nWhatsApp : https://wa.me/${d.telephone.replace(/\D/g, "")}\n` +
-    `\n--- Valider le tarif et préparer le message au client (e-mail ou WhatsApp) ---\n${lienValidation}\n` +
-    `\n--- Devis et facture PDF (préremplis avec cette demande) ---\n${lienDocuments(d, ref, est, origin)}\n`;
+    `\n--- Valider le tarif et préparer le message au client (e-mail ou WhatsApp) ---\n${lienValidation || sansLien}\n` +
+    `\n--- Devis et facture PDF (préremplis avec cette demande, après connexion) ---\n${lienDocs || sansLien}\n`;
   const lien = (href, label, plein) => `<a href="${esc(href)}" style="display:inline-block;margin:0 6px 8px 0;padding:11px 16px;${plein ? "background:#1b1814;color:#e4d6b8" : "border:1px solid #1b1814;color:#1b1814"};text-decoration:none;font-size:13px;letter-spacing:.06em">${esc(label)}</a>`;
 
   const html = `<!doctype html><html lang="fr"><body style="margin:0;background:#f4f1ec;font-family:Helvetica,Arial,sans-serif;color:#1b1814">
@@ -234,10 +229,10 @@ ${rows.map(([k, v]) => { const fort = k === "Estimation" || (k === "Informations
 <a href="https://wa.me/${esc(d.telephone.replace(/\D/g, ""))}" style="display:inline-block;padding:12px 18px;margin-left:6px;border:1px solid #1b1814;color:#1b1814;text-decoration:none;font-size:13px;letter-spacing:.1em">WhatsApp</a>
 </p>
 <p style="margin:22px 0 8px;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#8a7650">Valider le tarif et répondre au client</p>
-<p style="margin:0 0 6px">${lien(lienValidation, "Valider le tarif (e-mail ou WhatsApp au client)", true)}</p>
+<p style="margin:0 0 6px">${lienValidation ? lien(lienValidation, "Valider le tarif (e-mail ou WhatsApp au client)", true) : esc(sansLien)}</p>
 <p style="margin:0;font-size:12px;color:#7a7266">Vous saisissez le tarif définitif, et si vous le souhaitez un lien de paiement Indy. Le message au client (e-mail ou WhatsApp) est préparé, à relire et modifier avant l'envoi.</p>
 <p style="margin:22px 0 8px;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#8a7650">Devis et facture PDF</p>
-<p style="margin:0 0 6px">${lien(lienDocuments(d, ref, est, origin), "Préparer le devis ou la facture", false)}</p>
+<p style="margin:0 0 6px">${lienDocs ? lien(lienDocs, "Préparer le devis ou la facture", false) : ""}</p>
 <p style="margin:0;font-size:12px;color:#7a7266">Toutes les informations de cette demande sont reprises : complétez seulement l'adresse de facturation et le tarif validé. La facture s'établit après la prestation.</p>
 </div></body></html>`;
   return { subject, text, html };
@@ -392,10 +387,16 @@ export default async (req, context) => {
       if (r && r.modified === false) return json(409, { ok: false, error: "pending" });   // envoi simultané du même formulaire
     } catch { /* stockage indisponible : envoi sans anti-doublon */ }
   }
+  /* Enregistrement sécurisé de la demande (préremplissage du devis, de la validation et de la facture).
+     En cas d'indisponibilité, la demande part quand même par e-mail (sans lien de préremplissage). */
+  let idDemande = "", stDemandes = null;
+  try { stDemandes = magasinDemandes(); idDemande = await enregistrerDemande(stDemandes, { ref, d: data, est }); }
+  catch (e) { console.error("Enregistrement de la demande impossible :", String(e && e.message).slice(0, 60)); idDemande = ""; }
   try {
-    await sendEmail({ ...buildEmail(data, ref, env("MAIL_FROM_NAME") || "ELEV8 Private Driver", est, new URL(req.url).origin), replyTo: data.email || "" });
+    await sendEmail({ ...buildEmail(data, ref, env("MAIL_FROM_NAME") || "ELEV8 Private Driver", est, new URL(req.url).origin, idDemande), replyTo: data.email || "" });
   } catch (e) {
     console.error("Envoi impossible :", String(e && e.message).slice(0, 80)); // aucune donnée client
+    if (idDemande && stDemandes) await supprimerDemande(stDemandes, { id: idDemande, ref });
     if (idem && store) { try { await store.delete(idem); } catch { /* ignoré */ } }
     return json(502, { ok: false, error: "send" });
   }

@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { PDFDocument } from "pdf-lib";
 import handler, { deps, config as configFonction } from "../netlify/functions/documents.mjs";
 import { montants, manquants, emetteur } from "../netlify/lib/documents.mjs";
-import { buildEmail, lienDocuments } from "../netlify/functions/reservation.mjs";
+import { buildEmail } from "../netlify/functions/reservation.mjs";
 
 let ok = 0;
 const t = async (nom, f) => { try { await f(); ok++; console.log("✓ " + nom); } catch (e) { console.error("✗ " + nom + "\n  " + (e && e.stack || e)); process.exitCode = 1; } };
@@ -188,20 +188,93 @@ await t("envoi par e-mail : PDF joint, copie à ELEV8 ; facture non émise refus
   const dv = await appel({ action: "envoyer", type: "devis", doc: doc(), destinataire: "autre@example.test" });
   assert.equal(dv.envoye, "autre@example.test"); assert.match(envoyes[1].subject, /devis provisoire D-E8-261118-ABC/);
 });
-await t("e-mail de demande : lien « Préparer le devis ou la facture » prérempli (société comprise)", async () => {
-  const d = { prenom: "Claire", nom: "Martin", societe: "Domaine des Coteaux SARL", telephone: "+33612345678", email: "claire@example.test",
-    date: "2026-11-20", heure: "09:30", depart: "Gare de Dijon", destination: "Nuits-Saint-Georges", allerRetour: false, passagers: 2, bagages: 1,
-    vehicule: "Pas de préférence", precisions: "", reference: "", prestation: "", origine: { code: "", libelle: "", utm: {} } };
-  const est = { statut: "estimation", montant: 45.6, distanceKm: 24, vehicule: "Tesla Model Y", lignes: [] };
-  const lien = lienDocuments(d, "E8-261118-XYZ", est, "https://elev8privatedriver.com");
-  assert.match(lien, /^https:\/\/elev8privatedriver\.com\/documents\/#d=[A-Za-z0-9_-]+$/);
-  const data = JSON.parse(Buffer.from(lien.split("#d=")[1], "base64url").toString());
-  assert.equal(data.client.societe, "Domaine des Coteaux SARL"); assert.equal(data.montant, 45.6); assert.equal(data.prestation.vehicule, "Tesla Model Y");
-  const m = buildEmail(d, "E8-261118-XYZ", "ELEV8 Private Driver", est, "https://elev8privatedriver.com");
-  assert.ok(m.text.includes("Société : Domaine des Coteaux SARL")); assert.ok(m.html.includes("Préparer le devis ou la facture"));
-  assert.ok(m.html.includes("Valider le tarif (e-mail ou WhatsApp au client)")); assert.ok(m.html.includes("&amp;etape=validation"));
-  assert.match(m.subject, /Claire Martin \(Domaine des Coteaux SARL\)/);
-  assert.ok(!/facture (définitive|émise)/i.test(m.text), "une demande ne crée jamais de facture");
+/* ---------- Demandes enregistrées côté serveur, session d'administration ---------- */
+const DEM = await import("../netlify/lib/demandes.mjs");
+const { creerSession, sessionOk } = await import("../netlify/functions/documents.mjs");
+DEM.deps.store = (() => {
+  const m = new Map();
+  return { m,
+    async get(k) { return m.has(k) ? structuredClone(m.get(k).d) : null; },
+    async getMetadata(k) { return m.has(k) ? { metadata: m.get(k).meta } : null; },
+    async setJSON(k, d, o = {}) { m.set(k, { d: structuredClone(d), meta: o.metadata }); return { modified: true }; },
+    async delete(k) { m.delete(k); },
+    async list({ prefix }) { return { blobs: [...m.keys()].filter((k) => k.startsWith(prefix)).map((key) => ({ key })) }; } };
+})();
+const demandeType = { prenom: "Claire", nom: "Martin", societe: "Domaine des Coteaux SARL", telephone: "+33612345678", email: "claire@example.test",
+  prestation: "Transferts gares", date: "2026-11-21", heure: "09:30", depart: "Gare de Dijon-Ville, 21000 Dijon", destination: "Beaune, 21200",
+  allerRetour: true, dateRetour: "2026-11-21", heureRetour: "18:00", passagers: 2, bagages: 3, vehicule: "Pas de préférence",
+  precisions: "Siège enfant", reference: "TGV 6703", typeReference: "train", origine: { code: "google-ads", libelle: "Google Ads", utm: {} } };
+const estType = { statut: "estimation", montant: 167.2, distanceKm: 88, dureeMin: 80, vehicule: "Berline Confort — Tesla Model Y ou véhicule de catégorie équivalente", lignes: [] };
+
+await t("demande enregistrée : identifiant opaque, lien sans aucune donnée personnelle, données complètes", async () => {
+  const id = await DEM.enregistrer(DEM.deps.store, { ref: "E8-261119-AAA", d: demandeType, est: estType, now: deps.now() });
+  assert.match(id, /^[A-Za-z0-9_-]{24}$/);
+  const m = buildEmail(demandeType, "E8-261119-AAA", "ELEV8 Private Driver", estType, "https://elev8privatedriver.com", id);
+  const liens = m.text.match(/https:\/\/elev8privatedriver\.com\/documents\/\S*/g);
+  assert.deepEqual(liens, [`https://elev8privatedriver.com/documents/?r=${id}&etape=validation`, `https://elev8privatedriver.com/documents/?r=${id}`]);
+  for (const l of liens) for (const perso of ["Claire", "Martin", "Coteaux", "612345678", "example", "Dijon", "Beaune", "#d="]) assert.ok(!l.includes(perso), "donnée dans le lien : " + perso);
+  assert.ok(m.html.includes("?r=" + id + "&amp;etape=validation"));
+  const r = (await DEM.chargerParId(DEM.deps.store, id, deps.now())).record;
+  assert.equal(r.client.societe, "Domaine des Coteaux SARL"); assert.equal(r.prestation.allerRetour, true); assert.equal(r.prestation.heureRetour, "18:00");
+  assert.equal(r.prestation.bagages, 3); assert.equal(r.prestation.reference, "TGV 6703"); assert.equal(r.prestation.type, "Transferts gares");
+  assert.equal(r.prestation.vehicule, estType.vehicule, "« Pas de préférence » remplacé par la catégorie estimée");
+  assert.equal(r.estimation.montant, 167.2); assert.equal(r.estimation.distanceKm, 88); assert.equal(r.origine, "Google Ads");
+});
+await t("session : connexion par mot de passe → jeton ; jeton accepté, falsifié ou expiré refusé ; changement de mot de passe = déconnexion", async () => {
+  const c = await appel({ action: "connexion", resterConnecte: false });
+  assert.equal(c.ok, true); assert.ok(c.session && !c.session.includes("mot-de-passe"));
+  assert.equal(c.expire - deps.now(), 12 * 3600_000);
+  const viaSession = async (body) => { const r = await handler(req({ ...body, session: c.session }), { ip: "3.3.3.3" }); const j = await r.json(); j.status = r.status; return j; };
+  assert.equal((await viaSession({ action: "verifier" })).ok, true);
+  const p = c.session.split("."); p[1] = String(Number(p[1]) + 1);
+  assert.equal((await handler(req({ action: "verifier", session: p.join(".") }), { ip: "3.3.3.4" })).status, 401);
+  assert.equal(sessionOk(c.session, deps.now() + 13 * 3600_000), false);
+  assert.equal(sessionOk(creerSession(deps.now(), 30 * 86400_000).jeton, deps.now() + 29 * 86400_000), true);
+  const avant = process.env.DOCUMENTS_MOT_DE_PASSE; process.env.DOCUMENTS_MOT_DE_PASSE = "nouveau-mot-de-passe";
+  assert.equal(sessionOk(c.session, deps.now()), false);
+  process.env.DOCUMENTS_MOT_DE_PASSE = avant;
+  const sansMdp = await handler(req({ action: "connexion", session: c.session }), { ip: "3.3.3.5" });
+  assert.equal(sansMdp.status, 401, "une session ne remplace pas le mot de passe pour se connecter");
+});
+await t("chargement : réservé aux personnes connectées (lien seul ou référence seule : refusé)", async () => {
+  const id = await DEM.enregistrer(DEM.deps.store, { ref: "E8-261119-BBB", d: demandeType, est: estType, now: deps.now() });
+  for (const corps of [{ action: "charger", id }, { action: "charger", ref: "E8-261119-BBB" }, { action: "charger", id, session: "v1.0.x.y" }]) {
+    const r = await handler(req(corps), { ip: "4.4.4." + Math.floor(Math.random() * 200) }); const j = await r.json();
+    assert.equal(r.status, 401); assert.equal(j.demande, undefined);
+  }
+});
+await t("chargement par lien et par référence : demande complète ; facture déjà émise signalée", async () => {
+  const id = await DEM.enregistrer(DEM.deps.store, { ref: "E8-261118-ABC", d: demandeType, est: estType, now: deps.now() });
+  const a = await appel({ action: "charger", id });
+  assert.equal(a.ok, true); assert.equal(a.demande.ref, "E8-261118-ABC"); assert.equal(a.demande.client.prenom, "Claire");
+  assert.equal(a.facture.numero, "F-2026-0001", "la facture déjà émise pour cette référence est signalée");
+  const b2 = await appel({ action: "charger", ref: "e8-261118-abc" });
+  assert.equal(b2.ok, true); assert.equal(b2.demande.prestation.destination, "Beaune, 21200");
+});
+await t("liens invalides, inconnus et expirés", async () => {
+  const inv = await appel({ action: "charger", id: "../../etc" }); assert.equal(inv.status, 400);
+  const inc = await appel({ action: "charger", id: "AAAAAAAAAAAAAAAAAAAAAAAA" }); assert.equal(inc.status, 404); assert.match(inc.message, /introuvable/i);
+  const ref = await appel({ action: "charger", ref: "E8-999999-ZZZ" }); assert.equal(ref.status, 404);
+  const id = await DEM.enregistrer(DEM.deps.store, { ref: "E8-251101-OLD", d: { ...demandeType, date: "2025-11-01" }, est: null, now: Date.parse("2025-10-30T10:00:00Z") });
+  const exp = await appel({ action: "charger", id });
+  assert.equal(exp.status, 410); assert.match(exp.message, /expiré/);
+  assert.ok(!DEM.deps.store.m.has("demande/" + id) && !DEM.deps.store.m.has("ref/E8-251101-OLD"), "données supprimées");
+});
+await t("demande sans estimation (sur devis) et données manquantes : chargement sans erreur", async () => {
+  const id = await DEM.enregistrer(DEM.deps.store, { ref: "E8-261119-DEV", d: { ...demandeType, email: "", societe: "", bagages: null, allerRetour: false }, est: { statut: "sur_devis", motif: "hors_zone", vehicule: "x" }, now: deps.now() });
+  const j = await appel({ action: "charger", id });
+  assert.equal(j.ok, true); assert.equal(j.demande.estimation.montant, null); assert.equal(j.demande.client.email, ""); assert.equal(j.demande.prestation.bagages, "");
+});
+await t("nettoyage planifié : demandes expirées supprimées, récentes conservées", async () => {
+  const vieux = await DEM.enregistrer(DEM.deps.store, { ref: "E8-240101-VX1", d: { ...demandeType, date: "2024-01-02" }, est: null, now: Date.parse("2024-01-01T10:00:00Z") });
+  const recent = await DEM.enregistrer(DEM.deps.store, { ref: "E8-261119-REC", d: demandeType, est: null, now: deps.now() });
+  const n = await DEM.nettoyer(DEM.deps.store, deps.now());
+  assert.ok(n >= 1); assert.ok(!DEM.deps.store.m.has("demande/" + vieux)); assert.ok(DEM.deps.store.m.has("demande/" + recent));
+});
+await t("une demande ne crée jamais de facture ; e-mail sans enregistrement possible : texte de secours, aucun lien", async () => {
+  const m = buildEmail(demandeType, "E8-261119-ERR", "ELEV8 Private Driver", estType, "https://elev8privatedriver.com", "");
+  assert.ok(!m.text.includes("?r=")); assert.ok(m.text.includes("saisissez la référence E8-261119-ERR"));
+  assert.ok(!/facture (définitive|émise)/i.test(m.text));
 });
 
 console.log(`\n${ok} test(s) réussi(s)` + (process.exitCode ? " — ÉCHECS ci-dessus" : ""));

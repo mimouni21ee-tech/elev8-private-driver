@@ -4,11 +4,14 @@
    Adresse : POST /documents-api   (appelée par la page /documents)
    ⚠ Ne pas la placer sous /api/ : netlify.toml renvoie en 404, de façon forcée,
      toute adresse /api/* (anciens fichiers PHP) avant même d'appeler la fonction.
-   Accès : mot de passe DOCUMENTS_MOT_DE_PASSE (variable Netlify, 10 caractères minimum).
+   Accès : mot de passe DOCUMENTS_MOT_DE_PASSE (variable Netlify, 10 caractères minimum),
+           échangé contre une session signée (12 h, ou 30 jours si « Rester connecté »).
            Sans cette variable, la fonction est fermée.
 
    Actions :
-     verifier  → contrôle le mot de passe et signale les informations légales manquantes
+     connexion → mot de passe → session ; signale les informations légales manquantes
+     verifier  → contrôle la session (ou le mot de passe)
+     charger   → demande enregistrée (identifiant opaque du lien de l'e-mail, ou référence)
      devis     → renvoie le PDF du devis (rien n'est enregistré)
      facture   → attribue le numéro suivant (F-AAAA-0001…), enregistre la facture,
                  renvoie le PDF. Une facture déjà émise pour la même référence est
@@ -20,9 +23,10 @@
 
    Conservation : magasin Netlify Blobs « elev8-factures » (obligation comptable, 10 ans).
    ========================================================================== */
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { getStore } from "@netlify/blobs";
 import { emetteur, manquants, nettoyer, aCompleter, pdf, montants, aujourdhuiParis, euros } from "../lib/documents.mjs";
+import { magasin as magasinDemandes, chargerParId, chargerParRef } from "../lib/demandes.mjs";
 
 export const config = {
   path: "/documents-api",
@@ -48,6 +52,32 @@ function motDePasseOk(saisi) {
   const h = (x) => createHash("sha256").update("elev8-documents\u0000" + x).digest();
   return timingSafeEqual(h(saisi), h(attendu));
 }
+
+/* ---------- Session d'administration ----------
+   Après le mot de passe, la page reçoit un jeton signé (HMAC) à durée limitée : 12 h, ou 30 jours
+   si « Rester connecté ». Le mot de passe n'est jamais conservé dans le navigateur. Changer
+   DOCUMENTS_MOT_DE_PASSE dans Netlify invalide immédiatement toutes les sessions. */
+const SESSION_COURTE = 12 * 3600_000, SESSION_LONGUE = 30 * 86400_000;
+const cleSession = () => createHmac("sha256", env("DOCUMENTS_MOT_DE_PASSE")).update("elev8-session-v1").digest();
+export function creerSession(now, duree) {
+  const corps = `v1.${now + duree}.${randomBytes(12).toString("base64url")}`;
+  return { jeton: `${corps}.${createHmac("sha256", cleSession()).update(corps).digest("base64url")}`, expire: now + duree };
+}
+export function sessionOk(jeton, now) {
+  if (typeof jeton !== "string" || jeton.length > 200 || env("DOCUMENTS_MOT_DE_PASSE").length < 10) return false;
+  const p = jeton.split(".");
+  if (p.length !== 4 || p[0] !== "v1") return false;
+  const exp = Number(p[1]);
+  if (!Number.isFinite(exp) || exp <= now || exp > now + SESSION_LONGUE + 60_000) return false;
+  const a = Buffer.from(p[3]), b = Buffer.from(createHmac("sha256", cleSession()).update(p.slice(0, 3).join(".")).digest("base64url"));
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+const MESSAGES_DEMANDE = {
+  invalide: [400, "Lien ou référence invalide. Vérifiez la référence (ex. E8-261118-4R8)."],
+  introuvable: [404, "Demande introuvable : lien incorrect, demande reçue avant la mise en service de l'enregistrement automatique, ou supprimée après son délai de conservation. Saisissez-la manuellement."],
+  expiree: [410, "Ce lien a expiré : la demande a dépassé son délai de conservation (12 mois après la date du trajet) et a été supprimée."]
+};
 
 function store() {
   if (deps.store) return deps.store;
@@ -119,12 +149,44 @@ export default async (req, context) => {
   const ip = (context && context.ip) || req.headers.get("x-nf-client-connection-ip") || "inconnue";
   const now = deps.now();
   if (bloque(ip, now)) return json(429, { ok: false, code: "limite", message: "Trop d'essais. Réessayez dans 15 minutes." });
-  if (!motDePasseOk(b && b.motDePasse)) { noterEchec(ip, now); return json(401, { ok: false, code: "acces", message: "Mot de passe incorrect." }); }
+  const parSession = !!(b && b.session) && b.action !== "connexion";
+  if (parSession ? !sessionOk(b.session, now) : !motDePasseOk(b && b.motDePasse)) {
+    noterEchec(ip, now);
+    return json(401, { ok: false, code: "acces", message: parSession ? "Session expirée : saisissez à nouveau le mot de passe." : "Mot de passe incorrect." });
+  }
+
+  /* ----- Chargement d'une demande enregistrée (identifiant opaque du lien, ou référence) ----- */
+  if (b.action === "charger") {
+    let res;
+    try {
+      const st = magasinDemandes();
+      res = b.id ? await chargerParId(st, b.id, now) : await chargerParRef(st, b.ref, now);
+    } catch (e) {
+      console.error("Demandes illisibles :", String(e && e.message).slice(0, 60));
+      return json(503, { ok: false, code: "stockage", message: "Lecture des demandes momentanément impossible. Réessayez." });
+    }
+    if (res.erreur) { const [st, msg] = MESSAGES_DEMANDE[res.erreur]; return json(st, { ok: false, code: res.erreur, message: msg }); }
+    const r = res.record;
+    // Facture déjà émise pour cette référence ? (une seule facture par demande)
+    let facture = null;
+    try {
+      const lien = await store().get("ref/" + r.ref, { type: "json" });
+      if (lien && lien.numero) {
+        const f = await store().get("facture/" + lien.numero, { type: "json" });
+        if (f) facture = { numero: f.numero, dateEmission: f.dateEmission, total: f.montants && f.montants.ttc };
+      }
+    } catch { /* information facultative */ }
+    return json(200, { ok: true, demande: { ref: r.ref, recu: r.recu, client: r.client, prestation: r.prestation, estimation: r.estimation, origine: r.origine }, facture });
+  }
 
   let C;
   try { C = await chargerConfig(url.origin); } catch (e) { console.error("config.js illisible :", String(e && e.message).slice(0, 60)); return json(502, { ok: false, code: "config", message: "Lecture des informations d'ELEV8 (config.js) impossible. Réessayez dans un instant." }); }
   const E = emetteur(C), manque = manquants(E);
   const action = b.action;
+  if (action === "connexion") {
+    const s = creerSession(now, b.resterConnecte === true ? SESSION_LONGUE : SESSION_COURTE);
+    return json(200, { ok: true, session: s.jeton, expire: s.expire, emetteurIncomplet: manque });
+  }
   if (action === "verifier") return json(200, { ok: true, emetteurIncomplet: manque });
 
   if (!["devis", "facture", "envoyer"].includes(action)) return json(400, { ok: false, code: "action", message: "Action inconnue." });

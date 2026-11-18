@@ -191,7 +191,7 @@ window.SITE_CONFIG = {
     },
     introMessage: "Bonjour, je souhaite faire une demande de réservation :",
     // Si vous modifiez legal.dureeDemandes, adaptez aussi la durée citée ici.
-    noteConfidentialite: "Les champs sans mention « facultatif » sont nécessaires. « Demander ma réservation » est gratuit et sans engagement : aucun paiement n'est demandé. Ce bouton transmet vos informations par e-mail à ELEV8 Private Driver, via notre prestataire d'envoi, uniquement pour traiter votre demande ; elles sont conservées au plus 12 mois si la demande reste sans suite. Vous pouvez y accéder ou demander leur suppression : <a href=\"/confidentialite.html\">politique de confidentialité</a>.",
+    noteConfidentialite: "Les champs sans mention « facultatif » sont nécessaires. « Demander ma réservation » est gratuit et sans engagement : aucun paiement n'est demandé. Ce bouton transmet vos informations par e-mail à ELEV8 Private Driver, via notre prestataire d'envoi, et les enregistre de façon sécurisée (accès réservé à ELEV8), uniquement pour traiter votre demande ; elles sont conservées au plus 12 mois si la demande reste sans suite. Vous pouvez y accéder ou demander leur suppression : <a href=\"/confidentialite.html\">politique de confidentialité</a>.",
     noteWhatsApp: "WhatsApp s'ouvre avec votre message prérempli. Il ne part qu'après avoir appuyé sur « Envoyer » dans l'application, et l'échange est alors traité par WhatsApp (groupe Meta) selon ses propres conditions.",
     indicatifParDefaut: "+33"
   },

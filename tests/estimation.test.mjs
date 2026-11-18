@@ -194,6 +194,7 @@ await t("/estimation : autre origine refusée", async () => {
 const envoyes = [];
 resDeps.send = async (m) => { envoyes.push(m); };
 const store = fauxStore(); resDeps.store = store;
+const DEM = await import("../netlify/lib/demandes.mjs"); DEM.deps.store = fauxStore();
 const demande = (extra = {}) => ({ ...base, nom: "Martin", prenom: "Claire", telephone: "+33612345678", email: "claire@example.test", bagages: "2",
   precisions: "Remorque à vélo, attente 10 min", duree: 9000, website: "", origine: { code: "carte", libelle: "Carte de visite", utm: {} }, ...extra });
 const idDemande = () => Math.floor(Date.now() / 1000) + "-" + Math.random().toString(36).slice(2, 16).padEnd(14, "x");
@@ -213,7 +214,8 @@ await t("demande sans paiement : e-mail complet, statut « en attente de validat
   assert.ok(!/acompte|paiement requis/i.test(m.text));
   assert.match(m.subject, /^\[À valider\] Demande E8-/);
   assert.ok(m.html.includes("Valider le tarif (e-mail ou WhatsApp au client)"));
-  assert.match(m.text, /\/documents\/#d=[A-Za-z0-9_-]+&etape=validation/);
+  assert.match(m.text, /\/documents\/\?r=[A-Za-z0-9_-]{24}&etape=validation/);
+  assert.ok(!/#d=/.test(m.text), "aucune donnée personnelle encodée dans les liens");
   assert.ok(!/Bonjour Claire/.test(m.text), "l'e-mail à ELEV8 ne contient plus de message client préécrit avec l'estimation");
 });
 await t("montant falsifié dans le navigateur : ignoré, recalculé par le serveur", async () => {

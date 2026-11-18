@@ -11,12 +11,12 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;0,6..96,500;1,6..96,400&family=Jost:wght@300;400;500&display=swap">
-<link rel="stylesheet" href="/assets/css/style.css?v=20261119b">
+<link rel="stylesheet" href="/assets/css/style.css?v=20261119c">
 </head>
 <body class="page-resa page-docs">
 <!-- Page réservée à ELEV8 (non référencée) : devis et factures PDF.
-     Ouverte depuis le lien « Préparer le devis ou la facture » de chaque e-mail de demande :
-     les informations de la demande sont dans l'adresse (après #) et préremplissent le formulaire.
+     Ouverte depuis les liens de chaque e-mail de demande (?r=<identifiant opaque>) : après connexion,
+     la demande enregistrée côté serveur est chargée et préremplit tout (rien dans l'adresse).
      Les PDF sont produits par la fonction Netlify /documents-api (mot de passe DOCUMENTS_MOT_DE_PASSE). -->
 <header class="top is-solid resa-top">
   <a class="brand" href="/" aria-label="ELEV8 Private Driver — accueil du site">
@@ -30,13 +30,13 @@
   <h1 class="resa-intro__title docs__title">Devis <em>&amp; factures</em></h1>
 
   <section class="docs__lock" id="lock">
-    <p class="docs__text">Réservé à ELEV8. Saisissez le mot de passe défini dans Netlify (DOCUMENTS_MOT_DE_PASSE).</p>
+    <p class="docs__text">Réservé à ELEV8. Saisissez le mot de passe défini dans Netlify (DOCUMENTS_MOT_DE_PASSE). La demande liée au lien de l'e-mail se chargera automatiquement.</p>
     <form id="lockForm" class="docs__lockform">
       <div class="field field--full">
         <label for="d-mdp">Mot de passe</label>
         <input id="d-mdp" type="password" autocomplete="current-password" required>
       </div>
-      <label class="check" for="d-souvenir"><input id="d-souvenir" type="checkbox"><span class="check__box" aria-hidden="true"></span><span>Rester connecté sur cet appareil</span></label>
+      <label class="check" for="d-souvenir"><input id="d-souvenir" type="checkbox"><span class="check__box" aria-hidden="true"></span><span>Rester connecté sur cet appareil (30 jours)</span></label>
       <button class="btn btn--solid" type="submit"><span>Ouvrir</span></button>
       <p class="docs__msg" id="lockMsg" role="alert"></p>
     </form>
@@ -44,8 +44,20 @@
 
   <form class="form docs__form" id="docForm" novalidate hidden>
     <p class="docs__alerte" id="emetteurMsg" hidden></p>
+    <div class="docs__ouvrir">
+      <div class="field">
+        <label for="d-chercher">Ouvrir une demande par sa référence</label>
+        <input id="d-chercher" type="text" maxlength="40" autocapitalize="characters" spellcheck="false" placeholder="E8-261118-4R8">
+      </div>
+      <button class="btn btn--quiet" type="button" id="btnCharger"><span>Charger</span></button>
+    </div>
     <p class="docs__text" id="sourceMsg"></p>
 
+    <!-- Récapitulatif de la demande chargée (rempli par documents.js) -->
+    <section class="docs__recap" id="recapDemande" aria-label="Récapitulatif de la demande" hidden></section>
+
+    <details class="docs__edition" id="edition" open>
+    <summary id="editionTitre">Informations du client et du trajet</summary>
     <fieldset class="form__group">
       <legend><span class="legend__n">1</span>Client</legend>
           <div class="field">
@@ -63,18 +75,6 @@
           <div class="field">
             <label for="d-nom">Nom</label>
             <input id="d-nom" type="text" maxlength="60">
-          </div>
-          <div class="field field--full">
-            <label for="d-adresse">Adresse de facturation <span class="opt docs__req">obligatoire pour la facture</span></label>
-            <textarea id="d-adresse" rows="2" maxlength="300" placeholder="N°, rue, code postal, ville (et pays)"></textarea>
-          </div>
-          <div class="field">
-            <label for="d-siren">SIREN / SIRET du client <span class="opt">facultatif</span></label>
-            <input id="d-siren" type="text" maxlength="40" inputmode="numeric">
-          </div>
-          <div class="field">
-            <label for="d-tvaintra">N° TVA intracommunautaire <span class="opt">facultatif</span></label>
-            <input id="d-tvaintra" type="text" maxlength="40">
           </div>
           <div class="field">
             <label for="d-email">E-mail <span class="opt">facultatif</span></label>
@@ -139,10 +139,12 @@
           </div>
     </fieldset>
 
+    </details>
+
     <fieldset class="form__group">
-      <legend><span class="legend__n">3</span>Tarif</legend>
+      <legend><span class="legend__n">3</span>Tarif définitif</legend>
           <div class="field field--full">
-            <label for="d-montant">Prix du trajet, TTC (€)</label>
+            <label for="d-montant">Prix du trajet, TTC (€) <span class="opt">l'estimation est proposée : confirmez ou modifiez</span></label>
             <input id="d-montant" type="text" inputmode="decimal" maxlength="10" placeholder="Ex. 45,60">
             <p class="field__help" id="estimMsg"></p>
           </div>
@@ -153,9 +155,25 @@
           <p class="field__help field--full" id="totalMsg"></p>
     </fieldset>
 
+    <fieldset class="form__group">
+      <legend><span class="legend__n">4</span>Facturation <span class="opt">à compléter si nécessaire</span></legend>
+          <div class="field field--full">
+            <label for="d-adresse">Adresse de facturation <span class="opt docs__req">obligatoire pour la facture</span></label>
+            <textarea id="d-adresse" rows="2" maxlength="300" placeholder="N°, rue, code postal, ville (et pays)"></textarea>
+          </div>
+          <div class="field">
+            <label for="d-siren">SIREN / SIRET du client <span class="opt">facultatif</span></label>
+            <input id="d-siren" type="text" maxlength="40" inputmode="numeric">
+          </div>
+          <div class="field">
+            <label for="d-tvaintra">N° TVA intracommunautaire <span class="opt">facultatif</span></label>
+            <input id="d-tvaintra" type="text" maxlength="40">
+          </div>
+    </fieldset>
+
     <!-- Validation du tarif : message au client (e-mail ou WhatsApp), relu et modifiable avant l'envoi -->
     <fieldset class="form__group" id="validation">
-      <legend><span class="legend__n">4</span>Validation du tarif <span class="opt">message au client</span></legend>
+      <legend><span class="legend__n">5</span>Validation du tarif <span class="opt">message au client</span></legend>
           <div class="field field--full">
             <label for="v-type">Message</label>
             <select id="v-type">
@@ -214,7 +232,7 @@
     </fieldset>
 
     <fieldset class="form__group">
-      <legend><span class="legend__n">5</span>Devis</legend>
+      <legend><span class="legend__n">6</span>Devis</legend>
           <div class="field field--full field--check">
             <label class="check" for="d-valide"><input id="d-valide" type="checkbox"><span class="check__box" aria-hidden="true"></span><span>Tarif validé par ELEV8 (sinon : « devis provisoire »)</span></label>
           </div>
@@ -228,7 +246,7 @@
     </fieldset>
 
     <fieldset class="form__group">
-      <legend><span class="legend__n">6</span>Facture <span class="opt">après la prestation</span></legend>
+      <legend><span class="legend__n">7</span>Facture <span class="opt">après la prestation</span></legend>
           <div class="field">
             <label for="d-dateprestation">Date de la prestation</label>
             <input id="d-dateprestation" type="date" >
@@ -286,6 +304,6 @@
 </main>
 
 <script src="/config.js?v=20261118b"></script>
-<script src="/assets/js/documents.js?v=20261119b"></script>
+<script src="/assets/js/documents.js?v=20261119c"></script>
 </body>
 </html>
