@@ -925,7 +925,7 @@ html.has-intro.intro-skip:not(.is-bord) .route__stop { animation-delay: var(--d,
 .resa-pro__lien { color: var(--champagne-clair); text-decoration: underline; text-decoration-color: var(--filet-fort); text-underline-offset: .25em; padding-block: .5rem; }
 .resa-pro__actions { margin: .35rem 0 0; display: flex; flex-wrap: wrap; gap: .25rem 1.25rem; font-size: var(--s-sm); }
 .resa-pro__actions a { color: var(--ivoire-doux); text-decoration: none; padding-block: .55rem; border-bottom: 1px solid var(--filet-fort); }
-.form__urgent { margin: -.9rem 0 -.6rem; font-size: .78rem; color: var(--gris); }
+.form__urgent { margin: -1.15rem 0 -.5rem; padding: 0 .5rem; text-align: center; font-size: .78rem; font-style: italic; letter-spacing: .02em; line-height: 1.5; color: var(--gris); }
 .sent__vcf { justify-content: center; }
 #sent .recap__actions { display: grid; gap: .9rem; justify-items: start; }
 /* Téléphone : le formulaire arrive vite (étapes masquées, intro resserrée) */
