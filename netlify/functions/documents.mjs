@@ -1,7 +1,9 @@
 /* ==========================================================================
    ELEV8 Private Driver — devis et factures (réservé à ELEV8)
    --------------------------------------------------------------------------
-   Adresse : POST /api/documents   (appelée par la page /documents)
+   Adresse : POST /documents-api   (appelée par la page /documents)
+   ⚠ Ne pas la placer sous /api/ : netlify.toml renvoie en 404, de façon forcée,
+     toute adresse /api/* (anciens fichiers PHP) avant même d'appeler la fonction.
    Accès : mot de passe DOCUMENTS_MOT_DE_PASSE (variable Netlify, 10 caractères minimum).
            Sans cette variable, la fonction est fermée.
 
@@ -23,7 +25,7 @@ import { getStore } from "@netlify/blobs";
 import { emetteur, manquants, nettoyer, aCompleter, pdf, montants, aujourdhuiParis, euros } from "../lib/documents.mjs";
 
 export const config = {
-  path: "/api/documents",
+  path: "/documents-api",
   rateLimit: { windowLimit: 30, windowSize: 60, aggregateBy: ["ip", "domain"] }
 };
 
@@ -105,31 +107,33 @@ async function envoyerEmail({ to, subject, text, html, fichier, contenu }) {
 const esc = (x) => String(x).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 export default async (req, context) => {
-  if (req.method !== "POST") return json(405, { ok: false, code: "methode" });
+  if (req.method !== "POST") return json(405, { ok: false, code: "methode", message: "Méthode non autorisée." });
   const url = new URL(req.url);
   const origin = req.headers.get("origin");
-  if (origin && origin !== url.origin && !env("ALLOWED_ORIGINS").split(",").map((x) => x.trim()).includes(origin)) return json(403, { ok: false, code: "origine" });
+  if (origin && origin !== url.origin && !env("ALLOWED_ORIGINS").split(",").map((x) => x.trim()).includes(origin)) return json(403, { ok: false, code: "origine", message: "Requête refusée : ouvrez la page /documents depuis l'adresse officielle du site." });
   if (env("DOCUMENTS_MOT_DE_PASSE").length < 10) return json(503, { ok: false, code: "ferme", message: "Accès non configuré : créez la variable Netlify DOCUMENTS_MOT_DE_PASSE (10 caractères minimum), puis redéployez." });
 
   let b;
-  try { const raw = await req.text(); if (raw.length > MAX_BODY) return json(413, { ok: false, code: "taille" }); b = JSON.parse(raw); }
-  catch { return json(400, { ok: false, code: "format" }); }
+  try { const raw = await req.text(); if (raw.length > MAX_BODY) return json(413, { ok: false, code: "taille", message: "Données trop volumineuses." }); b = JSON.parse(raw); }
+  catch { return json(400, { ok: false, code: "format", message: "Requête illisible. Rechargez la page." }); }
   const ip = (context && context.ip) || req.headers.get("x-nf-client-connection-ip") || "inconnue";
   const now = deps.now();
   if (bloque(ip, now)) return json(429, { ok: false, code: "limite", message: "Trop d'essais. Réessayez dans 15 minutes." });
   if (!motDePasseOk(b && b.motDePasse)) { noterEchec(ip, now); return json(401, { ok: false, code: "acces", message: "Mot de passe incorrect." }); }
 
   let C;
-  try { C = await chargerConfig(url.origin); } catch (e) { console.error("config.js illisible :", String(e && e.message).slice(0, 60)); return json(502, { ok: false, code: "config" }); }
+  try { C = await chargerConfig(url.origin); } catch (e) { console.error("config.js illisible :", String(e && e.message).slice(0, 60)); return json(502, { ok: false, code: "config", message: "Lecture des informations d'ELEV8 (config.js) impossible. Réessayez dans un instant." }); }
   const E = emetteur(C), manque = manquants(E);
   const action = b.action;
   if (action === "verifier") return json(200, { ok: true, emetteurIncomplet: manque });
 
-  if (!["devis", "facture", "envoyer"].includes(action)) return json(400, { ok: false, code: "action" });
+  if (!["devis", "facture", "envoyer"].includes(action)) return json(400, { ok: false, code: "action", message: "Action inconnue." });
   if (manque.length) return json(422, { ok: false, code: "emetteur", manque,
     message: "Informations légales d'ELEV8 à compléter dans public/config.js (rubrique legal) : " + manque.join(" ; ") + "." });
 
   const type = action === "envoyer" ? (b.type === "facture" ? "facture" : "devis") : action;
+  if (type === "facture" && E.facturation === "indy")
+    return json(409, { ok: false, code: "facturation_indy", message: "Les factures sont établies dans Indy (réglage legal.facturation de config.js) : aucune facture n'est créée ici, pour éviter une double numérotation." });
   const doc = nettoyer(b.doc);
   const st = type === "facture" ? store() : null;
 

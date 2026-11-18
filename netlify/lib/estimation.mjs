@@ -43,11 +43,14 @@ const reDate = /^\d{4}-\d{2}-\d{2}$/, reHeure = /^([01]\d|2[0-3]):[0-5]\d$/;
    « Pas de préférence » → Confort jusqu'à 4 passagers, Van au-delà. */
 export function categorie(vehicule, passagers) {
   const v = String(vehicule || "");
-  if (/classe\s*v|viano|\bvan\b/i.test(v)) return "van";
-  if (/tesla|model\s*y/i.test(v)) return "confort";
+  if (/classe\s*v|viano|\bvan\b/i.test(v)) return "van";            // « Van Premium — Mercedes Classe V… »
+  if (/tesla|model\s*y|berline/i.test(v)) return "confort";           // « Berline Confort — Tesla Model Y… »
   return (+passagers || 1) > 4 ? "van" : "confort";
 }
-export const LIBELLE_CATEGORIE = { confort: "Tesla Model Y", van: "Mercedes-Benz Classe V" };
+export const LIBELLE_CATEGORIE = {
+  confort: "Berline Confort — Tesla Model Y ou véhicule de catégorie équivalente",
+  van: "Van Premium — Mercedes Classe V ou véhicule de catégorie équivalente"
+};
 
 /* ---------- Heure de Paris → instant (heures d'été et d'hiver) ---------- */
 export function instantParis(date, heure) {
@@ -177,7 +180,7 @@ export function entree(b) {
     allerRetour: b.allerRetour === true,
     dateRetour: b.allerRetour === true ? clean(b.dateRetour, 10) : "",
     heureRetour: b.allerRetour === true ? clean(b.heureRetour, 5) : "",
-    vehicule: clean(b.vehicule, 60),
+    vehicule: clean(b.vehicule, 100),
     passagers: Number.parseInt(b.passagers, 10) || 1
   };
 }

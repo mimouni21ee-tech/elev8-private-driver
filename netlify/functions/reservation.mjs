@@ -97,7 +97,7 @@ export function validate(b) {
     heureRetour: b.allerRetour === true ? str(b.heureRetour, 5) : "",
     passagers: Number.parseInt(b.passagers, 10),
     bagages: b.bagages === "" || b.bagages == null ? null : Number.parseInt(b.bagages, 10),
-    vehicule: str(b.vehicule, 60),
+    vehicule: str(b.vehicule, 100),
     nom: str(b.nom, 80),
     prenom: str(b.prenom, 80),
     telephone: str(b.telephone, 20),
@@ -164,19 +164,6 @@ export function texteEstimation(est) {
   return `Tarif à établir par ELEV8 — ${MOTIFS_DEVIS[(est && est.motif) || "indisponible"] || MOTIFS_DEVIS.indisponible}`;
 }
 
-/* Messages prêts à envoyer au client (e-mail ou WhatsApp) pour les étapes de validation */
-export function messagesClient(d, ref, est, brand) {
-  const quand = `${frDate(d.date).toLowerCase()} à ${d.heure.replace(":", "h")}`;
-  const trajet = `de ${d.depart} à ${d.destination}${d.allerRetour ? " (aller-retour)" : ""}`;
-  const montant = est && est.statut === "estimation" && est.montant > 0 ? euros(est.montant) : "";
-  const fin = `\n\nMerci de nous répondre « J'accepte » pour valider ce tarif : nous vous confirmerons alors votre réservation.\n\n${brand}`;
-  return {
-    confirmer: montant ? `Bonjour ${d.prenom},\n\nMerci pour votre demande ${ref} du ${quand}, ${trajet}.\n\nNous avons vérifié la disponibilité de votre chauffeur : le tarif de votre trajet est confirmé à ${montant}.${fin}` : "",
-    ajuster: `Bonjour ${d.prenom},\n\nMerci pour votre demande ${ref} du ${quand}, ${trajet}.\n\nAprès vérification, le tarif de votre trajet est de [MONTANT] €${montant ? ` (estimation initiale : ${montant})` : ""}, en raison de [PRÉCISION].${fin}`,
-    sujet: `${brand} — votre demande ${ref}`
-  };
-}
-
 /* Lien vers la page /documents (réservée à ELEV8) : les informations de la demande sont
    placées après « # » (jamais envoyées à un serveur) et préremplissent le devis et la facture. */
 export function lienDocuments(d, ref, est, origin) {
@@ -218,27 +205,22 @@ export function buildEmail(d, ref, brand, est = null, origin = "https://elev8pri
     ["Origine", d.origine.libelle || d.origine.code || "Accès direct"],
     ...(Object.keys(d.origine.utm).length ? [["UTM", Object.entries(d.origine.utm).map(([k, v]) => `${k}=${v}`).join(" · ")]] : [])
   ];
-  const msg = messagesClient(d, ref, est, brand);
-  const waClient = (t) => `https://wa.me/${d.telephone.replace(/\D/g, "")}?text=${encodeURIComponent(t)}`;
-  const mailClient = (t) => `mailto:${d.email}?subject=${encodeURIComponent(msg.sujet)}&body=${encodeURIComponent(t)}`;
+  /* Validation du tarif : page protégée /documents (rubrique 4), préremplie avec cette demande.
+     ELEV8 y saisit le tarif DÉFINITIF (pas l'estimation), coche la disponibilité vérifiée, ajoute
+     éventuellement un lien de paiement Indy vérifié, puis ouvre l'e-mail ou le WhatsApp du client. */
+  const lienValidation = lienDocuments(d, ref, est, origin) + "&etape=validation";
   const montantSujet = est && est.statut === "estimation" && est.montant > 0 ? euros(est.montant) : "tarif à établir";
   const subject = `[À valider] Demande ${ref} — ${d.date.split("-").reverse().join("/")} ${d.heure.replace(":", "h")} — ${d.prenom} ${d.nom}${d.societe ? ` (${d.societe})` : ""} — ${montantSujet}`;
-  const etapes = "À FAIRE : vérifier la disponibilité et les informations complémentaires, puis confirmer le tarif estimé " +
-    "ou proposer un tarif ajusté. La réservation n'est confirmée qu'après l'accord du client sur le tarif final " +
-    "et votre confirmation. Le client n'a rien payé.";
+  const etapes = "À FAIRE : vérifier la disponibilité et les informations complémentaires, puis « Valider le tarif » : " +
+    "vous saisissez le tarif définitif (et, si vous le souhaitez, un lien de paiement Indy) et le message au client est préparé. " +
+    "La réservation n'est confirmée qu'après l'accord ou le règlement du client et votre confirmation. Le client n'a rien payé.";
   const text = `Nouvelle demande de réservation reçue depuis le site ${brand}.\n${etapes}\n\n` +
     rows.map(([k, v]) => `${k} : ${v}`).join("\n") +
     `\n\nAppeler : ${d.telephone}\nWhatsApp : https://wa.me/${d.telephone.replace(/\D/g, "")}\n` +
-    (msg.confirmer ? `\n--- Message pour confirmer le tarif estimé ---\n${msg.confirmer}\n` : "") +
-    `\n--- Message pour proposer un tarif ajusté (à compléter) ---\n${msg.ajuster}\n` +
+    `\n--- Valider le tarif et préparer le message au client (e-mail ou WhatsApp) ---\n${lienValidation}\n` +
     `\n--- Devis et facture PDF (préremplis avec cette demande) ---\n${lienDocuments(d, ref, est, origin)}\n`;
   const lien = (href, label, plein) => `<a href="${esc(href)}" style="display:inline-block;margin:0 6px 8px 0;padding:11px 16px;${plein ? "background:#1b1814;color:#e4d6b8" : "border:1px solid #1b1814;color:#1b1814"};text-decoration:none;font-size:13px;letter-spacing:.06em">${esc(label)}</a>`;
-  const blocMessages = [
-    ...(msg.confirmer ? [lien(waClient(msg.confirmer), "Confirmer le tarif par WhatsApp", true)] : []),
-    ...(msg.confirmer && d.email ? [lien(mailClient(msg.confirmer), "Confirmer le tarif par e-mail", false)] : []),
-    lien(waClient(msg.ajuster), "Proposer un tarif ajusté (WhatsApp)", false),
-    ...(d.email ? [lien(mailClient(msg.ajuster), "Proposer un tarif ajusté (e-mail)", false)] : [])
-  ].join("");
+
   const html = `<!doctype html><html lang="fr"><body style="margin:0;background:#f4f1ec;font-family:Helvetica,Arial,sans-serif;color:#1b1814">
 <div style="max-width:560px;margin:0 auto;padding:28px 20px">
 <p style="margin:0 0 4px;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#8a7650">${esc(brand)}</p>
@@ -251,10 +233,11 @@ ${rows.map(([k, v]) => { const fort = k === "Estimation" || (k === "Informations
 <a href="tel:${esc(d.telephone)}" style="display:inline-block;padding:12px 18px;background:#1b1814;color:#e4d6b8;text-decoration:none;font-size:13px;letter-spacing:.1em">Appeler ${esc(d.telephone)}</a>
 <a href="https://wa.me/${esc(d.telephone.replace(/\D/g, ""))}" style="display:inline-block;padding:12px 18px;margin-left:6px;border:1px solid #1b1814;color:#1b1814;text-decoration:none;font-size:13px;letter-spacing:.1em">WhatsApp</a>
 </p>
-<p style="margin:22px 0 8px;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#8a7650">Répondre au client (message prérempli, modifiable avant l'envoi)</p>
-<p style="margin:0">${blocMessages}</p>
+<p style="margin:22px 0 8px;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#8a7650">Valider le tarif et répondre au client</p>
+<p style="margin:0 0 6px">${lien(lienValidation, "Valider le tarif (e-mail ou WhatsApp au client)", true)}</p>
+<p style="margin:0;font-size:12px;color:#7a7266">Vous saisissez le tarif définitif, et si vous le souhaitez un lien de paiement Indy. Le message au client (e-mail ou WhatsApp) est préparé, à relire et modifier avant l'envoi.</p>
 <p style="margin:22px 0 8px;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#8a7650">Devis et facture PDF</p>
-<p style="margin:0 0 6px">${lien(lienDocuments(d, ref, est, origin), "Préparer le devis ou la facture", true)}</p>
+<p style="margin:0 0 6px">${lien(lienDocuments(d, ref, est, origin), "Préparer le devis ou la facture", false)}</p>
 <p style="margin:0;font-size:12px;color:#7a7266">Toutes les informations de cette demande sont reprises : complétez seulement l'adresse de facturation et le tarif validé. La facture s'établit après la prestation.</p>
 </div></body></html>`;
   return { subject, text, html };

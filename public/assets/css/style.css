@@ -242,6 +242,7 @@ body.menu-open { overflow: hidden; }
 }
 .car__cat { margin: 0 0 .4rem; font-size: var(--s-xs); letter-spacing: .24em; text-transform: uppercase; color: var(--champagne); }
 .car__name { font: 400 clamp(1.9rem, 6vw, 2.5rem)/1.1 var(--f-display); margin: 0 0 .9rem; }
+.car__sous { margin: -.5rem 0 .9rem; font-size: var(--s-sm); font-style: italic; color: var(--champagne-clair); }
 .car__desc { color: var(--gris); margin: 0 0 1.4rem; max-width: 30rem; }
 .car__specs { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--filet); margin: 0 0 1.6rem; }
 .car__specs div { padding: .9rem 0; border-bottom: 1px solid var(--filet); }
@@ -939,3 +940,7 @@ html.has-intro.intro-skip:not(.is-bord) .route__stop { animation-delay: var(--d,
   .resa-intro__title { font-size: clamp(2rem, 9vw, 2.6rem); margin-bottom: .8rem; }
   .resa-booking { padding-top: 1rem; }
 }
+.docs__apercu { display: grid; gap: 1.2rem; margin-top: .5rem; padding-top: 1.2rem; border-top: 1px solid var(--filet); }
+.docs__apercu textarea { font-size: .9rem; line-height: 1.55; }
+.docs .btn[aria-disabled="true"] { opacity: .45; pointer-events: none; }
+.docs .form__group, .docs__apercu, .docs__result { scroll-margin-top: 5.5rem; }

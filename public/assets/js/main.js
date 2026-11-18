@@ -65,8 +65,8 @@
   $("#bordCars").innerHTML = (C.flotte.vehicules || []).map(function (v) {
     return '<a class="bcar" href="#reservation" data-pick="' + esc(v.id) + '">' +
       '<span class="bcar__media"><img src="' + esc(v.image) + '" alt="' + esc(v.imageAlt || v.nom) + '" loading="lazy" decoding="async"></span>' +
-      '<span class="bcar__name">' + esc(v.nom) + "</span>" +
-      '<span class="bcar__meta">' + esc(v.categorie) + (v.passagersMax ? " · jusqu'à " + v.passagersMax + " passagers" : "") + "</span></a>";
+      '<span class="bcar__name">' + esc(v.titre || v.nom) + "</span>" +
+      '<span class="bcar__meta">' + esc(v.sousTitre || v.categorie) + (v.passagersMax ? " · jusqu'à " + v.passagersMax + " passagers" : "") + "</span></a>";
   }).join("");
   $("#bordZones").innerHTML = (B.zones || []).map(function (z) { return "<li>" + esc(z) + "</li>"; }).join("");
   $("#bordServices").innerHTML = (C.prestations.liste || []).filter(function (sv) { return sv.afficherDansListe !== false; })
@@ -122,8 +122,9 @@
       '<div class="car__media"><img src="' + esc(v.image) + '" alt="' + esc(v.imageAlt || v.nom) + '" loading="lazy" decoding="async">' +
       (C.flotte.afficherMentionPhotoProvisoire ? '<span class="car__tag">Photo provisoire</span>' : "") + "</div>" +
       "<div>" +
-      '<p class="car__cat">' + esc(v.categorie) + "</p>" +
-      '<h3 class="car__name">' + esc(v.nom) + "</h3>" +
+      (v.categorie ? '<p class="car__cat">' + esc(v.categorie) + "</p>" : "") +
+      '<h3 class="car__name">' + esc(v.titre || v.nom) + "</h3>" +
+      (v.sousTitre ? '<p class="car__sous">' + esc(v.sousTitre) + "</p>" : "") +
       '<p class="car__desc">' + esc(v.description) + "</p>" +
       (specs ? '<dl class="car__specs">' + specs + "</dl>" : "") +
       '<a class="btn btn--gold" href="/reservation?vehicule=' + encodeURIComponent(v.id) + '" data-resa data-pick="' + esc(v.id) + '"><span>Choisir ce véhicule</span></a>' +

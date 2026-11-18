@@ -96,6 +96,20 @@ await t("court trajet de nuit : minimum 15 € (Confort)", async () => {
   assert.equal((await EST.estimer({ ...base, heure: "23:00" })).montant, 15);
   EST._reset(); EST.deps.fetch = fauxFetch();
 });
+await t("catégories de véhicules : Berline Confort / Van Premium (anciennes et nouvelles appellations)", async () => {
+  const B = "Berline Confort — Tesla Model Y ou véhicule de catégorie équivalente", V = "Van Premium — Mercedes Classe V ou véhicule de catégorie équivalente";
+  assert.equal(EST.categorie(B, 2), "confort"); assert.equal(EST.categorie(V, 2), "van");
+  assert.equal(EST.categorie("Tesla Model Y", 2), "confort"); assert.equal(EST.categorie("Mercedes-Benz Classe V", 2), "van");
+  assert.deepEqual(EST.LIBELLE_CATEGORIE, { confort: B, van: V });
+  const r = await EST.estimer({ ...base, vehicule: B });
+  assert.equal(r.vehicule, B); assert.equal(r.montant, 20);
+  const rv = await EST.estimer({ ...base, vehicule: V, heure: "21:00" });
+  assert.equal(rv.vehicule, V); assert.equal(rv.montant, 26.98);
+  // le libellé public de config.js correspond exactement à celui de l'estimation
+  const { readFileSync } = await import("node:fs");
+  const cfg = readFileSync(new URL("../public/config.js", import.meta.url), "utf8");
+  assert.ok(cfg.includes('nom: "' + B + '"') && cfg.includes('nom: "' + V + '"'));
+});
 await t("« Pas de préférence » : Confort jusqu'à 4 passagers, Van au-delà", async () => {
   assert.equal((await EST.estimer({ ...base, vehicule: "Pas de préférence", passagers: 4 })).categorie, "confort");
   assert.equal((await EST.estimer({ ...base, vehicule: "Pas de préférence", passagers: 5 })).categorie, "van");
@@ -198,7 +212,9 @@ await t("demande sans paiement : e-mail complet, statut « en attente de validat
   assert.ok(!/réservation (est )?confirmée/i.test(m.text), "l'e-mail ne doit jamais annoncer une réservation confirmée");
   assert.ok(!/acompte|paiement requis/i.test(m.text));
   assert.match(m.subject, /^\[À valider\] Demande E8-/);
-  assert.ok(m.html.includes("Proposer un tarif ajusté"));
+  assert.ok(m.html.includes("Valider le tarif (e-mail ou WhatsApp au client)"));
+  assert.match(m.text, /\/documents\/#d=[A-Za-z0-9_-]+&etape=validation/);
+  assert.ok(!/Bonjour Claire/.test(m.text), "l'e-mail à ELEV8 ne contient plus de message client préécrit avec l'estimation");
 });
 await t("montant falsifié dans le navigateur : ignoré, recalculé par le serveur", async () => {
   envoyes.length = 0;

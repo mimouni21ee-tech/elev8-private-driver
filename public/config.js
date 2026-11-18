@@ -93,13 +93,16 @@ window.SITE_CONFIG = {
     vehicules: [
       {
         id: "tesla",
-        nom: "Tesla Model Y",
-        nomCourt: "Model Y",                // Affiché dans le choix du formulaire
-        categorie: "SUV 100 % électrique",
+        /* Catégorie de véhicule : certaines courses sont assurées par des chauffeurs partenaires.
+           Un véhicule équivalent respecte le confort, la capacité et la qualité de prestation annoncés. */
+        nom: "Berline Confort — Tesla Model Y ou véhicule de catégorie équivalente",   // repris dans l'estimation, les e-mails, devis et factures
+        titre: "Berline Confort",            // titre de la fiche (rubrique Flotte)
+        sousTitre: "Tesla Model Y ou véhicule de catégorie équivalente",
+        nomCourt: "Berline Confort",        // Affiché dans le choix du formulaire
+        categorie: "",                      // surtitre facultatif de la fiche
         description: "Silencieux et spacieux, idéal pour les trajets en ville, les transferts et les déplacements professionnels.",
         passagersMax: 4,                    // À vérifier selon votre configuration
         caracteristiques: [
-          { label: "Motorisation", valeur: "Électrique" },
           { label: "Passagers", valeur: "Jusqu'à 4" }
         ],
         image: "assets/img/tesla-model-y.jpg?v=3",
@@ -107,13 +110,14 @@ window.SITE_CONFIG = {
       },
       {
         id: "classe-v",
-        nom: "Mercedes-Benz Classe V",
-        nomCourt: "Classe V",
-        categorie: "Van grand confort",
+        nom: "Van Premium — Mercedes Classe V ou véhicule de catégorie équivalente",
+        titre: "Van Premium",
+        sousTitre: "Mercedes Classe V ou véhicule de catégorie équivalente",
+        nomCourt: "Van Premium",
+        categorie: "",
         description: "Un espace généreux pour voyager à plusieurs, en famille ou entre collaborateurs, avec vos bagages.",
         passagersMax: 7,                    // À vérifier selon votre configuration
         caracteristiques: [
-          { label: "Format", valeur: "Van" },
           { label: "Passagers", valeur: "Jusqu'à 7" }
         ],
         image: "assets/img/mercedes-classe-v.jpg?v=2",
@@ -273,6 +277,9 @@ window.SITE_CONFIG = {
     regimeTVA: "assujetti",                  // n° de TVA intracommunautaire fourni : TVA facturée
     tauxTVA: 10,                             // transport de personnes (VTC) : 10 %. Les prix du site sont des prix TTC.
     modesPaiement: "carte bancaire ou virement bancaire",
+    facturation: "site",                     // "site" : factures F-AAAA-0001… établies sur /documents ;
+                                             // "indy" : factures établies dans Indy (le site ne fait plus que les devis).
+                                             // Une course = une seule facture, jamais dans les deux outils.
     penalitesRetard: "",                     // vide = « trois fois le taux d'intérêt légal »
     registreVTC: "[Numéro d'inscription au registre des exploitants VTC]",
     directeurPublication: "[Prénom Nom]",

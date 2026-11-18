@@ -27,6 +27,7 @@ export function emetteur(C) {
     nom: String(L.raisonSociale || "").trim(),
     nomCommercial: String(L.nomCommercial || "").trim(),
     modesPaiement: String(L.modesPaiement || "").trim(),
+    facturation: String(L.facturation || "site").trim().toLowerCase(),   // "site" ou "indy"
     forme: String(L.formeJuridique || "").trim(),
     adresse: String(L.adresse || "").trim(),
     siret: String(L.siret || "").trim(),
@@ -108,7 +109,7 @@ export function nettoyer(d) {
       designation: s(p.designation, 300), date: date(p.date), heure: reHeure.test(s(p.heure, 5)) ? s(p.heure, 5) : "",
       depart: s(p.depart, 200), destination: s(p.destination, 200), allerRetour: p.allerRetour === true,
       dateRetour: date(p.dateRetour), heureRetour: reHeure.test(s(p.heureRetour, 5)) ? s(p.heureRetour, 5) : "",
-      vehicule: s(p.vehicule, 60), passagers: Math.max(0, Math.min(20, parseInt(p.passagers, 10) || 0)),
+      vehicule: s(p.vehicule, 100), passagers: Math.max(0, Math.min(20, parseInt(p.passagers, 10) || 0)),
       bagages: p.bagages === "" || p.bagages == null ? null : Math.max(0, Math.min(30, parseInt(p.bagages, 10) || 0)),
       precisions: s(p.precisions, 600), reference: s(p.reference, 30), distanceKm: +p.distanceKm > 0 ? Math.round(+p.distanceKm * 10) / 10 : null
     },
@@ -118,7 +119,7 @@ export function nettoyer(d) {
       .filter((x) => x.libelle && x.montant > 0 && x.montant <= 10000),
     devis: { valide: v.valide === true, validiteJours: Math.max(1, Math.min(90, parseInt(v.validiteJours, 10) || 15)) },
     facture: { datePrestation: date(f.datePrestation), paye: f.paye === true, datePaiement: date(f.datePaiement),
-      modePaiement: s(f.modePaiement, 40), echeanceJours: Math.max(0, Math.min(60, parseInt(f.echeanceJours, 10) || 0)) }
+      modePaiement: s(f.modePaiement, 40), referencePaiement: s(f.referencePaiement, 60), echeanceJours: Math.max(0, Math.min(60, parseInt(f.echeanceJours, 10) || 0)) }
   };
 }
 /* Contrôles avant production (renvoie la liste des champs à compléter) */
@@ -306,7 +307,7 @@ export async function pdf(type, doc, e, meta = {}) {
   if (type === "facture") {
     besoin(60); etiquette("Paiement", M, y); y -= 6; filet(y); y -= 15;
     const fa = doc.facture;
-    if (fa.paye) bloc("Facture acquittée le " + dateFr(fa.datePaiement) + " — règlement par " + fa.modePaiement + ".", M, W - 2 * M, { font: F.b });
+    if (fa.paye) bloc("Facture acquittée le " + dateFr(fa.datePaiement) + " — règlement par " + fa.modePaiement + (fa.referencePaiement ? " (référence : " + fa.referencePaiement + ")" : "") + ".", M, W - 2 * M, { font: F.b });
     else {
       const ech = ajouterJours(meta.dateEmission, fa.echeanceJours);
       bloc("Date d'échéance : " + dateFr(ech) + (fa.echeanceJours === 0 ? " (paiement à réception)" : "") + "." + (e.modesPaiement ? " Règlement par " + e.modesPaiement + "." : fa.modePaiement ? " Mode de règlement : " + fa.modePaiement + "." : ""), M, W - 2 * M);

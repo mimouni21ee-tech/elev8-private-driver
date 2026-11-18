@@ -1,4 +1,4 @@
-/* Tests automatisés : devis et factures PDF (fonction /api/documents).
+/* Tests automatisés : devis et factures PDF (fonction /documents-api).
    Lancement : node tests/documents.test.mjs   (aucun service extérieur : stockage et e-mail simulés) */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -6,7 +6,7 @@ import { writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PDFDocument } from "pdf-lib";
-import handler, { deps } from "../netlify/functions/documents.mjs";
+import handler, { deps, config as configFonction } from "../netlify/functions/documents.mjs";
 import { montants, manquants, emetteur } from "../netlify/lib/documents.mjs";
 import { buildEmail, lienDocuments } from "../netlify/functions/reservation.mjs";
 
@@ -34,7 +34,7 @@ deps.store = fauxStore(); deps.config = CONF();
 const envoyes = []; deps.send = async (m) => { envoyes.push(m); };
 deps.now = () => Date.parse("2026-11-20T18:00:00Z");
 
-const req = (body, h = {}) => new Request("https://elev8privatedriver.com/api/documents", { method: "POST", headers: { "content-type": "application/json", origin: "https://elev8privatedriver.com", ...h }, body: JSON.stringify(body) });
+const req = (body, h = {}) => new Request("https://elev8privatedriver.com/documents-api", { method: "POST", headers: { "content-type": "application/json", origin: "https://elev8privatedriver.com", ...h }, body: JSON.stringify(body) });
 const appel = async (body, ip = "1.1.1.1") => { const r = await handler(req({ motDePasse: "mot-de-passe-de-test", ...body }), { ip }); const j = await r.json(); j.status = r.status; return j; };
 const doc = (extra = {}) => ({ ref: "E8-261118-ABC",
   client: { prenom: "Claire", nom: "Martin", societe: "Domaine des Coteaux SARL", adresse: "12 route des Grands Crus, 21700 Nuits-Saint-Georges", siren: "123 456 789", email: "claire@example.test", telephone: "+33612345678" },
@@ -43,6 +43,23 @@ const doc = (extra = {}) => ({ ref: "E8-261118-ABC",
 const dossier = mkdtempSync(join(tmpdir(), "elev8-docs-"));
 const texte = (b64, nom) => { const f = join(dossier, nom); writeFileSync(f, Buffer.from(b64, "base64")); return execFileSync("pdftotext", ["-layout", f, "-"]).toString().replace(/\s+/g, " "); };
 
+await t("adresse de la fonction hors de /api/* (renvoyé en 404 par netlify.toml) et identique à celle de la page", async () => {
+  const { readFileSync } = await import("node:fs");
+  const toml = readFileSync(new URL("../netlify.toml", import.meta.url), "utf8");
+  const bloques = [...toml.matchAll(/from\s*=\s*"([^"]+)"/g)].map((m) => m[1].replace(/\*$/, ""));
+  assert.equal(configFonction.path, "/documents-api");
+  assert.ok(!bloques.some((b) => configFonction.path.startsWith(b)), "la fonction est masquée par une redirection de netlify.toml");
+  const page = readFileSync(new URL("../public/assets/js/documents.js", import.meta.url), "utf8");
+  assert.ok(page.includes('var API = "' + configFonction.path + '"'), "la page n'appelle pas l'adresse de la fonction");
+});
+await t("toutes les réponses d'erreur ont un message lisible", async () => {
+  for (const [r, attendu] of [[new Request("https://elev8privatedriver.com/documents-api", { method: "GET" }), 405],
+    [new Request("https://elev8privatedriver.com/documents-api", { method: "POST", body: "pas du json" }), 400],
+    [new Request("https://elev8privatedriver.com/documents-api", { method: "POST", headers: { origin: "https://autre.example" }, body: "{}" }), 403]]) {
+    const res = await handler(r, { ip: "2.2.2.2" }); const j = await res.json();
+    assert.equal(res.status, attendu); assert.ok(j.message && j.message.length > 5, "message absent pour " + attendu);
+  }
+});
 await t("accès refusé sans le bon mot de passe ; fermé si la variable est absente", async () => {
   const r = await handler(req({ action: "verifier", motDePasse: "faux" }), { ip: "9.9.9.9" });
   assert.equal(r.status, 401);
@@ -84,6 +101,14 @@ await t("facture avant la prestation (date future) : refusée", async () => {
   const j = await appel({ action: "facture", doc: doc({ facture: { datePrestation: "2026-11-25", paye: true, datePaiement: "2026-11-20", modePaiement: "carte bancaire" } }) });
   assert.equal(j.status, 422); assert.equal(j.code, "date_future"); assert.equal(deps.store.m.size, 0);
 });
+await t("facturation réglée sur « indy » : aucune facture créée ici (pas de double numérotation), devis toujours possible", async () => {
+  deps.config = CONF({ ...LEGAL, facturation: "indy" });
+  const avant = deps.store.m.size;
+  const j = await appel({ action: "facture", doc: doc({ ref: "E8-INDY-001" }) });
+  assert.equal(j.status, 409); assert.equal(j.code, "facturation_indy"); assert.equal(deps.store.m.size, avant);
+  assert.equal((await appel({ action: "devis", doc: doc() })).ok, true);
+  deps.config = CONF();
+});
 let premiere;
 await t("facture : numéro F-2026-0001, mentions obligatoires, conservée", async () => {
   const j = await appel({ action: "facture", doc: doc() });
@@ -95,17 +120,22 @@ await t("facture : numéro F-2026-0001, mentions obligatoires, conservée", asyn
     assert.ok(x.includes(a), "absent de la facture : " + a);
   assert.ok(deps.store.m.has("facture/F-2026-0001")); assert.equal(deps.store.m.get("ref/E8-261118-ABC").d.numero, "F-2026-0001");
 });
+await t("facture réglée par lien Indy : mode et référence du paiement imprimés", async () => {
+  const j = await appel({ action: "facture", doc: doc({ ref: "E8-261118-IND", facture: { datePrestation: "2026-11-20", paye: true, datePaiement: "2026-11-20", modePaiement: "lien de paiement Indy", referencePaiement: "IND-48213" } }) });
+  assert.equal(j.ok, true);
+  assert.ok(texte(j.pdf, "facture-indy.pdf").includes("Facture acquittée le 20 novembre 2026 — règlement par lien de paiement Indy (référence : IND-48213)."));
+});
 await t("facture redemandée (même référence, montant modifié) : même numéro, contenu inchangé", async () => {
   const j = await appel({ action: "facture", doc: doc({ montant: "99" }) });
   assert.equal(j.numero, "F-2026-0001"); assert.equal(j.deja, true); assert.equal(j.total, 45.6);
   assert.equal(j.pdf, premiere.pdf);
 });
-await t("numérotation continue : F-2026-0002 puis F-2026-0003 (y compris émissions simultanées)", async () => {
+await t("numérotation continue : F-2026-0003 puis F-2026-0004 (y compris émissions simultanées)", async () => {
   const [a, b] = await Promise.all([appel({ action: "facture", doc: doc({ ref: "E8-261118-AAA" }) }), appel({ action: "facture", doc: doc({ ref: "E8-261118-BBB" }) })]);
-  assert.deepEqual([a.numero, b.numero].sort(), ["F-2026-0002", "F-2026-0003"]);
+  assert.deepEqual([a.numero, b.numero].sort(), ["F-2026-0003", "F-2026-0004"]);
   const [c, d] = await Promise.all([appel({ action: "facture", doc: doc({ ref: "E8-261118-CCC" }) }), appel({ action: "facture", doc: doc({ ref: "E8-261118-CCC" }) })]);
   const nums = [c, d].filter((x) => x.ok).map((x) => x.numero);
-  assert.ok(nums.every((n) => n === "F-2026-0004")); assert.equal(deps.store.m.get("compteur/2026").d.n, 4);
+  assert.ok(nums.every((n) => n === "F-2026-0005")); assert.equal(deps.store.m.get("compteur/2026").d.n, 5);
 });
 await t("TVA (assujetti 10 %) : HT, TVA et TTC détaillés, n° de TVA de l'émetteur", async () => {
   assert.deepEqual(montants(45.6, { regimeTVA: "assujetti", tauxTVA: 10 }), { ht: 41.45, tva: 4.15, ttc: 45.6, taux: 10, franchise: false, lignesHt: [41.45] });
@@ -169,6 +199,7 @@ await t("e-mail de demande : lien « Préparer le devis ou la facture » prérem
   assert.equal(data.client.societe, "Domaine des Coteaux SARL"); assert.equal(data.montant, 45.6); assert.equal(data.prestation.vehicule, "Tesla Model Y");
   const m = buildEmail(d, "E8-261118-XYZ", "ELEV8 Private Driver", est, "https://elev8privatedriver.com");
   assert.ok(m.text.includes("Société : Domaine des Coteaux SARL")); assert.ok(m.html.includes("Préparer le devis ou la facture"));
+  assert.ok(m.html.includes("Valider le tarif (e-mail ou WhatsApp au client)")); assert.ok(m.html.includes("&amp;etape=validation"));
   assert.match(m.subject, /Claire Martin \(Domaine des Coteaux SARL\)/);
   assert.ok(!/facture (définitive|émise)/i.test(m.text), "une demande ne crée jamais de facture");
 });

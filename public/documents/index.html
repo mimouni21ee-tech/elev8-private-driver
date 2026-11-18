@@ -11,13 +11,13 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;0,6..96,500;1,6..96,400&family=Jost:wght@300;400;500&display=swap">
-<link rel="stylesheet" href="/assets/css/style.css?v=20261118b">
+<link rel="stylesheet" href="/assets/css/style.css?v=20261119b">
 </head>
 <body class="page-resa page-docs">
 <!-- Page réservée à ELEV8 (non référencée) : devis et factures PDF.
      Ouverte depuis le lien « Préparer le devis ou la facture » de chaque e-mail de demande :
      les informations de la demande sont dans l'adresse (après #) et préremplissent le formulaire.
-     Les PDF sont produits par la fonction Netlify /api/documents (mot de passe DOCUMENTS_MOT_DE_PASSE). -->
+     Les PDF sont produits par la fonction Netlify /documents-api (mot de passe DOCUMENTS_MOT_DE_PASSE). -->
 <header class="top is-solid resa-top">
   <a class="brand" href="/" aria-label="ELEV8 Private Driver — accueil du site">
     <span class="brand__mono">E8</span>
@@ -111,7 +111,7 @@
           <div class="field" data-ar hidden><label for="d-heureretour">Heure du retour</label><input id="d-heureretour" type="time"></div>
           <div class="field">
             <label for="d-vehicule">Véhicule</label>
-            <select id="d-vehicule"><option>Tesla Model Y</option><option>Mercedes-Benz Classe V</option></select>
+            <select id="d-vehicule"><option>Berline Confort — Tesla Model Y ou véhicule de catégorie équivalente</option><option>Van Premium — Mercedes Classe V ou véhicule de catégorie équivalente</option></select>
           </div>
           <div class="field">
             <label for="d-distance">Distance (km) <span class="opt">facultatif</span></label>
@@ -153,8 +153,68 @@
           <p class="field__help field--full" id="totalMsg"></p>
     </fieldset>
 
+    <!-- Validation du tarif : message au client (e-mail ou WhatsApp), relu et modifiable avant l'envoi -->
+    <fieldset class="form__group" id="validation">
+      <legend><span class="legend__n">4</span>Validation du tarif <span class="opt">message au client</span></legend>
+          <div class="field field--full">
+            <label for="v-type">Message</label>
+            <select id="v-type">
+              <option value="confirmation">Validation du tarif (tarif estimé confirmé)</option>
+              <option value="ajuste">Validation du tarif (tarif ajusté après vérification)</option>
+              <option value="reservation">Réservation confirmée (règlement vérifié)</option>
+            </select>
+          </div>
+          <div class="field field--full field--check" data-vt="validation">
+            <label class="check" for="v-dispo"><input id="v-dispo" type="checkbox"><span class="check__box" aria-hidden="true"></span><span>J'ai vérifié la disponibilité du chauffeur et du véhicule</span></label>
+          </div>
+          <div class="field field--full" data-vt="validation">
+            <label for="v-lien">Lien de paiement Indy <span class="opt">facultatif</span></label>
+            <input id="v-lien" type="url" inputmode="url" autocapitalize="off" spellcheck="false" maxlength="500" placeholder="https://… (lien créé dans Indy pour ce montant)">
+          </div>
+          <div class="field field--full field--check" data-vt="validation" data-lien hidden>
+            <label class="check" for="v-lien-ok"><input id="v-lien-ok" type="checkbox"><span class="check__box" aria-hidden="true"></span><span>J'ai vérifié ce lien : il correspond à ce client et au montant de <strong id="v-lien-montant">—</strong></span></label>
+          </div>
+          <div class="field field--full" data-vt="validation" data-sanslien>
+            <label for="v-sanslien">Sans lien de paiement</label>
+            <select id="v-sanslien">
+              <option value="accepte">Le client répond « J'accepte »</option>
+              <option value="virement">Réponse « J'accepte », règlement par virement selon les conditions convenues</option>
+            </select>
+          </div>
+          <div class="field field--full field--check" data-vt="reservation" hidden>
+            <label class="check" for="v-regle"><input id="v-regle" type="checkbox"><span class="check__box" aria-hidden="true"></span><span>J'ai vérifié la réception du règlement (dans Indy ou sur le compte bancaire)</span></label>
+          </div>
+          <p class="field__help field--full">Le tarif repris est celui de la rubrique 3 (trajet et suppléments), pas l'estimation. Un paiement ne confirme jamais la réservation automatiquement : vérifiez le règlement, puis envoyez « Réservation confirmée ».</p>
+          <div class="docs__actions field--full">
+            <button class="btn btn--gold" type="button" id="btnMessage"><span>Préparer le message au client</span></button>
+          </div>
+          <div class="docs__apercu field--full" id="apercu" hidden>
+            <div class="field field--full">
+              <label for="m-objet">E-mail — objet <span class="opt" id="m-dest"></span></label>
+              <input id="m-objet" type="text" maxlength="200">
+            </div>
+            <div class="field field--full">
+              <label for="m-corps">E-mail — message (modifiable)</label>
+              <textarea id="m-corps" rows="16"></textarea>
+            </div>
+            <div class="docs__row">
+              <a class="btn btn--solid" id="m-ouvrir"><span>Ouvrir l'e-mail dans ma messagerie</span></a>
+              <button class="btn btn--quiet" type="button" id="m-copier"><span>Copier l'e-mail</span></button>
+            </div>
+            <div class="field field--full">
+              <label for="m-wa">WhatsApp — message (modifiable)</label>
+              <textarea id="m-wa" rows="10"></textarea>
+            </div>
+            <div class="docs__row">
+              <a class="btn btn--gold" id="m-wa-ouvrir" target="_blank" rel="noopener"><span>Ouvrir WhatsApp</span></a>
+              <button class="btn btn--quiet" type="button" id="m-wa-copier"><span>Copier le message WhatsApp</span></button>
+            </div>
+            <p class="docs__msg" id="m-msg" role="status"></p>
+          </div>
+    </fieldset>
+
     <fieldset class="form__group">
-      <legend><span class="legend__n">4</span>Devis</legend>
+      <legend><span class="legend__n">5</span>Devis</legend>
           <div class="field field--full field--check">
             <label class="check" for="d-valide"><input id="d-valide" type="checkbox"><span class="check__box" aria-hidden="true"></span><span>Tarif validé par ELEV8 (sinon : « devis provisoire »)</span></label>
           </div>
@@ -168,7 +228,7 @@
     </fieldset>
 
     <fieldset class="form__group">
-      <legend><span class="legend__n">5</span>Facture <span class="opt">après la prestation</span></legend>
+      <legend><span class="legend__n">6</span>Facture <span class="opt">après la prestation</span></legend>
           <div class="field">
             <label for="d-dateprestation">Date de la prestation</label>
             <input id="d-dateprestation" type="date" >
@@ -179,11 +239,13 @@
           <div class="field" data-paye><label for="d-datepaiement">Date du paiement</label><input id="d-datepaiement" type="date"></div>
           <div class="field">
             <label for="d-mode">Mode de paiement</label>
-            <select id="d-mode"><option>carte bancaire</option><option>virement bancaire</option></select>
+            <select id="d-mode"><option>lien de paiement Indy</option><option>carte bancaire (Tap to Pay Indy)</option><option>carte bancaire</option><option>virement bancaire</option></select>
           </div>
+          <div class="field" data-paye><label for="d-refpaiement">Référence du paiement <span class="opt">facultatif</span></label><input id="d-refpaiement" type="text" maxlength="60" placeholder="Ex. n° de transaction Indy"></div>
           <div class="field" data-nonpaye hidden><label for="d-echeance">Échéance (jours)</label><input id="d-echeance" type="number" min="0" max="60" value="0" inputmode="numeric"></div>
           <p class="field__help field--full">La facture reçoit un numéro définitif (F-AAAA-0001…) et ne peut plus être modifiée une fois émise. Une seule facture par référence : la redemander renvoie la même.</p>
-          <div class="docs__actions field--full">
+
+          <p class="field__help field--full docs__indy" id="indyMsg">Une course = une seule facture. Si cette course est déjà facturée dans Indy, n'émettez pas de facture ici (et inversement), pour éviter un doublon comptable.</p>          <div class="docs__actions field--full">
             <button class="btn btn--solid" type="button" id="btnFacture"><span>Générer la facture (PDF)</span></button>
             <div class="docs__confirm" id="confirmFacture" hidden>
               <p>Émettre une facture définitive de <strong id="confirmMontant"></strong> pour <strong id="confirmClient"></strong> ?</p>
@@ -224,6 +286,6 @@
 </main>
 
 <script src="/config.js?v=20261118b"></script>
-<script src="/assets/js/documents.js?v=20261118b"></script>
+<script src="/assets/js/documents.js?v=20261119b"></script>
 </body>
 </html>
