@@ -12,7 +12,9 @@ const t = async (nom, f) => { try { await f(); ok++; console.log("✓ " + nom); 
 
 /* ---------- Faux services ---------- */
 const DIJON_GARE = { lat: 47.3233, lon: 5.0274 }, DIJON_SUD = { lat: 47.2900, lon: 5.0500 }, GENEVE = { lat: 46.2382, lon: 6.1089 };
-const LIEUX = { "gare de dijon-ville, 21000 dijon, france": DIJON_GARE, "12 rue de longvic, 21000 dijon, france": DIJON_SUD, "aéroport de genève, genève, suisse": GENEVE };
+const NUITS = { lat: 47.1374, lon: 4.9496 }, BEAUNE = { lat: 47.0260, lon: 4.8400 }, CHALON = { lat: 46.7806, lon: 4.8539 };
+const LIEUX = { "gare de dijon-ville, 21000 dijon, france": DIJON_GARE, "12 rue de longvic, 21000 dijon, france": DIJON_SUD, "aéroport de genève, genève, suisse": GENEVE,
+  "nuits-saint-georges, 21700, france": NUITS, "beaune, 21200, france": BEAUNE, "chalon-sur-saône, 71100, france": CHALON };
 let appels = [];
 function fauxFetch({ km = 8.3, min = 15, google = true } = {}) {
   return async (url, init = {}) => {
@@ -63,6 +65,7 @@ await t("moteur de calcul identique à la préproduction ; grille ELEV8 du 17 no
   const T = (await import("../netlify/lib/grille/dijon-config.cjs")).default.tarifs.trajets;
   assert.deepEqual(T.minimum, { confort: { jour: 20, majore: 15 }, van: { jour: 20, majore: 25 } });
   assert.deepEqual(T.tarifKm, { confort: { jour: 1.90, majore: 2.75 }, van: { jour: 2.25, majore: 3.25 } });
+  assert.equal(T.horsCharge.zoneReference.rayonKm, 50);
 });
 await t("jour, Tesla : 8,3 km × 1,90 € = 15,77 € → minimum 20 €", async () => {
   EST._reset(); EST.deps.fetch = fauxFetch();
@@ -103,6 +106,27 @@ await t("aller-retour : chaque trajet calculé séparément (jour 20 € + nuit 
 });
 await t("retour avant l'aller : refusé", async () => {
   await assert.rejects(EST.estimer({ ...base, allerRetour: true, dateRetour: "2026-11-18", heureRetour: "09:00" }), { code: "retour" });
+});
+await t("zone étendue : Dijon → Nuits-Saint-Georges (24 km) estimé, 24 × 1,90 = 45,60 €", async () => {
+  EST._reset(); EST.deps.fetch = fauxFetch({ km: 24 });
+  const r = await EST.estimer({ ...base, destination: "Nuits-Saint-Georges, 21700, France" });
+  assert.equal(r.statut, "estimation"); assert.equal(r.montant, 45.6);
+});
+await t("zone étendue : Dijon → Beaune (44 km), Classe V de nuit : 44 × 3,25 = 143 €", async () => {
+  EST._reset(); EST.deps.fetch = fauxFetch({ km: 44 });
+  const r = await EST.estimer({ ...base, destination: "Beaune, 21200, France", vehicule: "Mercedes-Benz Classe V", heure: "21:00" });
+  assert.equal(r.statut, "estimation"); assert.equal(r.montant, 143);
+});
+await t("zone étendue : Beaune → Nuits-Saint-Georges (hors de Dijon, dans les 50 km) estimé", async () => {
+  EST._reset(); EST.deps.fetch = fauxFetch({ km: 17 });
+  const r = await EST.estimer({ ...base, depart: "Beaune, 21200, France", destination: "Nuits-Saint-Georges, 21700, France" });
+  assert.equal(r.statut, "estimation"); assert.equal(r.montant, 32.3);
+});
+await t("au-delà de 50 km (Chalon-sur-Saône, 61 km de Dijon) : sur devis", async () => {
+  EST._reset(); EST.deps.fetch = fauxFetch({ km: 70 });
+  const r = await EST.estimer({ ...base, destination: "Chalon-sur-Saône, 71100, France" });
+  assert.equal(r.statut, "sur_devis"); assert.equal(r.motif, "hors_zone");
+  EST._reset(); EST.deps.fetch = fauxFetch();
 });
 await t("hors zone (Genève) : sur devis, aucun montant", async () => {
   const r = await EST.estimer({ ...base, destination: "Aéroport de Genève, Genève, Suisse" });

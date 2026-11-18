@@ -42,6 +42,27 @@
     return o;
   })();
 
+  /* ---------- Suivi des conversions (préparé, AUCUN outil publicitaire chargé) ----------
+     Chaque action utile est publiée de deux façons, sans rien envoyer hors du navigateur :
+       - window.dataLayer.push({ event: "elev8_…", … })   (format lu par Google Tag Manager) ;
+       - un événement navigateur « elev8:suivi » (pour tout autre outil).
+     Événements : elev8_demande_envoyee (demande réellement acceptée par le serveur, une seule fois),
+     elev8_clic_appel, elev8_clic_whatsapp. Aucune donnée personnelle (ni nom, ni téléphone).
+     Brancher Google Ads ou Meta plus tard exige un bandeau de consentement (CNIL) : voir le guide. */
+  function suivi(nom, infos) {
+    var d = { event: "elev8_" + nom, elev8_page: PAGE ? "reservation" : "accueil", elev8_origine: ORIGINE.code || "direct" };
+    for (var k in infos) if (Object.prototype.hasOwnProperty.call(infos, k)) d[k] = infos[k];
+    try { (window.dataLayer = window.dataLayer || []).push(d); } catch (e) {}
+    try { document.dispatchEvent(new CustomEvent("elev8:suivi", { detail: d })); } catch (e) {}
+  }
+  document.addEventListener("click", function (e) {
+    var a = e.target && e.target.closest ? e.target.closest("a[href]") : null;
+    if (!a) return;
+    var h = a.getAttribute("href") || "", ou = (a.closest("[id]") || {}).id || "";
+    if (/^tel:/i.test(h)) suivi("clic_appel", { elev8_emplacement: ou });
+    else if (/^https:\/\/(wa\.me|api\.whatsapp\.com)\//i.test(a.href)) suivi("clic_whatsapp", { elev8_emplacement: ou });
+  }, true);
+
   /* ---------- Page /reservation : textes et liens de contact (sur l'accueil, main.js s'en charge) ---------- */
   if (PAGE) {
     var get = function (path) { return path.split(".").reduce(function (o, k) { return o == null ? o : o[k]; }, C); };
@@ -56,7 +77,19 @@
     $$(".js-tel").forEach(function (a) { a.href = "tel:" + C.contact.telephone; });
     $$(".js-mail").forEach(function (a) { a.href = "mailto:" + C.contact.email; });
     $$(".js-year").forEach(function (el) { el.textContent = new Date().getFullYear(); });
+    // Professionnels (hôtels, entreprises, restaurants, conciergeries) : contact direct, sans parcours dédié
+    var proTxt = ((C.pageReservation && C.pageReservation.proMessageWhatsApp) || "Bonjour ELEV8, je vous contacte pour des trajets professionnels.") +
+      (ORIGINE.code ? "\n\n(Origine : " + ORIGINE.libelle + ")" : "");
+    $$("[data-wa-pro]").forEach(function (a) { a.href = "https://wa.me/" + String(C.contact.whatsapp).replace(/[^\d]/g, "") + "?text=" + encodeURIComponent(proTxt); });
+    var proLien = $("#proLien");
+    if (proLien) proLien.addEventListener("click", function (e) {
+      e.preventDefault();
+      var ouvert = proLien.getAttribute("aria-expanded") === "true";
+      proLien.setAttribute("aria-expanded", String(!ouvert)); $("#pro").hidden = ouvert;
+    });
   }
+  // Fiche contact : proposée seulement après l'envoi réussi d'une demande
+  $$(".js-vcf-sent").forEach(function (a) { a.href = (C.ficheContact && C.ficheContact.url) || "/elev8-private-driver.vcf"; });
 
   /* ---------- Formulaire ---------- */
   var form = $("#bookingForm");
@@ -322,6 +355,7 @@
       prenom: f.firstname.value.trim(),
       telephone: normalizePhone(ccSel.value, f.phone.value),
       email: f.email.value.trim(),
+      societe: f.company.value.trim(),
       precisions: f.msg.value.trim(),
       origine: { code: ORIGINE.code, libelle: ORIGINE.libelle, utm: ORIGINE.utm }
     };
@@ -343,6 +377,7 @@
     var er = estimationRow(); if (er) rows.push(er);
     rows.push(["Nom", data.prenom + " " + data.nom], ["Téléphone", formatPhone(data.telephone)]);
     if (data.email) rows.push(["E-mail", data.email]);
+    if (data.societe) rows.push(["Société", data.societe]);
     return { data: data, rows: rows };
   }
   function rowsHtml(rows) {
@@ -387,6 +422,7 @@
     return Math.floor(Date.now() / 1000) + "-" + a;
   }
   var demandeId = newDemandeId();
+  var suiviEnvoye = {};
   $("#formCall").href = "tel:" + C.contact.telephone;
   var cfgForm = C.formulaire || {};
   var sendBtn = $("#sendBtn");
@@ -432,7 +468,7 @@
       if (!payload.turnstile) {
         showError(turnstileFailed
           ? "<strong class=\"st\">La vérification anti-robot n'a pas pu se charger.</strong> Un bloqueur de contenu ou la connexion peut en être la cause." + fallbackHtml()
-          : "<strong class=\"st\">Vérification anti-robot en cours.</strong> Patientez quelques secondes, puis appuyez de nouveau sur « Demander la réservation ».");
+          : "<strong class=\"st\">Vérification anti-robot en cours.</strong> Patientez quelques secondes, puis appuyez de nouveau sur « Demander ma réservation ».");
         return;
       }
     }
@@ -467,6 +503,11 @@
         rows.splice(1, 0, ["Statut", "Demande reçue · en attente de validation"]);
         $("#sentList").innerHTML = rowsHtml(rows);
         sent = true;
+        if (!suiviEnvoye[payload.demandeId]) {                    // jamais compté deux fois (double clic, renvoi)
+          suiviEnvoye[payload.demandeId] = true;
+          suivi("demande_envoyee", { elev8_reference: r.json.ref, elev8_estimation: se && se.statut === "estimation" ? "oui" : "sur_devis",
+            value: se && se.montant > 0 ? se.montant : 0, currency: "EUR" });
+        }
         showPanel("sent");
         return;
       }

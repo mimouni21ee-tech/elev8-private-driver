@@ -12,7 +12,7 @@
      tarif de jour / majoré (nuit, dimanche, jours fériés) à l'heure de Paris,
      chaque trajet d'un aller-retour calculé séparément.
    Périmètre : trajets (aller simple, aller-retour) dont le départ ET l'arrivée sont
-   dans la zone de référence (Dijon, 15 km). Sinon, ou pour une mise à disposition :
+   dans la zone de référence (50 km autour de Dijon : Nuits-Saint-Georges, Beaune…). Sinon, ou pour une mise à disposition :
    « tarif sur devis », aucun montant affiché.
 
    Le résultat est TOUJOURS une estimation : seule ELEV8 confirme le prix final.

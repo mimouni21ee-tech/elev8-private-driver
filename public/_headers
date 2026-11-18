@@ -19,3 +19,8 @@
 # Photos : 1 jour (une photo remplacée sous le même nom apparaît au plus tard le lendemain)
 /assets/img/*
   Cache-Control: public, max-age=86400
+
+# Page réservée à ELEV8 (devis et factures) : jamais référencée ni mise en cache
+/documents/*
+  X-Robots-Tag: noindex, nofollow
+  Cache-Control: no-store

@@ -19,7 +19,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;0,6..96,500;1,6..96,400&family=Jost:wght@300;400;500&display=swap">
-<link rel="stylesheet" href="/assets/css/style.css?v=20261117b">
+<link rel="stylesheet" href="/assets/css/style.css?v=20261118b">
 </head>
 <body class="page-resa">
 <a class="skip" href="#bookingForm">Aller au formulaire</a>
@@ -46,7 +46,9 @@
     <div class="wrap booking__wrap">
       <p class="eyebrow" data-c="pageReservation.surtitre">Réservation · Chauffeur privé</p>
       <h1 class="resa-intro__title" data-html="pageReservation.titre">Votre trajet,<br><em>estimé en un instant.</em></h1>
-      <p class="resa-intro__text" data-c="pageReservation.texte">Indiquez votre trajet : l'estimation s'affiche aussitôt. Votre demande est gratuite et sans engagement : aucun paiement, aucun acompte, aucun compte à créer. ELEV8 vérifie la disponibilité de votre chauffeur et vous confirme le tarif avant toute réservation.</p>
+      <p class="resa-intro__text" data-c="pageReservation.texte">Estimez votre trajet en quelques instants. Demande gratuite, sans paiement. ELEV8 confirme votre tarif et votre disponibilité.</p>
+      <p class="resa-pro"><span data-c="pageReservation.proTexte">Vous êtes un professionnel ?</span> <a href="#pro" class="resa-pro__lien" id="proLien" aria-expanded="false" aria-controls="pro" data-c="pageReservation.proLien">Contactez ELEV8 directement</a></p>
+      <p class="resa-pro__actions" id="pro" hidden><a class="js-tel" href="tel:+33626927218">Appeler · <span data-c="contact.telephoneAffiche">06 26 92 72 18</span></a><a data-wa-pro href="https://wa.me/33626927218" target="_blank" rel="noopener">WhatsApp</a><a class="js-mail" href="mailto:contact@elev8privatedriver.com">E-mail</a></p>
       <ol class="resa-steps">
         <li><span class="resa-steps__n">1</span><span><strong data-c="pageReservation.etape1">Estimation immédiate</strong><span data-c="pageReservation.etape1Texte">selon notre grille tarifaire</span></span></li>
         <li><span class="resa-steps__n">2</span><span><strong data-c="pageReservation.etape2">Demande gratuite</strong><span data-c="pageReservation.etape2Texte">sans paiement ni acompte</span></span></li>
@@ -154,6 +156,10 @@
             <input id="f-email" name="email" type="email" enterkeyhint="done" autocapitalize="off" autocomplete="email" inputmode="email" maxlength="120" spellcheck="false">
             <p class="field__err">Adresse e-mail invalide.</p>
           </div>
+          <div class="field field--full">
+            <label for="f-company">Société <span class="opt">facultatif</span></label>
+            <input id="f-company" name="company" type="text" autocomplete="organization" autocapitalize="words" enterkeyhint="done" maxlength="120" placeholder="Pour les clients professionnels">
+          </div>
         </fieldset>
 
         <!-- Anti-spam : champ invisible pour les personnes, rempli par les robots -->
@@ -165,13 +171,14 @@
 
         <p class="form__estimate" id="estRecap" hidden></p>
         <div class="form__actions">
-          <button class="btn btn--solid btn--main" type="submit" id="sendBtn"><span data-c="reservation.boutonEnvoyer">Demander la réservation</span></button>
-          <a class="btn btn--quiet" id="formCall" href="tel:+33626927218"><svg viewBox="0 0 24 24" aria-hidden="true" width="18" height="18"><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" d="M5.2 3.5h3.1l1.5 4-2 1.3a11 11 0 0 0 5.4 5.4l1.3-2 4 1.5v3.1a2 2 0 0 1-2.1 2A16.5 16.5 0 0 1 3.2 5.6a2 2 0 0 1 2-2.1Z"/></svg><span data-c="reservation.boutonAppeler">Nous appeler</span></a>
+          <button class="btn btn--solid btn--main" type="submit" id="sendBtn"><span data-c="reservation.boutonEnvoyer">Demander ma réservation</span></button>
+          <a class="btn btn--quiet" id="formCall" href="tel:+33626927218"><svg viewBox="0 0 24 24" aria-hidden="true" width="18" height="18"><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" d="M5.2 3.5h3.1l1.5 4-2 1.3a11 11 0 0 0 5.4 5.4l1.3-2 4 1.5v3.1a2 2 0 0 1-2.1 2A16.5 16.5 0 0 1 3.2 5.6a2 2 0 0 1 2-2.1Z"/></svg><span data-c="reservation.boutonAppeler">Appeler ELEV8</span></a>
           <button class="btn btn--gold" type="button" id="waBtn">
             <svg class="i-wa" viewBox="0 0 24 24" aria-hidden="true" width="18" height="18"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2c-1.5 0-3-.4-4.3-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3c-.2.3-.9.9-.9 2.2s1 2.6 1.1 2.7c.1.2 1.9 2.9 4.6 4 1.7.7 2.4.8 3.2.7.5-.1 1.5-.6 1.8-1.2.2-.6.2-1.1.1-1.2l-.4-.2Z"/></svg>
             <span data-c="reservation.boutonWhatsApp">WhatsApp</span>
           </button>
         </div>
+        <p class="form__urgent" data-c="reservation.aideUrgence">Pour une demande urgente, appelez-nous directement.</p>
         <div class="form__status" id="formStatus" role="alert" hidden></div>
         <p class="form__note" data-html="reservation.noteConfidentialite"></p>
       </form>
@@ -184,6 +191,7 @@
         <dl class="recap__list" id="sentList"></dl>
         <p class="recap__hint" data-c="reservation.envoi.note">Aucun paiement ne vous a été demandé. Pour toute question, appelez-nous ou écrivez-nous sur WhatsApp en indiquant votre référence.</p>
         <div class="recap__actions">
+          <a class="btn btn--quiet sent__vcf js-vcf-sent" href="/elev8-private-driver.vcf"><svg viewBox="0 0 24 24" aria-hidden="true" width="18" height="18"><g fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="12" cy="9" r="3.2"/><path d="M5.5 19a6.5 6.5 0 0 1 13 0"/></g></svg><span data-c="reservation.boutonFicheContact">Enregistrer ELEV8 dans mes contacts</span></a>
           <button class="link-btn" type="button" id="newBtn">Faire une nouvelle demande</button>
         </div>
       </div>
@@ -229,8 +237,8 @@
 
 <noscript><p class="noscript">Cette page nécessite JavaScript. Vous pouvez nous appeler au 06 26 92 72 18.</p></noscript>
 
-<script src="/config.js?v=20261117b"></script>
-<script src="/assets/js/reservation.js?v=20261117b"></script>
+<script src="/config.js?v=20261118b"></script>
+<script src="/assets/js/reservation.js?v=20261118b"></script>
 <script src="/assets/js/adresses.js?v=20261016g"></script>
 </body>
 </html>

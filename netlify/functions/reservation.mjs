@@ -43,7 +43,7 @@ const MIN_FILL_MS = 3000;          // un humain met plus de 3 s à remplir le fo
 const MAX_BODY = 12_000;           // octets
 
 import { RULES, openStore, keyFor, ipFingerprint, consume } from "../lib/ratelimit.mjs";
-import { estimer, verifier, deps as estDeps } from "../lib/estimation.mjs";
+import { estimer, verifier, deps as estDeps, ZONE_ESTIMATION } from "../lib/estimation.mjs";
 
 const ESTIMATION_MAX_MS = 6000;    // recalcul de l'estimation : au-delà, la demande part « tarif à établir »
 
@@ -102,6 +102,7 @@ export function validate(b) {
     prenom: str(b.prenom, 80),
     telephone: str(b.telephone, 20),
     email: str(b.email, 120),
+    societe: str(b.societe, 120),
     precisions: str(b.precisions, 1500),
     origine: {
       code: str(b.origine && b.origine.code, 60).replace(/[^a-z0-9._-]/gi, ""),
@@ -148,7 +149,7 @@ function frDate(iso) {
 
 export const euros = (n) => (Math.round(n * 100) / 100).toFixed(2).replace(".", ",").replace(",00", "") + " €";
 const MOTIFS_DEVIS = {
-  hors_zone: "trajet hors de la zone d'estimation automatique (Dijon, 15 km)",
+  hors_zone: `trajet hors de la zone d'estimation automatique (${ZONE_ESTIMATION.rayonKm} km autour de ${ZONE_ESTIMATION.nom})`,
   mise_a_disposition: "mise à disposition",
   lieu_inconnu: "adresse non localisée automatiquement",
   itineraire: "itinéraire non calculable automatiquement",
@@ -176,7 +177,23 @@ export function messagesClient(d, ref, est, brand) {
   };
 }
 
-export function buildEmail(d, ref, brand, est = null) {
+/* Lien vers la page /documents (réservée à ELEV8) : les informations de la demande sont
+   placées après « # » (jamais envoyées à un serveur) et préremplissent le devis et la facture. */
+export function lienDocuments(d, ref, est, origin) {
+  const vehicule = /pas de préférence/i.test(d.vehicule || "") && est && est.vehicule ? est.vehicule : d.vehicule;
+  const data = {
+    v: 1, ref, recu: new Date().toLocaleDateString("fr-FR", { timeZone: "Europe/Paris" }),
+    client: { prenom: d.prenom, nom: d.nom, societe: d.societe || "", email: d.email || "", telephone: d.telephone },
+    prestation: { date: d.date, heure: d.heure, depart: d.depart, destination: d.destination, allerRetour: !!d.allerRetour,
+      dateRetour: d.dateRetour || "", heureRetour: d.heureRetour || "", vehicule, passagers: d.passagers,
+      bagages: d.bagages == null ? "" : d.bagages, precisions: d.precisions || "", reference: d.reference || "",
+      distanceKm: est && est.statut === "estimation" ? est.distanceKm : "" },
+    montant: est && est.statut === "estimation" && est.montant > 0 ? est.montant : null
+  };
+  return `${origin}/documents/#d=${Buffer.from(JSON.stringify(data), "utf8").toString("base64url")}`;
+}
+
+export function buildEmail(d, ref, brand, est = null, origin = "https://elev8privatedriver.com") {
   const rows = [
     ["Référence", ref],
     ["Statut", "Demande reçue — en attente de validation par ELEV8"],
@@ -195,6 +212,7 @@ export function buildEmail(d, ref, brand, est = null) {
     ["Véhicule", d.vehicule || "Pas de préférence"],
     ["Informations complémentaires", d.precisions || "Aucune"],
     ["Client", `${d.prenom} ${d.nom}`],
+    ["Société", d.societe || "Particulier (non renseignée)"],
     ["Téléphone", d.telephone],
     ["E-mail", d.email || "Non renseigné"],
     ["Origine", d.origine.libelle || d.origine.code || "Accès direct"],
@@ -204,7 +222,7 @@ export function buildEmail(d, ref, brand, est = null) {
   const waClient = (t) => `https://wa.me/${d.telephone.replace(/\D/g, "")}?text=${encodeURIComponent(t)}`;
   const mailClient = (t) => `mailto:${d.email}?subject=${encodeURIComponent(msg.sujet)}&body=${encodeURIComponent(t)}`;
   const montantSujet = est && est.statut === "estimation" && est.montant > 0 ? euros(est.montant) : "tarif à établir";
-  const subject = `[À valider] Demande ${ref} — ${d.date.split("-").reverse().join("/")} ${d.heure.replace(":", "h")} — ${d.prenom} ${d.nom} — ${montantSujet}`;
+  const subject = `[À valider] Demande ${ref} — ${d.date.split("-").reverse().join("/")} ${d.heure.replace(":", "h")} — ${d.prenom} ${d.nom}${d.societe ? ` (${d.societe})` : ""} — ${montantSujet}`;
   const etapes = "À FAIRE : vérifier la disponibilité et les informations complémentaires, puis confirmer le tarif estimé " +
     "ou proposer un tarif ajusté. La réservation n'est confirmée qu'après l'accord du client sur le tarif final " +
     "et votre confirmation. Le client n'a rien payé.";
@@ -212,7 +230,8 @@ export function buildEmail(d, ref, brand, est = null) {
     rows.map(([k, v]) => `${k} : ${v}`).join("\n") +
     `\n\nAppeler : ${d.telephone}\nWhatsApp : https://wa.me/${d.telephone.replace(/\D/g, "")}\n` +
     (msg.confirmer ? `\n--- Message pour confirmer le tarif estimé ---\n${msg.confirmer}\n` : "") +
-    `\n--- Message pour proposer un tarif ajusté (à compléter) ---\n${msg.ajuster}\n`;
+    `\n--- Message pour proposer un tarif ajusté (à compléter) ---\n${msg.ajuster}\n` +
+    `\n--- Devis et facture PDF (préremplis avec cette demande) ---\n${lienDocuments(d, ref, est, origin)}\n`;
   const lien = (href, label, plein) => `<a href="${esc(href)}" style="display:inline-block;margin:0 6px 8px 0;padding:11px 16px;${plein ? "background:#1b1814;color:#e4d6b8" : "border:1px solid #1b1814;color:#1b1814"};text-decoration:none;font-size:13px;letter-spacing:.06em">${esc(label)}</a>`;
   const blocMessages = [
     ...(msg.confirmer ? [lien(waClient(msg.confirmer), "Confirmer le tarif par WhatsApp", true)] : []),
@@ -234,6 +253,9 @@ ${rows.map(([k, v]) => { const fort = k === "Estimation" || (k === "Informations
 </p>
 <p style="margin:22px 0 8px;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#8a7650">Répondre au client (message prérempli, modifiable avant l'envoi)</p>
 <p style="margin:0">${blocMessages}</p>
+<p style="margin:22px 0 8px;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#8a7650">Devis et facture PDF</p>
+<p style="margin:0 0 6px">${lien(lienDocuments(d, ref, est, origin), "Préparer le devis ou la facture", true)}</p>
+<p style="margin:0;font-size:12px;color:#7a7266">Toutes les informations de cette demande sont reprises : complétez seulement l'adresse de facturation et le tarif validé. La facture s'établit après la prestation.</p>
 </div></body></html>`;
   return { subject, text, html };
 }
@@ -388,7 +410,7 @@ export default async (req, context) => {
     } catch { /* stockage indisponible : envoi sans anti-doublon */ }
   }
   try {
-    await sendEmail({ ...buildEmail(data, ref, env("MAIL_FROM_NAME") || "ELEV8 Private Driver", est), replyTo: data.email || "" });
+    await sendEmail({ ...buildEmail(data, ref, env("MAIL_FROM_NAME") || "ELEV8 Private Driver", est, new URL(req.url).origin), replyTo: data.email || "" });
   } catch (e) {
     console.error("Envoi impossible :", String(e && e.message).slice(0, 80)); // aucune donnée client
     if (idem && store) { try { await store.delete(idem); } catch { /* ignoré */ } }

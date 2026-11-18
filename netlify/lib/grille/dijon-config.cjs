@@ -57,7 +57,7 @@ var DIJON_CONFIG = {
       horsCharge: {
         coefficient_approche: null,                          // non utilisé pour la facturation (pas de supplément automatique)
         coefficient_retour: null,                            // non utilisé pour la facturation
-        zoneReference: { nom: "Dijon", lat: 47.3220, lon: 5.0415, rayonKm: 15 }   // [À VALIDER] rayon de travail du prototype
+        zoneReference: { nom: "Dijon", lat: 47.3220, lon: 5.0415, rayonKm: 50 }   // [VALIDÉ 18 nov. 2026] 50 km autour de Dijon : Nuits-Saint-Georges, Beaune, Auxonne, Is-sur-Tille… (avant : 15 km)
       },
       /* Longues distances (départ ou arrivée hors de la zone de référence) : réservation sur devis,
          sans paiement en ligne, tant que leurs règles commerciales et leur rentabilité ne sont pas validées. */

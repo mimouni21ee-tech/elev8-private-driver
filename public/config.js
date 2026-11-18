@@ -162,8 +162,10 @@ window.SITE_CONFIG = {
     ouTexte: "ou estimez votre trajet et envoyez votre demande",
     // Message prérempli du contact WhatsApp direct (boutons « Contacter via WhatsApp »)
     messageWhatsAppDirect: "Bonjour ELEV8, je souhaite des renseignements pour un trajet.",
-    boutonEnvoyer: "Demander la réservation",      // Bouton principal : demande gratuite, sans paiement
-    boutonAppeler: "Nous appeler",
+    boutonEnvoyer: "Demander ma réservation",      // Bouton principal : demande gratuite, sans paiement
+    boutonAppeler: "Appeler ELEV8",
+    aideUrgence: "Pour une demande urgente, appelez-nous directement.",
+    boutonFicheContact: "Enregistrer ELEV8 dans mes contacts",   // proposé après l'envoi réussi d'une demande
     boutonWhatsApp: "WhatsApp",                    // Envoie le détail du formulaire (et l'estimation) dans WhatsApp
     /* Estimation affichée dans le formulaire (calculée par le serveur, jamais modifiable par le client) */
     estimation: {
@@ -172,7 +174,7 @@ window.SITE_CONFIG = {
       attente: "Renseignez le départ, la destination, la date et l'heure pour obtenir une estimation immédiate.",
       calcul: "Calcul de votre estimation…",
       surDevis: "Sur devis",
-      horsZone: "L'estimation automatique couvre Dijon et ses environs. Envoyez votre demande gratuitement : ELEV8 vous communique le tarif de ce trajet avant toute confirmation.",
+      horsZone: "L'estimation automatique couvre Dijon, la Côte de Nuits, Beaune et leurs environs (50 km autour de Dijon). Envoyez votre demande gratuitement : ELEV8 vous communique le tarif de ce trajet avant toute confirmation.",
       miseADisposition: "Mise à disposition : le tarif dépend de la durée et du programme. Envoyez votre demande gratuitement : ELEV8 vous communique le tarif avant toute confirmation.",
       aideInfos: "Une demande particulière peut modifier le tarif : ELEV8 vous confirme le montant final avant toute réservation."
     },
@@ -184,7 +186,7 @@ window.SITE_CONFIG = {
     },
     introMessage: "Bonjour, je souhaite faire une demande de réservation :",
     // Si vous modifiez legal.dureeDemandes, adaptez aussi la durée citée ici.
-    noteConfidentialite: "Les champs sans mention « facultatif » sont nécessaires. « Demander la réservation » est gratuit et sans engagement : aucun paiement n'est demandé. Ce bouton transmet vos informations par e-mail à ELEV8 Private Driver, via notre prestataire d'envoi, uniquement pour traiter votre demande ; elles sont conservées au plus 12 mois si la demande reste sans suite. Vous pouvez y accéder ou demander leur suppression : <a href=\"/confidentialite.html\">politique de confidentialité</a>.",
+    noteConfidentialite: "Les champs sans mention « facultatif » sont nécessaires. « Demander ma réservation » est gratuit et sans engagement : aucun paiement n'est demandé. Ce bouton transmet vos informations par e-mail à ELEV8 Private Driver, via notre prestataire d'envoi, uniquement pour traiter votre demande ; elles sont conservées au plus 12 mois si la demande reste sans suite. Vous pouvez y accéder ou demander leur suppression : <a href=\"/confidentialite.html\">politique de confidentialité</a>.",
     noteWhatsApp: "WhatsApp s'ouvre avec votre message prérempli. Il ne part qu'après avoir appuyé sur « Envoyer » dans l'application, et l'échange est alors traité par WhatsApp (groupe Meta) selon ses propres conditions.",
     indicatifParDefaut: "+33"
   },
@@ -196,7 +198,10 @@ window.SITE_CONFIG = {
   pageReservation: {
     surtitre: "Réservation · Chauffeur privé",
     titre: "Votre trajet,<br><em>estimé en un instant.</em>",       // <br> = retour à la ligne
-    texte: "Indiquez votre trajet : l'estimation s'affiche aussitôt. Votre demande est gratuite et sans engagement : aucun paiement, aucun acompte, aucun compte à créer. ELEV8 vérifie la disponibilité de votre chauffeur et vous confirme le tarif avant toute réservation.",
+    texte: "Estimez votre trajet en quelques instants. Demande gratuite, sans paiement. ELEV8 confirme votre tarif et votre disponibilité.",
+    proTexte: "Vous êtes un professionnel ?",             // hôtels, entreprises, restaurants, conciergeries
+    proLien: "Contactez ELEV8 directement",
+    proMessageWhatsApp: "Bonjour ELEV8, je vous contacte pour des trajets professionnels (hôtel, entreprise, restaurant ou conciergerie).",
     etape1: "Estimation immédiate", etape1Texte: "selon notre grille tarifaire",
     etape2: "Demande gratuite", etape2Texte: "sans paiement ni acompte",
     etape3: "Confirmation par ELEV8", etape3Texte: "disponibilité et tarif final",
@@ -255,11 +260,19 @@ window.SITE_CONFIG = {
   /* ---------- 8. Informations légales ----------
      À compléter impérativement avant la mise en ligne. */
   legal: {
-    raisonSociale: "[Nom de l'entreprise ou nom de l'entrepreneur]",
-    formeJuridique: "[Forme juridique : EI, SASU, EURL…]",
-    adresse: "[Adresse du siège]",
-    siret: "[Numéro SIRET]",
-    tva: "[N° de TVA intracommunautaire, le cas échéant]",
+    /* Informations officielles (transmises par ELEV8 le 18 nov. 2026) : mentions légales, devis et factures */
+    raisonSociale: "Elev8 Private Driver",
+    nomCommercial: "ELEV8 Private Driver",
+    formeJuridique: "SASU",
+    adresse: "17 rue Ferdinand Claudon, 21000 Dijon, France",
+    siret: "131 595 068 00019",
+    immatriculation: "131 595 068 R.C.S. Dijon",
+    tva: "FR66131595068",
+    capital: "[Montant du capital social, ex. 1 000 €]",  // OBLIGATOIRE pour une SASU sur les factures et devis : à compléter
+    regimeTVA: "assujetti",                  // n° de TVA intracommunautaire fourni : TVA facturée
+    tauxTVA: 10,                             // transport de personnes (VTC) : 10 %. Les prix du site sont des prix TTC.
+    modesPaiement: "carte bancaire ou virement bancaire",
+    penalitesRetard: "",                     // vide = « trois fois le taux d'intérêt légal »
     registreVTC: "[Numéro d'inscription au registre des exploitants VTC]",
     directeurPublication: "[Prénom Nom]",
     hebergeur: "Netlify, Inc. — 101 2nd Street, San Francisco, CA 94105, États-Unis",

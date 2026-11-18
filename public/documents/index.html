@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Devis et factures — ELEV8 Private Driver</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#0b0a09">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;0,6..96,500;1,6..96,400&family=Jost:wght@300;400;500&display=swap">
+<link rel="stylesheet" href="/assets/css/style.css?v=20261118b">
+</head>
+<body class="page-resa page-docs">
+<!-- Page réservée à ELEV8 (non référencée) : devis et factures PDF.
+     Ouverte depuis le lien « Préparer le devis ou la facture » de chaque e-mail de demande :
+     les informations de la demande sont dans l'adresse (après #) et préremplissent le formulaire.
+     Les PDF sont produits par la fonction Netlify /api/documents (mot de passe DOCUMENTS_MOT_DE_PASSE). -->
+<header class="top is-solid resa-top">
+  <a class="brand" href="/" aria-label="ELEV8 Private Driver — accueil du site">
+    <span class="brand__mono">E8</span>
+    <span class="brand__text"><span class="brand__name">ELEV8</span><span class="brand__sub">Devis &amp; factures</span></span>
+  </a>
+</header>
+
+<main class="wrap booking__wrap docs">
+  <p class="eyebrow">Espace ELEV8</p>
+  <h1 class="resa-intro__title docs__title">Devis <em>&amp; factures</em></h1>
+
+  <section class="docs__lock" id="lock">
+    <p class="docs__text">Réservé à ELEV8. Saisissez le mot de passe défini dans Netlify (DOCUMENTS_MOT_DE_PASSE).</p>
+    <form id="lockForm" class="docs__lockform">
+      <div class="field field--full">
+        <label for="d-mdp">Mot de passe</label>
+        <input id="d-mdp" type="password" autocomplete="current-password" required>
+      </div>
+      <label class="check" for="d-souvenir"><input id="d-souvenir" type="checkbox"><span class="check__box" aria-hidden="true"></span><span>Rester connecté sur cet appareil</span></label>
+      <button class="btn btn--solid" type="submit"><span>Ouvrir</span></button>
+      <p class="docs__msg" id="lockMsg" role="alert"></p>
+    </form>
+  </section>
+
+  <form class="form docs__form" id="docForm" novalidate hidden>
+    <p class="docs__alerte" id="emetteurMsg" hidden></p>
+    <p class="docs__text" id="sourceMsg"></p>
+
+    <fieldset class="form__group">
+      <legend><span class="legend__n">1</span>Client</legend>
+          <div class="field">
+            <label for="d-ref">Référence de la demande</label>
+            <input id="d-ref" type="text" maxlength="40" autocapitalize="characters">
+          </div>
+          <div class="field">
+            <label for="d-societe">Société <span class="opt">facultatif</span></label>
+            <input id="d-societe" type="text" maxlength="120">
+          </div>
+          <div class="field">
+            <label for="d-prenom">Prénom</label>
+            <input id="d-prenom" type="text" maxlength="60">
+          </div>
+          <div class="field">
+            <label for="d-nom">Nom</label>
+            <input id="d-nom" type="text" maxlength="60">
+          </div>
+          <div class="field field--full">
+            <label for="d-adresse">Adresse de facturation <span class="opt docs__req">obligatoire pour la facture</span></label>
+            <textarea id="d-adresse" rows="2" maxlength="300" placeholder="N°, rue, code postal, ville (et pays)"></textarea>
+          </div>
+          <div class="field">
+            <label for="d-siren">SIREN / SIRET du client <span class="opt">facultatif</span></label>
+            <input id="d-siren" type="text" maxlength="40" inputmode="numeric">
+          </div>
+          <div class="field">
+            <label for="d-tvaintra">N° TVA intracommunautaire <span class="opt">facultatif</span></label>
+            <input id="d-tvaintra" type="text" maxlength="40">
+          </div>
+          <div class="field">
+            <label for="d-email">E-mail <span class="opt">facultatif</span></label>
+            <input id="d-email" type="email" maxlength="120" autocapitalize="off">
+          </div>
+          <div class="field">
+            <label for="d-tel">Téléphone <span class="opt">facultatif</span></label>
+            <input id="d-tel" type="tel" maxlength="30">
+          </div>
+    </fieldset>
+
+    <fieldset class="form__group">
+      <legend><span class="legend__n">2</span>Prestation</legend>
+          <div class="field">
+            <label for="d-date">Date</label>
+            <input id="d-date" type="date" >
+          </div>
+          <div class="field">
+            <label for="d-heure">Heure</label>
+            <input id="d-heure" type="time" >
+          </div>
+          <div class="field field--full">
+            <label for="d-depart">Départ</label>
+            <input id="d-depart" type="text" maxlength="200">
+          </div>
+          <div class="field field--full">
+            <label for="d-destination">Destination</label>
+            <input id="d-destination" type="text" maxlength="200">
+          </div>
+          <div class="field field--full field--check">
+            <label class="check" for="d-ar"><input id="d-ar" type="checkbox"><span class="check__box" aria-hidden="true"></span><span>Aller-retour</span></label>
+          </div>
+          <div class="field" data-ar hidden><label for="d-dateretour">Date du retour</label><input id="d-dateretour" type="date"></div>
+          <div class="field" data-ar hidden><label for="d-heureretour">Heure du retour</label><input id="d-heureretour" type="time"></div>
+          <div class="field">
+            <label for="d-vehicule">Véhicule</label>
+            <select id="d-vehicule"><option>Tesla Model Y</option><option>Mercedes-Benz Classe V</option></select>
+          </div>
+          <div class="field">
+            <label for="d-distance">Distance (km) <span class="opt">facultatif</span></label>
+            <input id="d-distance" type="number" min="0" step="0.1" inputmode="decimal">
+          </div>
+          <div class="field">
+            <label for="d-pax">Passagers</label>
+            <input id="d-pax" type="number" min="1" max="20" inputmode="numeric">
+          </div>
+          <div class="field">
+            <label for="d-bagages">Bagages <span class="opt">facultatif</span></label>
+            <input id="d-bagages" type="number" min="0" max="30" inputmode="numeric">
+          </div>
+          <div class="field">
+            <label for="d-volref">N° de vol / train <span class="opt">facultatif</span></label>
+            <input id="d-volref" type="text" maxlength="30">
+          </div>
+          <div class="field field--full">
+            <label for="d-precisions">Informations complémentaires <span class="opt">facultatif</span></label>
+            <textarea id="d-precisions" rows="2" maxlength="600"></textarea>
+          </div>
+          <div class="field field--full">
+            <label for="d-designation">Désignation sur le document <span class="opt">facultatif</span></label>
+            <input id="d-designation" type="text" maxlength="300" placeholder="Par défaut : Transport de personnes avec chauffeur (VTC)">
+          </div>
+    </fieldset>
+
+    <fieldset class="form__group">
+      <legend><span class="legend__n">3</span>Tarif</legend>
+          <div class="field field--full">
+            <label for="d-montant">Prix du trajet, TTC (€)</label>
+            <input id="d-montant" type="text" inputmode="decimal" maxlength="10" placeholder="Ex. 45,60">
+            <p class="field__help" id="estimMsg"></p>
+          </div>
+          <p class="field__help field--full docs__sup-titre">Suppléments <span class="opt">facultatif</span> — remorque, attente, arrêt, bagages volumineux… (montants TTC)</p>
+          <div class="field field--full docs__sup" data-sup><input type="text" maxlength="120" placeholder="Libellé" aria-label="Libellé du supplément 1"><input type="text" inputmode="decimal" maxlength="8" placeholder="€" aria-label="Montant du supplément 1"></div>
+          <div class="field field--full docs__sup" data-sup><input type="text" maxlength="120" placeholder="Libellé" aria-label="Libellé du supplément 2"><input type="text" inputmode="decimal" maxlength="8" placeholder="€" aria-label="Montant du supplément 2"></div>
+          <div class="field field--full docs__sup" data-sup><input type="text" maxlength="120" placeholder="Libellé" aria-label="Libellé du supplément 3"><input type="text" inputmode="decimal" maxlength="8" placeholder="€" aria-label="Montant du supplément 3"></div>
+          <p class="field__help field--full" id="totalMsg"></p>
+    </fieldset>
+
+    <fieldset class="form__group">
+      <legend><span class="legend__n">4</span>Devis</legend>
+          <div class="field field--full field--check">
+            <label class="check" for="d-valide"><input id="d-valide" type="checkbox"><span class="check__box" aria-hidden="true"></span><span>Tarif validé par ELEV8 (sinon : « devis provisoire »)</span></label>
+          </div>
+          <div class="field">
+            <label for="d-validite">Validité du devis (jours)</label>
+            <input id="d-validite" type="number" min="1" max="90" value="15" inputmode="numeric">
+          </div>
+          <div class="docs__actions field--full">
+            <button class="btn btn--gold" type="button" id="btnDevis"><span>Générer le devis (PDF)</span></button>
+          </div>
+    </fieldset>
+
+    <fieldset class="form__group">
+      <legend><span class="legend__n">5</span>Facture <span class="opt">après la prestation</span></legend>
+          <div class="field">
+            <label for="d-dateprestation">Date de la prestation</label>
+            <input id="d-dateprestation" type="date" >
+          </div>
+          <div class="field field--check">
+            <label class="check" for="d-paye"><input id="d-paye" type="checkbox" checked><span class="check__box" aria-hidden="true"></span><span>Paiement reçu</span></label>
+          </div>
+          <div class="field" data-paye><label for="d-datepaiement">Date du paiement</label><input id="d-datepaiement" type="date"></div>
+          <div class="field">
+            <label for="d-mode">Mode de paiement</label>
+            <select id="d-mode"><option>carte bancaire</option><option>virement bancaire</option></select>
+          </div>
+          <div class="field" data-nonpaye hidden><label for="d-echeance">Échéance (jours)</label><input id="d-echeance" type="number" min="0" max="60" value="0" inputmode="numeric"></div>
+          <p class="field__help field--full">La facture reçoit un numéro définitif (F-AAAA-0001…) et ne peut plus être modifiée une fois émise. Une seule facture par référence : la redemander renvoie la même.</p>
+          <div class="docs__actions field--full">
+            <button class="btn btn--solid" type="button" id="btnFacture"><span>Générer la facture (PDF)</span></button>
+            <div class="docs__confirm" id="confirmFacture" hidden>
+              <p>Émettre une facture définitive de <strong id="confirmMontant"></strong> pour <strong id="confirmClient"></strong> ?</p>
+              <div class="docs__row">
+                <button class="btn btn--solid" type="button" id="btnFactureOk"><span>Oui, émettre la facture</span></button>
+                <button class="btn btn--quiet" type="button" id="btnFactureNon"><span>Annuler</span></button>
+              </div>
+            </div>
+          </div>
+    </fieldset>
+
+    <p class="docs__msg" id="formMsg" role="alert"></p>
+  </form>
+
+  <section class="docs__result recap" id="result" hidden tabindex="-1">
+    <p class="eyebrow" id="resEyebrow">Document prêt</p>
+    <h2 class="h3" id="resTitre"></h2>
+    <p class="docs__text" id="resInfo"></p>
+    <div class="docs__row">
+      <a class="btn btn--solid" id="resOuvrir" target="_blank" rel="noopener"><span>Ouvrir le PDF</span></a>
+      <a class="btn btn--quiet" id="resTelecharger"><span>Télécharger</span></a>
+      <button class="btn btn--gold" type="button" id="resPartager" hidden><span>Partager (WhatsApp, e-mail…)</span></button>
+    </div>
+    <div class="docs__send">
+      <div class="field field--full">
+        <label for="d-dest">Envoyer au client par e-mail (PDF joint, copie à ELEV8)</label>
+        <input id="d-dest" type="email" maxlength="120" autocapitalize="off" placeholder="adresse e-mail du client">
+      </div>
+      <div class="docs__row">
+        <button class="btn btn--quiet" type="button" id="resEnvoyer"><span>Envoyer par e-mail</span></button>
+        <a class="btn btn--quiet" id="resWhatsApp" target="_blank" rel="noopener"><span>Message WhatsApp au client</span></a>
+      </div>
+      <p class="field__help">Sur téléphone, « Partager » joint directement le PDF dans WhatsApp ou dans un e-mail. « Message WhatsApp au client » ouvre seulement la conversation : joignez-y le PDF téléchargé.</p>
+      <p class="docs__msg" id="resMsg" role="status"></p>
+    </div>
+    <button class="btn btn--quiet docs__back" type="button" id="resRetour"><span>Revenir au formulaire</span></button>
+  </section>
+</main>
+
+<script src="/config.js?v=20261118b"></script>
+<script src="/assets/js/documents.js?v=20261118b"></script>
+</body>
+</html>
