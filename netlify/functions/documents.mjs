@@ -28,6 +28,7 @@ import { getStore } from "@netlify/blobs";
 import { emetteur, manquants, nettoyer, aCompleter, pdf, montants, aujourdhuiParis, euros } from "../lib/documents.mjs";
 import { magasin as magasinDemandes, chargerParId, chargerParRef } from "../lib/demandes.mjs";
 import { stripeActif } from "../lib/stripe.mjs";
+import { retenirContexte, estSiteDeTest, nomMagasin, destinataireTest, marquerTest } from "../lib/environnement.mjs";
 import { magasin as magasinPaiements, parRef as paiementParRef, resume as resumePaiement } from "../lib/paiements.mjs";
 import { creerLienManuel, confirmerChauffeur, annulerEtRembourser } from "../lib/actions-paiement.mjs";
 
@@ -84,7 +85,7 @@ const MESSAGES_DEMANDE = {
 
 function store() {
   if (deps.store) return deps.store;
-  return getStore({ name: "elev8-factures", consistency: "strong" });
+  return getStore({ name: nomMagasin("elev8-factures"), consistency: "strong" });
 }
 
 /* Identité d'ELEV8 : rubrique « legal » de config.js (même source que les mentions légales) */
@@ -114,7 +115,9 @@ async function numeroSuivant(st, annee) {
 
 const nomFichier = (type, numero) => (type === "facture" ? "Facture-" : "Devis-") + numero + ".pdf";
 
-async function envoyerEmail({ to, subject, text, html, fichier, contenu }) {
+async function envoyerEmail(m) {
+  let { to, subject, text, html, fichier, contenu } = m;
+  if (estSiteDeTest()) { const d = destinataireTest(to); ({ subject, text, html } = marquerTest({ subject, text, html }, to, d.redirige)); to = d.to || env("MAIL_TO"); }
   if (deps.send) return deps.send({ to, subject, text, html, fichier, contenu });
   const provider = env("EMAIL_PROVIDER").toLowerCase() || "brevo";
   const key = env("EMAIL_API_KEY"), from = env("MAIL_FROM"), copie = env("MAIL_TO");
@@ -140,6 +143,7 @@ async function envoyerEmail({ to, subject, text, html, fichier, contenu }) {
 const esc = (x) => String(x).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 export default async (req, context) => {
+  retenirContexte(context);
   if (req.method !== "POST") return json(405, { ok: false, code: "methode", message: "Méthode non autorisée." });
   const url = new URL(req.url);
   const origin = req.headers.get("origin");
@@ -219,6 +223,8 @@ export default async (req, context) => {
     message: "Informations légales d'ELEV8 à compléter dans public/config.js (rubrique legal) : " + manque.join(" ; ") + "." });
 
   const type = action === "envoyer" ? (b.type === "facture" ? "facture" : "devis") : action;
+  if (type === "facture" && estSiteDeTest())
+    return json(409, { ok: false, code: "site_test", message: "Site de test : aucune facture n'est émise ici (les factures réelles restent sur le site officiel). Le devis reste disponible." });
   if (type === "facture" && E.facturation === "indy")
     return json(409, { ok: false, code: "facturation_indy", message: "Les factures sont établies dans Indy (réglage legal.facturation de config.js) : aucune facture n'est créée ici, pour éviter une double numérotation." });
   const doc = nettoyer(b.doc);

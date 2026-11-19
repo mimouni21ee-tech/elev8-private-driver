@@ -46,6 +46,7 @@ import { RULES, openStore, keyFor, ipFingerprint, consume } from "../lib/ratelim
 import { estimer, verifier, deps as estDeps, ZONE_ESTIMATION } from "../lib/estimation.mjs";
 import { magasin as magasinDemandes, enregistrer as enregistrerDemande, supprimer as supprimerDemande, chargerParId } from "../lib/demandes.mjs";
 import { stripeActif } from "../lib/stripe.mjs";
+import { retenirContexte, estSiteDeTest, marquerTest } from "../lib/environnement.mjs";
 import { eligibleAuto, magasin as magasinPaiements, modifier as modifierPaiement } from "../lib/paiements.mjs";
 import { preparerPaiement } from "../lib/actions-paiement.mjs";
 import { mailLienPaiement } from "../lib/courriels.mjs";
@@ -251,7 +252,8 @@ ${rows.map(([k, v]) => { const fort = k === "Estimation" || (k === "Informations
 }
 
 /* ---------- Envoi via le prestataire e-mail ---------- */
-async function sendEmail({ subject, text, html, replyTo }) {
+async function sendEmail(m) {
+  let { subject, text, html, replyTo } = estSiteDeTest() ? { ...m, ...marquerTest(m, "", false) } : m;   // site de test : « [TEST] »
   if (deps.send) return deps.send({ subject, text, html, replyTo });
   const provider = env("EMAIL_PROVIDER").toLowerCase() || "brevo";
   const key = env("EMAIL_API_KEY");
@@ -311,6 +313,7 @@ export function makeRef(now = new Date()) {
 
 /* ---------- Point d'entrée ---------- */
 export default async (req, context) => {
+  retenirContexte(context);
   if (req.method !== "POST") return json(405, { ok: false, error: "method" });
 
   // Même origine uniquement (ou domaines listés dans ALLOWED_ORIGINS)

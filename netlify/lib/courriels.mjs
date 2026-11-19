@@ -6,13 +6,19 @@
    Aucun de ces messages n'affirme qu'un chauffeur est attribué tant qu'ELEV8 (ou, plus tard,
    HUBER) ne l'a pas réellement confirmé.
    ========================================================================== */
+import { estSiteDeTest, destinataireTest, marquerTest } from "./environnement.mjs";
 export const deps = { send: null };
 const env = (k) => (process.env[k] || "").trim();
 const MARQUE = "ELEV8 Private Driver";
 const SITE = "https://elev8privatedriver.com";
 const CONTACT = "contact@elev8privatedriver.com";
 
-export async function envoyer({ to, subject, text, html, replyTo }) {
+export async function envoyer(message) {
+  let { to, subject, text, html, replyTo } = message;
+  if (estSiteDeTest()) {                                         // site de test : jamais d'envoi à un vrai client
+    const d = destinataireTest(to);
+    ({ subject, text, html } = marquerTest({ subject, text, html }, to, d.redirige)); to = d.to;
+  }
   if (deps.send) return deps.send({ to, subject, text, html, replyTo });
   const provider = env("EMAIL_PROVIDER").toLowerCase() || "brevo";
   const key = env("EMAIL_API_KEY"), from = env("MAIL_FROM"), nom = env("MAIL_FROM_NAME") || MARQUE;

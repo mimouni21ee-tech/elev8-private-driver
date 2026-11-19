@@ -11,6 +11,7 @@
    Le MONTANT vient exclusivement du dossier enregistré côté serveur.
    ========================================================================== */
 import { stripeActif, creerSession, lireSession } from "../lib/stripe.mjs";
+import { retenirContexte } from "../lib/environnement.mjs";
 import { magasin, lire, modifier, appliquerSession, deps as P } from "../lib/paiements.mjs";
 import { magasin as magasinDemandes, chargerParId } from "../lib/demandes.mjs";
 
@@ -20,6 +21,7 @@ const vers = (url) => new Response(null, { status: 303, headers: { Location: url
 const page = (etat, extra = "") => vers("/paiement/?etat=" + etat + extra);
 
 export default async (req, context) => {
+  retenirContexte(context);
   if (req.method !== "GET" && req.method !== "HEAD") return new Response("", { status: 405 });
   const jeton = (context && context.params && context.params.jeton) || new URL(req.url).pathname.split("/").filter(Boolean)[1] || "";
   if (!stripeActif()) return page("indisponible");

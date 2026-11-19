@@ -14,6 +14,7 @@
    (schéma officiel Stripe : HMAC-SHA256 de « horodatage.corps », tolérance 5 minutes).
    ========================================================================== */
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { estProduction } from "./environnement.mjs";
 
 export const deps = { fetch: (...a) => fetch(...a), now: () => Date.now() };
 const env = (k) => (process.env[k] || "").trim();
@@ -21,6 +22,7 @@ const API = "https://api.stripe.com";
 
 /* Configuration active, ou null (paiement en ligne désactivé) */
 export function stripeActif() {
+  if (estProduction()) return null;                                      // jamais sur le site de production (version de test)
   if (env("PAIEMENT_STRIPE").toLowerCase() !== "test") return null;
   const cle = env("STRIPE_SECRET_KEY"), secret = env("STRIPE_WEBHOOK_SECRET");
   if (!/^(sk|rk)_test_[A-Za-z0-9]{10,}$/.test(cle)) return null;          // clé réelle ou absente : refusé

@@ -16,6 +16,7 @@
    passagère (Stripe renverra l'événement plus tard).
    ========================================================================== */
 import { stripeActif, verifierSignature, lireSession, lireCharge } from "../lib/stripe.mjs";
+import { retenirContexte } from "../lib/environnement.mjs";
 import { magasin, parCle, lire, modifier, appliquerSession, appliquerEchecDiffere, appliquerCharge, deps as P } from "../lib/paiements.mjs";
 import { mailPaiementRecu, alerteElev8 } from "../lib/courriels.mjs";
 import { envoyerUneFois, demandeDe, lienDocuments } from "../lib/notifications.mjs";
@@ -23,7 +24,8 @@ import { envoyerUneFois, demandeDe, lienDocuments } from "../lib/notifications.m
 export const config = { path: "/stripe-webhook" };
 const rep = (status, body) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
-export default async (req) => {
+export default async (req, context) => {
+  retenirContexte(context);
   if (req.method !== "POST") return rep(405, { ok: false });
   const c = stripeActif();
   if (!c) return rep(503, { ok: false, erreur: "inactif" });

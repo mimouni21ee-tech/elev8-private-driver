@@ -11,7 +11,7 @@ const t = async (nom, f) => { try { await f(); ok++; console.log("✓ " + nom); 
 /* ---------- Environnement de test ---------- */
 const CLE = "sk_test_" + "x".repeat(24), SECRET = "whsec_" + "s".repeat(32);
 Object.assign(process.env, { PAIEMENT_STRIPE: "test", STRIPE_SECRET_KEY: CLE, STRIPE_WEBHOOK_SECRET: SECRET, DOCUMENTS_MOT_DE_PASSE: "mot-de-passe-de-test",
-  EMAIL_API_KEY: "cle-email", MAIL_TO: "contact@elev8privatedriver.com", MAIL_FROM: "reservations@example.test", GOOGLE_MAPS_API_KEY: "cle-google" });
+  EMAIL_API_KEY: "cle-email", MAIL_TO: "contact@elev8privatedriver.com", MAIL_FROM: "reservations@example.test", GOOGLE_MAPS_API_KEY: "cle-google", EMAILS_TEST_AUTORISES: "claire@example.test" });
 let NOW = Date.parse("2026-11-17T12:00:00Z");
 const horloge = () => NOW;
 
@@ -144,12 +144,12 @@ await t("trajet standard : montant calculé par le serveur (jamais celui du navi
   assert.equal(j.paiement.montant, 20); assert.match(j.paiement.url, /^\/payer\/[A-Za-z0-9_-]{24}$/); assert.equal(j.paiement.email, true);
   A = { ref: j.ref, lien: j.paiement.url };
   const m = envoyes.find((x) => x.to === "claire@example.test");
-  assert.equal(m.subject, "ELEV8 Private Driver — Finalisation de votre réservation | " + j.ref);
+  assert.equal(m.subject, "[TEST] ELEV8 Private Driver — Finalisation de votre réservation | " + j.ref);
   for (const x of ["Bonjour Claire,", "Votre trajet", "Référence : " + j.ref, "Heure de prise en charge : 10h00", "Adresse de départ : Gare de Dijon-Ville", "Nombre de passagers : 2",
     "Tarif définitif : 20,00 € TTC", "Finalisez votre réservation", ORIGINE + j.paiement.url, "intégralement remboursé"]) assert.ok(m.text.includes(x), x);
   assert.ok(!/J'accepte|chauffeur est disponible|réservation (est )?confirmée/i.test(m.text), "aucune confirmation ni « J'accepte » avant paiement et chauffeur");
   assert.ok(!m.text.includes("claire@example.test") || true);
-  assert.match(notifElev8[0].subject, /^\[Paiement en ligne envoyé\]/);
+  assert.match(notifElev8[0].subject, /^\[TEST\] \[Paiement en ligne envoyé\]/);
   assert.ok(notifElev8[0].text.includes("AUCUNE ACTION REQUISE"));
   assert.ok(!/[?&](nom|email|tel|prenom)=/i.test(j.paiement.url));
 });
@@ -158,7 +158,7 @@ await t("demande particulière : aucun lien automatique, validation manuelle sig
   notifElev8.length = 0; envoyes.length = 0;
   const { j } = await envoyer({ precisions: "Deux sièges enfants, arrêt à la pharmacie" });
   assert.equal(j.paiement, null); assert.equal(j.statut, "demande_recue");
-  assert.match(notifElev8[0].subject, /^\[À valider\]/); assert.ok(notifElev8[0].text.includes("Validation manuelle requise : informations complémentaires à examiner"));
+  assert.match(notifElev8[0].subject, /^\[TEST\] \[À valider\]/); assert.ok(notifElev8[0].text.includes("Validation manuelle requise : informations complémentaires à examiner"));
   assert.equal(envoyes.length, 0);
   A.refManuel = j.ref;
 });
@@ -362,6 +362,49 @@ await t("paiement en ligne désactivé (variables absentes) : le site fonctionne
   assert.equal((await ouvrir(A.lien)).loc, "/paiement/?etat=indisponible");
   assert.equal((await evenement("checkout.session.completed", { id: A.session })).status, 503);
   process.env.PAIEMENT_STRIPE = avant;
+});
+
+/* ---------- Site de test (déploiement de branche Netlify) isolé de la production ---------- */
+const ENV = await import("../netlify/lib/environnement.mjs");
+await t("contexte Netlify « production » : paiement de test refusé, vrais stockages ; « branch-deploy » : stockages « -test »", () => {
+  ENV.retenirContexte({ deploy: { context: "production" } });
+  assert.equal(STR.stripeActif(), null, "jamais de paiement de test en production");
+  assert.equal(ENV.nomMagasin("elev8-demandes"), "elev8-demandes"); assert.equal(ENV.estSiteDeTest(), false);
+  for (const c of ["branch-deploy", "deploy-preview", "dev"]) {
+    ENV.retenirContexte({ deploy: { context: c } });
+    assert.ok(STR.stripeActif(), c);
+    for (const n of ["elev8-demandes", "elev8-paiements", "elev8-factures"]) assert.equal(ENV.nomMagasin(n), n + "-test", c + " " + n);
+  }
+  ENV.retenirContexte({ deploy: { context: "branch-deploy" } });
+  const avant = process.env.PAIEMENT_STRIPE; delete process.env.PAIEMENT_STRIPE;          // variable oubliée : stockages de test quand même
+  assert.equal(ENV.nomMagasin("elev8-factures"), "elev8-factures-test");
+  process.env.PAIEMENT_STRIPE = avant;
+  ENV._reinitialiser();
+});
+await t("site de test : e-mails marqués [TEST] ; un client non autorisé n'est jamais destinataire (redirigé vers ELEV8)", async () => {
+  ENV.retenirContexte({ deploy: { context: "branch-deploy" } });
+  const autorises = process.env.EMAILS_TEST_AUTORISES; process.env.EMAILS_TEST_AUTORISES = "";
+  envoyes.length = 0; notifElev8.length = 0;
+  const { j } = await envoyer({ email: "vrai.client@exemple.fr" });
+  const m = envoyes.find((x) => /Finalisation/.test(x.subject));
+  assert.equal(m.to, "", "redirigé vers MAIL_TO (ELEV8)");
+  assert.match(m.subject, /^\[TEST\] /); assert.ok(m.text.startsWith("MESSAGE DE TEST") && m.text.includes("Destinataire prévu : vrai.client@exemple.fr"));
+  assert.ok(m.html.includes("MESSAGE DE TEST"));
+  assert.ok(!envoyes.some((x) => x.to === "vrai.client@exemple.fr"));
+  assert.match(notifElev8[0].subject, /^\[TEST\] /);
+  assert.ok(j.paiement);
+  process.env.EMAILS_TEST_AUTORISES = autorises;
+  ENV._reinitialiser();
+});
+await t("site de test : aucune facture définitive ne peut être émise", async () => {
+  ENV.retenirContexte({ deploy: { context: "branch-deploy" } });
+  const { readFileSync } = await import("node:fs");
+  const C = (await import("../netlify/functions/documents.mjs")).parseConfig(readFileSync(new URL("../public/config.js", import.meta.url), "utf8"));
+  C.legal.capital = "1 000 €"; docDeps.config = C;
+  const r = await admin({ action: "facture", doc: { ref: A.ref, client: { prenom: "Claire", nom: "Martin", adresse: "1 rue X, 21000 Dijon" }, prestation: { date: "2026-11-16", depart: "A", destination: "B", vehicule: "Berline" }, montant: "20", facture: { dateEmission: "2026-11-17", datePrestation: "2026-11-16" } } });
+  assert.equal(r.status, 409); assert.equal(r.j.code, "site_test");
+  assert.equal([...docDeps.store.m.keys()].filter((k) => k.startsWith("facture/") || k.startsWith("compteur/")).length, 0);
+  docDeps.config = null; ENV._reinitialiser();
 });
 
 console.log(`\n${ok} test(s) réussi(s)` + (process.exitCode ? " — ÉCHECS ci-dessus" : ""));

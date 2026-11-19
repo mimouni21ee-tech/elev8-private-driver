@@ -8,6 +8,7 @@
    Inactif tant que le paiement en ligne n'est pas activé (PAIEMENT_STRIPE=test).
    ========================================================================== */
 import { stripeActif, expirerSession } from "../lib/stripe.mjs";
+import { retenirContexte } from "../lib/environnement.mjs";
 import { magasin, modifier, REGLES, deps as P } from "../lib/paiements.mjs";
 import { alerteElev8 } from "../lib/courriels.mjs";
 import { envoyerUneFois, demandeDe, lienDocuments } from "../lib/notifications.mjs";
@@ -41,7 +42,8 @@ export async function suivre(now = P.now()) {
   return bilan;
 }
 
-export default async () => {
+export default async (req, context) => {
+  retenirContexte(context);
   if (!stripeActif()) return;
   try { const b = await suivre(); console.log(`Suivi des paiements : ${b.expires} lien(s) expiré(s), ${b.alertes} alerte(s), ${b.rembourses} remboursement(s) automatique(s)`); }
   catch (e) { console.error("Suivi des paiements impossible :", String(e && e.message).slice(0, 80)); }

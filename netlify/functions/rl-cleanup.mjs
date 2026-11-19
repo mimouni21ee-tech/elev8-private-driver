@@ -5,8 +5,10 @@
    depuis plus de 12 mois (magasin elev8-demandes). */
 import { openStore, cleanup, cleanupDivers } from "../lib/ratelimit.mjs";
 import { magasin as magasinDemandes, nettoyer as nettoyerDemandes } from "../lib/demandes.mjs";
+import { retenirContexte } from "../lib/environnement.mjs";
 
-export default async () => {
+export default async (req, context) => {
+  retenirContexte(context);
   try {
     const store = openStore();
     const n = await cleanup(store);

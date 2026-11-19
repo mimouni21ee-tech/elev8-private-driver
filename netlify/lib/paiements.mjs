@@ -21,10 +21,11 @@
    ========================================================================== */
 import { randomBytes } from "node:crypto";
 import { getStore } from "@netlify/blobs";
+import { nomMagasin } from "./environnement.mjs";
 
 export const deps = { store: null, now: () => Date.now() };
 const env = (k) => (process.env[k] || "").trim();
-export function magasin() { return deps.store || getStore({ name: "elev8-paiements", consistency: "strong" }); }
+export function magasin() { return deps.store || getStore({ name: nomMagasin("elev8-paiements"), consistency: "strong" }); }
 export const JETON_RE = /^[A-Za-z0-9_-]{24}$/;
 export const nouveauJeton = () => randomBytes(18).toString("base64url");
 
