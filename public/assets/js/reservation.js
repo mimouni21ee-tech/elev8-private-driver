@@ -498,10 +498,13 @@
         $("#sentRef").textContent = "Référence " + r.json.ref;
         var rows = [["Référence", r.json.ref]].concat(c.rows.filter(function (x) { return x[0] !== "Estimation" && x[0] !== "Tarif"; }));
         var se = r.json.estimation;                                  // montant établi par le serveur
-        if (se && se.statut === "estimation" && se.montant > 0) rows.splice(1, 0, ["Estimation", fmtEuro(se.montant) + " (indicative, à confirmer par ELEV8)"]);
+        var pay = r.json.paiement;                                   // lien de paiement créé par le serveur (trajet standard)
+        if (pay && pay.url && pay.montant > 0) rows.splice(1, 0, ["Tarif", fmtEuro(pay.montant) + " TTC"]);
+        else if (se && se.statut === "estimation" && se.montant > 0) rows.splice(1, 0, ["Estimation", fmtEuro(se.montant) + " (indicative, à confirmer par ELEV8)"]);
         else if (se) rows.splice(1, 0, ["Tarif", "Sur devis, communiqué par ELEV8"]);
-        rows.splice(1, 0, ["Statut", "Demande reçue · en attente de validation"]);
+        rows.splice(1, 0, ["Statut", pay && pay.url ? "Demande enregistrée · en attente de paiement" : "Demande reçue · en attente de validation"]);
         $("#sentList").innerHTML = rowsHtml(rows);
+        afficherPaiement(pay);
         sent = true;
         if (!suiviEnvoye[payload.demandeId]) {                    // jamais compté deux fois (double clic, renvoi)
           suiviEnvoye[payload.demandeId] = true;
@@ -533,6 +536,30 @@
     });
   });
 
+  /* Paiement en ligne : bouton vers le lien individuel (le montant est fixé par le serveur, jamais ici) */
+  function afficherPaiement(pay) {
+    var ancien = document.getElementById("sentPayer");
+    if (ancien) ancien.parentNode.removeChild(ancien);
+    // Note « Aucun paiement ne vous a été demandé » : remplacée seulement quand un lien de paiement est proposé
+    var note = document.querySelector('#sent [data-c="reservation.envoi.note"]');
+    if (note) {
+      if (note.dataset.origine == null) note.dataset.origine = note.textContent;
+      note.textContent = pay && pay.url ? "Aucun montant n'est prélevé sans votre action sur la page de paiement sécurisée. Pour toute question, appelez-nous ou écrivez-nous sur WhatsApp en indiquant votre référence." : note.dataset.origine;
+    }
+    if (!pay || typeof pay.url !== "string" || !/^\/payer\/[A-Za-z0-9_-]{24}$/.test(pay.url)) return;
+    var bloc = document.createElement("div");
+    bloc.id = "sentPayer"; bloc.className = "sent__payer";
+    var a = document.createElement("a");
+    a.className = "btn btn--gold"; a.href = pay.url;
+    var sp = document.createElement("span"); sp.textContent = "Payer " + fmtEuro(pay.montant) + " en toute sécurité"; a.appendChild(sp);
+    a.addEventListener("click", function () { suivi("clic_paiement", { value: pay.montant, currency: "EUR" }); });
+    var p = document.createElement("p");
+    p.textContent = (pay.email ? "Ce lien vous a aussi été envoyé par e-mail. " : "") +
+      "Dès réception de votre règlement, nous attribuons votre course à un chauffeur ; vous recevrez la confirmation par e-mail. Sans chauffeur disponible, vous seriez intégralement remboursé." +
+      (pay.mode === "test" ? " (Paiement en mode test : aucune somme réelle n'est prélevée.)" : "");
+    bloc.appendChild(a); bloc.appendChild(p);
+    var liste = $("#sentList"); liste.parentNode.insertBefore(bloc, liste.nextSibling);
+  }
   $("#editBtn").addEventListener("click", function () { showPanel("form"); });
   var sent = false;
   $("#newBtn").addEventListener("click", function () {

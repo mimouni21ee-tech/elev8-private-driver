@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;0,6..96,500;1,6..96,400&family=Jost:wght@300;400;500&display=swap">
-<link rel="stylesheet" href="/assets/css/style.css?v=20261119c">
+<link rel="stylesheet" href="/assets/css/style.css?v=20261119e">
 </head>
 <body class="page-resa page-docs">
 <!-- Page réservée à ELEV8 (non référencée) : devis et factures PDF.
@@ -55,6 +55,24 @@
 
     <!-- Récapitulatif de la demande chargée (rempli par documents.js) -->
     <section class="docs__recap" id="recapDemande" aria-label="Récapitulatif de la demande" hidden></section>
+    <!-- Paiement en ligne (Stripe, mode test) : état réel, confirmé uniquement par Stripe -->
+    <section class="docs__paiement" id="paiementBloc" aria-label="Paiement en ligne" hidden>
+      <h3>Paiement en ligne <span class="opt" id="pModeTest">mode test</span></h3>
+      <p class="statut" id="pStatut"></p>
+      <p class="docs__text" id="pDetail"></p>
+      <div id="pChauffeur" hidden>
+        <div class="field"><label for="c-prenom">Prénom du chauffeur</label><input id="c-prenom" type="text" maxlength="40" autocomplete="off"></div>
+        <div class="field"><label for="c-vehicule">Véhicule</label><input id="c-vehicule" type="text" maxlength="80" placeholder="Ex. Tesla Model Y noire" autocomplete="off"></div>
+        <div class="field"><label for="c-plaque">Immatriculation <span class="opt">facultatif</span></label><input id="c-plaque" type="text" maxlength="20" autocomplete="off"></div>
+        <div class="docs__row"><button class="btn btn--gold" type="button" id="btnChauffeur"><span>Chauffeur confirmé — prévenir le client</span></button></div>
+      </div>
+      <div class="docs__row" id="pAnnuler" hidden>
+        <button class="btn btn--quiet" type="button" id="btnIndispo"><span>Indisponible — annuler</span></button>
+        <button class="btn btn--quiet" type="button" id="btnSansChauffeur"><span>Aucun chauffeur — rembourser</span></button>
+      </div>
+      <p class="docs__msg" id="pMsg" role="status"></p>
+      <ul id="pHisto"></ul>
+    </section>
 
     <details class="docs__edition" id="edition" open>
     <summary id="editionTitre">Informations du client et du trajet</summary>
@@ -171,26 +189,34 @@
           </div>
     </fieldset>
 
-    <!-- Validation du tarif : message au client (e-mail ou WhatsApp), relu et modifiable avant l'envoi -->
+    <!-- Validation du tarif : 1 disponibilité → 2 tarif → 3 lien de paiement sécurisé → 4 message (relu et modifiable avant l'envoi) -->
     <fieldset class="form__group" id="validation">
       <legend><span class="legend__n">5</span>Validation du tarif <span class="opt">message au client</span></legend>
           <div class="field field--full">
             <label for="v-type">Message</label>
             <select id="v-type">
-              <option value="confirmation">Validation du tarif (tarif estimé confirmé)</option>
-              <option value="ajuste">Validation du tarif (tarif ajusté après vérification)</option>
+              <option value="proposition">Proposition du tarif définitif (avant règlement)</option>
               <option value="reservation">Réservation confirmée (règlement vérifié)</option>
             </select>
           </div>
           <div class="field field--full field--check" data-vt="validation">
-            <label class="check" for="v-dispo"><input id="v-dispo" type="checkbox"><span class="check__box" aria-hidden="true"></span><span>J'ai vérifié la disponibilité du chauffeur et du véhicule</span></label>
+            <label class="check" for="v-dispo"><input id="v-dispo" type="checkbox"><span class="check__box" aria-hidden="true"></span><span><strong>1.</strong> J'ai vérifié la disponibilité du chauffeur et du véhicule</span></label>
+          </div>
+          <div class="field field--full field--check" data-vt="validation">
+            <label class="check" for="v-tarif"><input id="v-tarif" type="checkbox"><span class="check__box" aria-hidden="true"></span><span><strong>2.</strong> Je valide le tarif définitif de <strong id="v-montant">—</strong> <span class="opt" id="v-ajuste"></span></span></label>
+            <p class="field__help">Pour le modifier : rubrique 3 (trajet et suppléments). Toute modification du montant annule cette validation.</p>
           </div>
           <div class="field field--full" data-vt="validation">
-            <label for="v-lien">Lien de paiement Indy <span class="opt">facultatif</span></label>
-            <input id="v-lien" type="url" inputmode="url" autocapitalize="off" spellcheck="false" maxlength="500" placeholder="https://… (lien créé dans Indy pour ce montant)">
+            <label for="v-lien"><strong>3.</strong> Lien de paiement sécurisé <span class="opt">facultatif</span></label>
+            <input id="v-lien" type="url" inputmode="url" autocapitalize="off" autocomplete="off" spellcheck="false" maxlength="500" placeholder="https://… (Caisse d'Épargne, Indy ou autre prestataire)" disabled>
+            <p class="field__help" id="v-lien-aide">Créez le lien dans l'espace sécurisé de votre prestataire, pour le montant validé, puis collez-le ici. Disponible après les étapes 1 et 2.</p>
+          </div>
+          <div class="docs__actions field--full" id="stripeLien" hidden>
+            <button class="btn btn--quiet" type="button" id="btnStripe" disabled><span>Créer le lien de paiement Stripe pour ce montant</span></button>
+            <p class="field__help">Le lien est créé par le serveur pour le montant validé à l'étape 2 (mode test). Il remplace tout lien précédent non payé.</p>
           </div>
           <div class="field field--full field--check" data-vt="validation" data-lien hidden>
-            <label class="check" for="v-lien-ok"><input id="v-lien-ok" type="checkbox"><span class="check__box" aria-hidden="true"></span><span>J'ai vérifié ce lien : il correspond à ce client et au montant de <strong id="v-lien-montant">—</strong></span></label>
+            <label class="check" for="v-lien-ok"><input id="v-lien-ok" type="checkbox"><span class="check__box" aria-hidden="true"></span><span>J'ai vérifié ce lien<span id="v-lien-domaine"></span> : il a été créé pour ce client et pour le montant de <strong id="v-lien-montant">—</strong></span></label>
           </div>
           <div class="field field--full" data-vt="validation" data-sanslien>
             <label for="v-sanslien">Sans lien de paiement</label>
@@ -200,11 +226,11 @@
             </select>
           </div>
           <div class="field field--full field--check" data-vt="reservation" hidden>
-            <label class="check" for="v-regle"><input id="v-regle" type="checkbox"><span class="check__box" aria-hidden="true"></span><span>J'ai vérifié la réception du règlement (dans Indy ou sur le compte bancaire)</span></label>
+            <label class="check" for="v-regle"><input id="v-regle" type="checkbox"><span class="check__box" aria-hidden="true"></span><span>J'ai vérifié la réception du règlement (chez le prestataire de paiement ou sur le compte bancaire)</span></label>
           </div>
-          <p class="field__help field--full">Le tarif repris est celui de la rubrique 3 (trajet et suppléments), pas l'estimation. Un paiement ne confirme jamais la réservation automatiquement : vérifiez le règlement, puis envoyez « Réservation confirmée ».</p>
+          <p class="field__help field--full" id="v-aide">Avec un lien, le client règle directement : on ne lui demande plus « J'accepte ». Un paiement ne confirme jamais la réservation automatiquement : vérifiez le règlement, puis envoyez « Réservation confirmée ».</p>
           <div class="docs__actions field--full">
-            <button class="btn btn--gold" type="button" id="btnMessage"><span>Préparer le message au client</span></button>
+            <button class="btn btn--gold" type="button" id="btnMessage"><span><strong>4.</strong> Préparer le message au client</span></button>
           </div>
           <div class="docs__apercu field--full" id="apercu" hidden>
             <div class="field field--full">
@@ -304,6 +330,7 @@
 </main>
 
 <script src="/config.js?v=20261118b"></script>
-<script src="/assets/js/documents.js?v=20261119c"></script>
+<script src="/assets/js/messages-client.js?v=20261119d"></script>
+<script src="/assets/js/documents.js?v=20261119e"></script>
 </body>
 </html>

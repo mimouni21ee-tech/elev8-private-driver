@@ -27,6 +27,9 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypt
 import { getStore } from "@netlify/blobs";
 import { emetteur, manquants, nettoyer, aCompleter, pdf, montants, aujourdhuiParis, euros } from "../lib/documents.mjs";
 import { magasin as magasinDemandes, chargerParId, chargerParRef } from "../lib/demandes.mjs";
+import { stripeActif } from "../lib/stripe.mjs";
+import { magasin as magasinPaiements, parRef as paiementParRef, resume as resumePaiement } from "../lib/paiements.mjs";
+import { creerLienManuel, confirmerChauffeur, annulerEtRembourser } from "../lib/actions-paiement.mjs";
 
 export const config = {
   path: "/documents-api",
@@ -176,7 +179,29 @@ export default async (req, context) => {
         if (f) facture = { numero: f.numero, dateEmission: f.dateEmission, total: f.montants && f.montants.ttc };
       }
     } catch { /* information facultative */ }
-    return json(200, { ok: true, demande: { ref: r.ref, recu: r.recu, client: r.client, prestation: r.prestation, estimation: r.estimation, origine: r.origine }, facture });
+    let paiement = null;
+    try { paiement = resumePaiement(await paiementParRef(magasinPaiements(), r.ref)); } catch { /* information facultative */ }
+    return json(200, { ok: true, demande: { ref: r.ref, recu: r.recu, client: r.client, prestation: r.prestation, estimation: r.estimation, origine: r.origine }, facture,
+      paiement, paiementEnLigne: !!stripeActif() });
+  }
+
+  /* ----- Paiement en ligne (Stripe, mode test) : lien après validation manuelle, chauffeur confirmé, annulation ----- */
+  if (["paiement-etat", "paiement-lien", "chauffeur-confirme", "annuler-course"].includes(b.action)) {
+    const ref = String(b.ref || "").trim().toUpperCase();
+    if (!/^E8-[A-Z0-9-]{3,30}$/.test(ref)) return json(400, { ok: false, code: "ref", message: "Référence invalide." });
+    if (!stripeActif()) return json(503, { ok: false, code: "stripe", message: "Paiement en ligne non activé (variables Stripe de test absentes)." });
+    try {
+      let r;
+      if (b.action === "paiement-etat") r = { paiement: resumePaiement(await paiementParRef(magasinPaiements(), ref)) };
+      else if (b.action === "paiement-lien") r = await creerLienManuel({ ref, montant: Number(String(b.montant).replace(",", ".")), origine: url.origin, envoyerMail: b.envoyerMail === true, now });
+      else if (b.action === "chauffeur-confirme") r = await confirmerChauffeur({ ref, chauffeur: b.chauffeur, now });
+      else r = await annulerEtRembourser({ ref, motif: b.motif, now });
+      if (r.erreur) return json(r.erreur[0], { ok: false, code: "paiement", message: r.erreur[1] });
+      return json(200, { ok: true, ...r });
+    } catch (e) {
+      console.error("Paiement (" + b.action + ") :", String(e && e.message).slice(0, 80));
+      return json(502, { ok: false, code: "stripe", message: "Opération impossible pour le moment (Stripe ou stockage). Réessayez ; rien n'a été fait en double." });
+    }
   }
 
   let C;

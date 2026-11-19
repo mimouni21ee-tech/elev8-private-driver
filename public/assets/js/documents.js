@@ -104,7 +104,7 @@
     afficherRecap(D, montant, distance, facture);
     $("#edition").open = false;
     $("#editionTitre").textContent = "Modifier les informations du client ou du trajet (facultatif)";
-    majAffichage(); typeAuto(); majValidation(); majTotal();
+    majAffichage(); reinitValidation(); majTotal();
   }
   function afficherRecap(D, montant, distance, facture) {
     var c = D.client || {}, p = D.prestation || {};
@@ -141,6 +141,7 @@
       }
       $("#sourceMsg").classList.remove("docs__msg--erreur");
       remplir(j.demande, j.facture);
+      afficherPaiement(j.paiement, j.paiementEnLigne);
       if (etape === "validation") $("#validation").scrollIntoView({ block: "start" });
       else $("#recapDemande").scrollIntoView({ block: "start" });
     });
@@ -298,34 +299,133 @@
   $("#resRetour").addEventListener("click", function () { $("#result").hidden = true; $("#docForm").hidden = false; });
 
   /* ---------- Validation du tarif : message au client (e-mail et WhatsApp) ----------
-     Rien n'est envoyé automatiquement : le message s'ouvre dans la messagerie ou dans WhatsApp,
-     à relire et modifier. Le lien de paiement Indy n'est ajouté que s'il est renseigné ET vérifié.
-     Un paiement ne confirme jamais la réservation : « Réservation confirmée » exige un règlement vérifié. */
+     Ordre imposé : 1 disponibilité vérifiée → 2 tarif définitif validé → 3 lien de paiement sécurisé
+     (facultatif, collé à la main, jamais généré ici) → 4 message, relu et modifiable avant l'envoi.
+     Le champ du lien reste fermé tant que 1 et 2 ne sont pas cochés ; toute modification du montant
+     annule la validation du tarif et celle du lien (le lien a été créé pour un montant précis).
+     Rien n'est envoyé automatiquement. Un paiement ne confirme jamais la réservation :
+     « Réservation confirmée » exige un règlement vérifié. Textes : assets/js/messages-client.js. */
+  var M = window.ELEV8Messages;
   var MARQUE = "ELEV8 Private Driver";
   var SITE = (C.site && C.site.url) || "https://elev8privatedriver.com";
   var MAIL_ELEV8 = (C.contact && C.contact.email) || "contact@elev8privatedriver.com";
-  function lienValide(u) { return /^https:\/\/[^\s<>"']+\.[^\s<>"']+$/i.test(u) && u.length <= 500; }
+  var montantValide = null;           // montant pour lequel la case « tarif validé » a été cochée
+  function estAjuste() {
+    // Un supplément ajouté ne change pas la nature du message : seul le prix du trajet est comparé à l'estimation
+    var base = parseFloat(donnees().montant) || 0;
+    return !!(estimInitiale && base > 0 && Math.abs(base - estimInitiale) >= 0.01);
+  }
+  // Nouvelle demande chargée : tout est à revérifier (disponibilité, tarif, lien)
+  function reinitValidation() {
+    ["#v-dispo", "#v-tarif", "#v-lien-ok", "#v-regle"].forEach(function (s) { $(s).checked = false; });
+    $("#v-lien").value = ""; $("#v-type").value = "proposition"; montantValide = null; masquerApercu(); majValidation();
+  }
+  function masquerApercu() { $("#apercu").hidden = true; }
   function majValidation() {
-    var type = $("#v-type").value, lien = v("#v-lien");
+    var type = $("#v-type").value, t = total();
+    // Montant modifié après validation : on annule la validation du tarif et du lien
+    if ($("#v-tarif").checked && montantValide !== t) {
+      $("#v-tarif").checked = false; $("#v-lien-ok").checked = false; montantValide = null; masquerApercu();
+      $("#formMsg").textContent = "Le montant a changé : validez de nouveau le tarif et vérifiez que le lien de paiement correspond au nouveau montant.";
+    }
     $$("[data-vt=validation]").forEach(function (el) { el.hidden = type === "reservation"; });
     $$("[data-vt=reservation]").forEach(function (el) { el.hidden = type !== "reservation"; });
+    var pret = $("#v-dispo").checked && $("#v-tarif").checked;
+    $("#v-lien").disabled = !pret;
+    $("#stripeLien").hidden = !paiementEnLigne || type === "reservation" || !demandeChargee || !demandeChargee.ref;
+    $("#btnStripe").disabled = !pret || !(t > 0);
+    $("#v-lien-aide").textContent = pret
+      ? "Créez le lien dans l'espace sécurisé de votre prestataire (Caisse d'Épargne, Indy…), pour " + (t > 0 ? fmt(t) + " TTC" : "le montant validé") + ", puis collez-le ici."
+      : "Créez le lien dans l'espace sécurisé de votre prestataire, pour le montant validé, puis collez-le ici. Disponible après les étapes 1 et 2.";
+    var lien = v("#v-lien"), L = M.lienPaiement(lien);
     if (type !== "reservation") {
       $$("[data-lien]").forEach(function (el) { el.hidden = !lien; });
       $$("[data-sanslien]").forEach(function (el) { el.hidden = !!lien; });
     }
-    $("#v-lien-montant").textContent = total() > 0 ? fmt(total()) : "—";
+    $("#v-lien-domaine").textContent = L.ok ? " (" + L.domaine + ")" : "";
+    $("#v-montant").textContent = t > 0 ? fmt(t) + " TTC" : "— (à saisir en rubrique 3)";
+    $("#v-lien-montant").textContent = t > 0 ? fmt(t) + " TTC" : "—";
+    $("#v-ajuste").textContent = estAjuste() ? "ajusté (estimation : " + fmt(estimInitiale) + ")" : (estimInitiale ? "= estimation" : "");
   }
-  // Type proposé selon l'écart avec l'estimation (modifiable)
-  function typeAuto() {
-    if ($("#v-type").value === "reservation") return;
-    // Un supplément ajouté ne change pas la nature du message : seul le prix du trajet est comparé à l'estimation
-    var base = parseFloat(donnees().montant) || 0;
-    $("#v-type").value = estimInitiale && base > 0 && Math.abs(base - estimInitiale) >= 0.01 ? "ajuste" : "confirmation";
+  $("#v-tarif").addEventListener("change", function () {
+    montantValide = this.checked ? total() : null;
+    if (!this.checked) { $("#v-lien-ok").checked = false; masquerApercu(); }
+    $("#formMsg").textContent = ""; majValidation();
+  });
+  $("#v-dispo").addEventListener("change", function () { if (!this.checked) masquerApercu(); majValidation(); });
+  $("#v-lien").addEventListener("input", function () { $("#v-lien-ok").checked = false; masquerApercu(); majValidation(); });
+  ["#v-type", "#v-sanslien", "#v-lien-ok", "#v-regle"].forEach(function (s) { $(s).addEventListener("change", function () { masquerApercu(); majValidation(); }); });
+  $("#d-montant").addEventListener("input", majValidation);
+  $$("[data-sup] input").forEach(function (i) { i.addEventListener("input", majValidation); });
+  majValidation();
+
+  /* ---------- Paiement en ligne (Stripe, mode test) ----------
+     L'état affiché vient du serveur, lui-même informé UNIQUEMENT par les notifications signées de Stripe.
+     Aucune course n'est « attribuée » sans confirmation effective d'un chauffeur. */
+  var paiementEnLigne = false, paiementCourant = null;
+  function dateHeure(iso) { return iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "long", timeStyle: "short" }) : ""; }
+  function afficherPaiement(P, actif) {
+    paiementEnLigne = !!actif; paiementCourant = P || null;
+    var bloc = $("#paiementBloc");
+    bloc.hidden = !paiementEnLigne;
+    $("#pMsg").textContent = "";
+    if (!paiementEnLigne) { majValidation(); return; }
+    if (!P) {
+      $("#pStatut").textContent = "Aucun paiement en ligne pour cette demande";
+      $("#pDetail").textContent = "Demande à valider manuellement (sur devis, demande particulière ou prise en charge proche). Après validation du tarif (rubrique 5), créez le lien de paiement Stripe.";
+      $("#pChauffeur").hidden = true; $("#pAnnuler").hidden = true; $("#pHisto").innerHTML = ""; majValidation(); return;
+    }
+    $("#pStatut").textContent = P.etapeLibelle + (P.statut !== "paye" ? " · " + P.statutLibelle : "") + (P.litige ? " · LITIGE" : "");
+    var d = ["Montant : " + fmt(P.montant) + " TTC", "Lien : " + location.origin + P.lien];
+    if (P.statut === "en_attente") d.push("Valable jusqu'au " + dateHeure(P.valableJusqu));
+    if (P.payeLe) d.push("Payé le " + dateHeure(P.payeLe));
+    if (P.rembourse > 0) d.push("Remboursé : " + fmt(P.rembourse));
+    if (P.motifVerification) d.push("À vérifier : " + P.motifVerification);
+    if (P.chauffeur) d.push("Chauffeur : " + P.chauffeur.prenom + " · " + P.chauffeur.vehicule + (P.chauffeur.plaque ? " · " + P.chauffeur.plaque : ""));
+    if (P.statut === "paye") d.push("HUBER : " + (P.huber && P.huber.etat === "en_attente_api" ? "transmission automatique dès que son API sera disponible (aucune publication pour l'instant)" : (P.huber && P.huber.etat) || "—"));
+    $("#pDetail").textContent = d.join(" · ");
+    $("#pChauffeur").hidden = !(P.statut === "paye" && P.etape === "payee_attente_attribution");
+    var annulable = ["attente_paiement", "payee_attente_attribution", "chauffeur_confirme"].indexOf(P.etape) >= 0 && ["en_attente", "expire", "paye", "a_verifier", "rembourse_partiel"].indexOf(P.statut) >= 0;
+    $("#pAnnuler").hidden = !annulable;
+    $("#btnSansChauffeur").hidden = ["paye", "a_verifier", "rembourse_partiel"].indexOf(P.statut) < 0;
+    $("#pHisto").innerHTML = (P.historique || []).slice().reverse().map(function (h) { return "<li>" + esc(dateHeure(h.le)) + " — " + esc(h.quoi) + "</li>"; }).join("");
+    majValidation();
   }
-  ["#v-type", "#v-lien"].forEach(function (s) { $(s).addEventListener("input", majValidation); $(s).addEventListener("change", majValidation); });
-  $("#d-montant").addEventListener("input", function () { typeAuto(); majValidation(); });
-  $$("[data-sup] input").forEach(function (i) { i.addEventListener("input", function () { typeAuto(); majValidation(); }); });
-  typeAuto(); majValidation();
+  function actionPaiement(corps, ok) {
+    $("#pMsg").textContent = "En cours…";
+    corps.ref = demandeChargee && demandeChargee.ref;
+    return appel(corps).then(function (j) {
+      if (j.code === "acces") { oublierSession(); verrouiller(j.message); return; }
+      if (!j.ok) { $("#pMsg").textContent = j.message || "Opération impossible."; return; }
+      afficherPaiement(j.paiement, true);
+      $("#pMsg").textContent = ok(j);
+      return j;
+    });
+  }
+  $("#btnStripe").addEventListener("click", function () {
+    if (!demandeChargee || !demandeChargee.ref) return;
+    var t = total();
+    if (!confirm("Créer le lien de paiement Stripe de " + fmt(t) + " TTC pour " + demandeChargee.ref + " ? Tout lien précédent non payé sera désactivé.")) return;
+    actionPaiement({ action: "paiement-lien", montant: t }, function (j) {
+      $("#v-lien").value = location.origin + j.paiement.lien;
+      $("#v-lien-ok").checked = true; majValidation();
+      return "Lien créé pour " + fmt(j.paiement.montant) + " : il est inséré à l'étape 3. Préparez maintenant le message au client.";
+    });
+  });
+  $("#btnChauffeur").addEventListener("click", function () {
+    var c = { prenom: v("#c-prenom"), vehicule: v("#c-vehicule"), plaque: v("#c-plaque") };
+    if (!c.prenom || !c.vehicule) { $("#pMsg").textContent = "Indiquez le prénom du chauffeur et le véhicule."; return; }
+    if (!confirm("Confirmer que " + c.prenom + " a accepté la course ? Le client recevra sa confirmation par e-mail.")) return;
+    actionPaiement({ action: "chauffeur-confirme", chauffeur: c }, function (j) { return j.mail ? "Chauffeur confirmé : le client a reçu sa confirmation." : "Chauffeur confirmé (e-mail du client absent ou non envoyé : prévenez-le par téléphone ou WhatsApp)."; });
+  });
+  function annuler(motif) {
+    var P = paiementCourant || {};
+    var paye = ["paye", "a_verifier", "rembourse_partiel"].indexOf(P.statut) >= 0;
+    if (!confirm((paye ? "Annuler la course et REMBOURSER intégralement " + fmt(P.montant) + " au client ?" : "Annuler la demande et désactiver le lien de paiement ?") + " Le client sera prévenu par e-mail.")) return;
+    actionPaiement({ action: "annuler-course", motif: motif }, function (j) { return j.rembourse ? "Remboursement intégral demandé à Stripe : il sera confirmé par notification." : "Lien désactivé, client prévenu."; });
+  }
+  $("#btnIndispo").addEventListener("click", function () { annuler("indisponible"); });
+  $("#btnSansChauffeur").addEventListener("click", function () { annuler("sans_chauffeur"); });
 
   function infos() {
     var d = donnees(), p = d.prestation;
@@ -340,63 +440,27 @@
       vehicule: p.vehicule, passagers: p.passagers, sup: d.supplements, total: total() };
   }
   function composer() {
-    var type = $("#v-type").value, I = infos(), lien = v("#v-lien");
+    var type = $("#v-type").value, I = infos(), lien = v("#v-lien"), L = M.lienPaiement(lien);
     var erreurs = [];
     if (!I.ref) erreurs.push("la référence");
     if (!(I.total > 0)) erreurs.push("le tarif (rubrique 3)");
     if (!I.p.date || !I.p.depart || !I.p.destination) erreurs.push("la date, le départ et la destination");
-    if (type !== "reservation" && !$("#v-dispo").checked) erreurs.push("la case « disponibilité vérifiée »");
-    if (type === "reservation" && !$("#v-regle").checked) erreurs.push("la case « règlement vérifié »");
-    var lienOk = type !== "reservation" && lien && $("#v-lien-ok").checked && lienValide(lien);
-    if (type !== "reservation" && lien && !lienValide(lien)) erreurs.push("un lien de paiement valide (commençant par https://)");
-    if (type !== "reservation" && lien && lienValide(lien) && !$("#v-lien-ok").checked) erreurs.push("la case « lien vérifié » (ou videz le champ du lien)");
-    if (erreurs.length) return { erreur: "À compléter avant de préparer le message : " + erreurs.join(", ") + "." };
-
-    var bonjour = I.prenom ? "Bonjour " + I.prenom + "," : "Bonjour,";
-    var montant = fmt(I.total) + " TTC";
-    var lignes = ["Référence : " + I.ref, "Date : " + I.date, "Heure de prise en charge : " + I.heure,
-      "Adresse de départ : " + I.p.depart, "Adresse de destination : " + I.p.destination];
-    if (I.retour) lignes.push("Retour : " + I.retour + (I.p.destination && I.p.depart ? " (de " + I.p.destination + " à " + I.p.depart + ")" : ""));
-    lignes.push("Véhicule : " + I.vehicule, "Passagers : " + (I.passagers || "—"));
-    I.sup.forEach(function (x) { lignes.push("Supplément : " + x.libelle + " — " + fmt(parseFloat(x.montant)) + " TTC"); });
-    var signature = "Cordialement,\n\n" + MARQUE + "\n" + MAIL_ELEV8 + "\n" + SITE;
-    var objet, corps, wa;
     if (type === "reservation") {
-      objet = MARQUE + " — Réservation confirmée | " + I.ref;
-      corps = bonjour + "\n\nNous avons bien reçu votre règlement de " + montant + " et vous en remercions.\n\n" +
-        "Votre réservation est définitivement confirmée :\n\n" + lignes.join("\n") + "\nMontant réglé : " + montant + "\n\n" +
-        "Votre chauffeur vous attendra à l'adresse et à l'heure indiquées. Pour toute question ou modification, répondez simplement à ce message.\n\n" + signature;
-      wa = bonjour + "\nVotre réservation ELEV8 Private Driver est confirmée. Règlement de " + montant + " bien reçu, merci.\n" +
-        "Réf. " + I.ref + " · " + I.date + " à " + I.heure + "\nDépart : " + I.p.depart + "\nDestination : " + I.p.destination +
-        (I.retour ? "\nRetour : " + I.retour : "") + "\n\n" + MARQUE;
+      if (!$("#v-regle").checked) erreurs.push("la case « règlement vérifié »");
     } else {
-      var ajuste = type === "ajuste";
-      var paiementMail, paiementWa;
-      if (lienOk) {
-        paiementMail = "Pour accepter ce tarif et finaliser votre réservation, vous pouvez procéder directement au paiement sécurisé :\n\n" + lien +
-          "\n\nVotre réservation sera définitivement confirmée après vérification du règlement et réception de notre confirmation.";
-        paiementWa = "Paiement sécurisé : " + lien + "\nVotre réservation sera confirmée après vérification du règlement.";
-      } else if ($("#v-sanslien").value === "virement") {
-        paiementMail = "Pour accepter ce tarif et finaliser votre réservation, il vous suffit de répondre « J'accepte » à ce message. Le règlement s'effectue par virement bancaire, selon les conditions convenues.\n\nVotre réservation sera définitivement confirmée à réception de votre accord et de notre confirmation.";
-        paiementWa = "Pour accepter ce tarif, répondez simplement « J'accepte ». Règlement par virement bancaire, selon les conditions convenues.";
-      } else {
-        paiementMail = "Pour accepter ce tarif et finaliser votre réservation, il vous suffit de répondre « J'accepte » à ce message.\n\nVotre réservation sera définitivement confirmée à réception de votre accord et de notre confirmation.";
-        paiementWa = "Pour accepter ce tarif, répondez simplement « J'accepte ».";
-      }
-      objet = MARQUE + " — Validation de votre trajet | " + I.ref;
-      corps = bonjour + "\n\nMerci pour votre demande de réservation auprès d'" + MARQUE + ".\n\n" +
-        (ajuste ? "Nous avons vérifié votre demande. Après vérification, le tarif a été ajusté ; voici les informations de votre trajet :"
-                : "Nous avons vérifié votre demande et sommes heureux de vous confirmer les informations suivantes :") + "\n\n" +
-        lignes.join("\n") + "\n\nTarif définitif : " + montant + (ajuste && estimInitiale ? " (estimation initiale : " + fmt(estimInitiale) + ")" : "") + "\n\n" +
-        "Votre chauffeur est disponible pour cette prestation.\n\n" + paiementMail + "\n\n" +
-        "Nous restons à votre disposition pour toute question.\n\n" + signature;
-      wa = bonjour + "\n" + (ajuste ? "Après vérification, voici le tarif définitif de votre trajet ELEV8 Private Driver." : "Votre trajet ELEV8 Private Driver est validé, votre chauffeur est disponible.") +
-        "\nRéf. " + I.ref + " · " + I.date + " à " + I.heure + "\nDépart : " + I.p.depart + "\nDestination : " + I.p.destination +
-        (I.retour ? "\nRetour : " + I.retour : "") + "\nVéhicule : " + I.vehicule +
-        "\nTarif définitif : " + montant + (ajuste && estimInitiale ? " (estimation : " + fmt(estimInitiale) + ")" : "") +
-        "\n\n" + paiementWa + "\n\n" + MARQUE;
+      if (!$("#v-dispo").checked) erreurs.push("1. la case « disponibilité vérifiée »");
+      if (!$("#v-tarif").checked || montantValide !== I.total) erreurs.push("2. la validation du tarif définitif");
+      if (lien && !L.ok) erreurs.push("3. un lien de paiement valide, commençant par https:// (ou videz le champ)");
+      if (lien && L.ok && !$("#v-lien-ok").checked) erreurs.push("3. la case « lien vérifié » (ou videz le champ du lien)");
     }
-    return { objet: objet, corps: corps, wa: wa };
+    if (erreurs.length) return { erreur: "À compléter avant de préparer le message : " + erreurs.join(", ") + "." };
+    return M.composer({
+      type: type === "reservation" ? "reservation" : "proposition", ajuste: estAjuste(), estimInitiale: estimInitiale,
+      ref: I.ref, prenom: I.prenom, date: I.date, heure: I.heure, depart: I.p.depart, destination: I.p.destination, retour: I.retour,
+      vehicule: I.vehicule, passagers: I.passagers, supplements: I.sup, total: I.total,
+      lien: type !== "reservation" && L.ok && $("#v-lien-ok").checked ? L.lien : "",
+      sansLien: $("#v-sanslien").value, marque: MARQUE, email: MAIL_ELEV8, site: SITE
+    });
   }
   function telWa() {
     var t = v("#d-tel").replace(/[^\d+]/g, "");

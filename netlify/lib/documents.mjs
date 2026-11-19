@@ -150,7 +150,8 @@ export async function pdf(type, doc, e, meta = {}) {
   const P = await PDFDocument.create();
   P.setTitle((type === "facture" ? "Facture " + meta.numero : "Devis " + meta.numero) + " — ELEV8 Private Driver");
   P.setAuthor(e.nom || "ELEV8 Private Driver"); P.setCreator("ELEV8 Private Driver"); P.setProducer("ELEV8 Private Driver");
-  P.setCreationDate(new Date(meta.horodatage || Date.now()));
+  const horodatage = new Date(meta.horodatage || Date.now());
+  P.setCreationDate(horodatage); P.setModificationDate(horodatage);   // facture redemandée : fichier identique à l'octet près
   const F = { r: await P.embedFont(StandardFonts.Helvetica), b: await P.embedFont(StandardFonts.HelveticaBold),
     t: await P.embedFont(StandardFonts.TimesRoman), ti: await P.embedFont(StandardFonts.TimesRomanItalic) };
   const cache = new Map();

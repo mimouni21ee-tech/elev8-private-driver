@@ -965,3 +965,22 @@ html.has-intro.intro-skip:not(.is-bord) .route__stop { animation-delay: var(--d,
 .docs__recap .recap__list div { grid-template-columns: 6.2rem 1fr; gap: .7rem; padding: .38rem 0; }
 .docs__recap .recap__list dt { font-size: .62rem; }
 .docs__recap .recap__list dd { font-size: .88rem; line-height: 1.4; }
+
+/* Validation du tarif : champ du lien de paiement fermé tant que la disponibilité et le tarif ne sont pas validés */
+.docs input:disabled { opacity: .45; cursor: not-allowed; }
+
+/* Page de paiement (/paiement/) et bouton « Payer » après une demande */
+.paiement { max-width: 40rem; }
+.paiement__texte { font-size: 1.05rem; line-height: 1.6; }
+.paiement__ref { color: var(--champagne); letter-spacing: .12em; font-size: .8rem; text-transform: uppercase; }
+.paiement__actions { display: flex; flex-wrap: wrap; gap: .8rem; margin: 2rem 0 1.4rem; }
+.paiement__contact { font-size: .9rem; opacity: .8; }
+.sent__payer { margin: 1.4rem 0 .4rem; }
+.sent__payer p { font-size: .88rem; line-height: 1.5; opacity: .85; margin: .7rem 0 0; }
+/* /documents : suivi du paiement en ligne */
+.docs__paiement { border: 1px solid var(--filet-fort); padding: 1rem 1.1rem; margin: 0 0 1.4rem; }
+.docs__paiement h3 { font-size: .7rem; letter-spacing: .2em; text-transform: uppercase; color: var(--champagne); margin: 0 0 .6rem; font-weight: 400; }
+.docs__paiement .statut { font-size: 1.05rem; margin: 0 0 .5rem; }
+.docs__paiement ul { margin: .5rem 0 0; padding-left: 1rem; font-size: .8rem; opacity: .8; }
+.docs__paiement .docs__row { margin-top: .9rem; }
+.docs__paiement .field { margin-top: .6rem; }

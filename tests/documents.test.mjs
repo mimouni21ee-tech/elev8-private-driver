@@ -277,4 +277,56 @@ await t("une demande ne crée jamais de facture ; e-mail sans enregistrement pos
   assert.ok(!/facture (définitive|émise)/i.test(m.text));
 });
 
+/* ---------- Messages au client : lien de paiement sécurisé (assets/js/messages-client.js) ---------- */
+{
+  const { readFileSync } = await import("node:fs");
+  const vm = await import("node:vm");
+  const ctx = { URL }; vm.createContext(ctx);
+  vm.runInContext(readFileSync(new URL("../public/assets/js/messages-client.js", import.meta.url), "utf8"), ctx);
+  const MSG = ctx.ELEV8Messages;
+  const base = { type: "proposition", ref: "E8-261119-HZX", prenom: "Claire", date: "vendredi 20 novembre 2026", heure: "14h30",
+    depart: "Gare de Dijon-Ville, 21000 Dijon", destination: "Place Carnot, 21200 Beaune", retour: "", vehicule: "Berline Confort — Tesla Model Y ou véhicule de catégorie équivalente",
+    passagers: 2, supplements: [], total: 79.5, estimInitiale: 79.5, ajuste: false, sansLien: "accepte",
+    marque: "ELEV8 Private Driver", email: "contact@elev8privatedriver.com", site: "https://elev8privatedriver.com" };
+  const LIEN = "https://paiement.caisse-epargne.example/pay/AbC123?montant=79.50";
+
+  await t("lien de paiement sécurisé : HTTPS de tout prestataire accepté, liens douteux refusés", () => {
+    for (const u of [LIEN, "https://app.indy.fr/pay/xyz", "https://www.payplug.example/p/1"]) assert.equal(MSG.lienPaiement(u).ok, true, u);
+    assert.equal(MSG.lienPaiement("https://www.payplug.example/p/1").domaine, "payplug.example");
+    for (const u of ["", "http://paiement.example/p", "javascript:alert(1)", "https://user:mdp@paiement.example/p", "https://192.168.1.10/p",
+      "https://localhost/p", "https://paiement", "https://paiement.example/p a", "ftp://paiement.example/p", "https://" + "a".repeat(495) + ".fr"]) assert.equal(MSG.lienPaiement(u).ok, false, u);
+  });
+  await t("avec lien : e-mail « Finalisation de votre réservation » au modèle, sans « J'accepte », sans confirmation automatique", () => {
+    const m = MSG.composer({ ...base, lien: LIEN });
+    assert.equal(m.objet, "ELEV8 Private Driver — Finalisation de votre réservation | E8-261119-HZX");
+    for (const x of ["Bonjour Claire,", "Merci d'avoir choisi ELEV8 Private Driver.", "sommes heureux de vous proposer la prise en charge suivante :",
+      "Votre trajet", "Référence : E8-261119-HZX", "Date : vendredi 20 novembre 2026", "Heure de prise en charge : 14h30",
+      "Adresse de départ : Gare de Dijon-Ville, 21000 Dijon", "Adresse de destination : Place Carnot, 21200 Beaune",
+      "Véhicule : Berline Confort — Tesla Model Y ou véhicule de catégorie équivalente", "Nombre de passagers : 2",
+      "Tarif définitif : 79,50 € TTC", "Votre chauffeur est disponible pour cette prestation, sous réserve de finalisation de votre réservation.",
+      "Finalisez votre réservation", "nous vous invitons à utiliser notre lien de paiement sécurisé :\n\n" + LIEN + "\n\n",
+      "Votre réservation sera définitivement confirmée après vérification de votre règlement et confirmation par ELEV8 Private Driver.",
+      "Cordialement,\n\nELEV8 Private Driver\ncontact@elev8privatedriver.com\nhttps://elev8privatedriver.com"]) assert.ok(m.corps.includes(x), x);
+    for (const txt of [m.corps, m.wa]) {
+      assert.ok(!/J'accepte/.test(txt)); assert.ok(!/\[|\]/.test(txt));
+      assert.ok(!/paiement reçu|réservation (est )?(définitivement )?confirmée[ .:]/i.test(txt.replace(/sera (définitivement )?confirmée/g, "")));
+    }
+    assert.ok(m.wa.includes(LIEN) && m.wa.includes("Tarif définitif : 79,50 € TTC") && m.wa.length < m.corps.length / 1.5);
+  });
+  await t("sans lien (ou lien invalide) : fonctionnement « J'accepte » conservé, aucun emplacement de lien vide", () => {
+    for (const lien of ["", "http://non-securise.example/p"]) {
+      const m = MSG.composer({ ...base, lien });
+      assert.equal(m.objet, "ELEV8 Private Driver — Validation de votre trajet | E8-261119-HZX");
+      for (const txt of [m.corps, m.wa]) { assert.ok(txt.includes("« J'accepte »")); assert.ok(!/LIEN|\[|\]|https?:\/\/(?!elev8privatedriver\.com)|paiement sécurisé|undefined|null/i.test(txt), txt); }
+    }
+    const v = MSG.composer({ ...base, sansLien: "virement", ajuste: true, total: 85, supplements: [{ libelle: "Attente", montant: "10" }] });
+    assert.ok(v.corps.includes("virement bancaire") && v.corps.includes("le tarif a été ajusté") && v.corps.includes("Supplément : Attente — 10,00 € TTC"));
+  });
+  await t("« Réservation confirmée » reste un message distinct (après règlement vérifié), sans lien de paiement", () => {
+    const m = MSG.composer({ ...base, type: "reservation", lien: LIEN });
+    assert.equal(m.objet, "ELEV8 Private Driver — Réservation confirmée | E8-261119-HZX");
+    assert.ok(!m.corps.includes(LIEN) && !m.wa.includes(LIEN));
+  });
+}
+
 console.log(`\n${ok} test(s) réussi(s)` + (process.exitCode ? " — ÉCHECS ci-dessus" : ""));

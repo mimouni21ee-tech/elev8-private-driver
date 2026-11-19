@@ -8,6 +8,6 @@
     "pdf-lib": "1.17.1"
   },
   "scripts": {
-    "test": "node tests/estimation.test.mjs && node tests/documents.test.mjs"
+    "test": "node tests/estimation.test.mjs && node tests/documents.test.mjs && node tests/paiement.test.mjs"
   }
 }

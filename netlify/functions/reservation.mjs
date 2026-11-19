@@ -44,7 +44,12 @@ const MAX_BODY = 12_000;           // octets
 
 import { RULES, openStore, keyFor, ipFingerprint, consume } from "../lib/ratelimit.mjs";
 import { estimer, verifier, deps as estDeps, ZONE_ESTIMATION } from "../lib/estimation.mjs";
-import { magasin as magasinDemandes, enregistrer as enregistrerDemande, supprimer as supprimerDemande } from "../lib/demandes.mjs";
+import { magasin as magasinDemandes, enregistrer as enregistrerDemande, supprimer as supprimerDemande, chargerParId } from "../lib/demandes.mjs";
+import { stripeActif } from "../lib/stripe.mjs";
+import { eligibleAuto, magasin as magasinPaiements, modifier as modifierPaiement } from "../lib/paiements.mjs";
+import { preparerPaiement } from "../lib/actions-paiement.mjs";
+import { mailLienPaiement } from "../lib/courriels.mjs";
+import { envoyerUneFois } from "../lib/notifications.mjs";
 
 const ESTIMATION_MAX_MS = 6000;    // recalcul de l'estimation : au-delà, la demande part « tarif à établir »
 
@@ -173,10 +178,15 @@ export function lienDocuments(idDemande, origin, etape = "") {
   return `${origin}/documents/?r=${encodeURIComponent(idDemande)}${etape ? "&etape=" + etape : ""}`;
 }
 
-export function buildEmail(d, ref, brand, est = null, origin = "https://elev8privatedriver.com", idDemande = "") {
+/* Paiement en ligne (mode test Stripe) : { auto: true, montant, valableJusqu } si le lien a été envoyé
+   automatiquement au client ; { auto: false, motif } si la demande exige une validation manuelle. */
+const MOTIFS_MANUEL = { sur_devis: "tarif sur devis", demande_particuliere: "informations complémentaires à examiner", delai_court: "prise en charge trop proche", erreur: "création du lien impossible" };
+export function buildEmail(d, ref, brand, est = null, origin = "https://elev8privatedriver.com", idDemande = "", paiement = null) {
+  const auto = !!(paiement && paiement.auto);
   const rows = [
     ["Référence", ref],
-    ["Statut", "Demande reçue — en attente de validation par ELEV8"],
+    ["Statut", auto ? "Tarif calculé automatiquement — lien de paiement envoyé au client (Stripe, MODE TEST)" : "Demande reçue — en attente de validation par ELEV8"],
+    ...(paiement && !paiement.auto ? [["Paiement en ligne", "Validation manuelle requise : " + (MOTIFS_MANUEL[paiement.motif] || paiement.motif)]] : []),
     ["Reçue le", new Date().toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "full", timeStyle: "short" })],
     ["Estimation", texteEstimation(est)],
     ["Prestation", d.prestation || "À préciser"],
@@ -205,8 +215,10 @@ export function buildEmail(d, ref, brand, est = null, origin = "https://elev8pri
   const lienDocs = lienDocuments(idDemande, origin);
   const sansLien = "Ouvrez " + origin + "/documents/ et saisissez la référence " + ref + " (enregistrement momentanément indisponible : si elle est introuvable, saisissez la demande manuellement).";
   const montantSujet = est && est.statut === "estimation" && est.montant > 0 ? euros(est.montant) : "tarif à établir";
-  const subject = `[À valider] Demande ${ref} — ${d.date.split("-").reverse().join("/")} ${d.heure.replace(":", "h")} — ${d.prenom} ${d.nom}${d.societe ? ` (${d.societe})` : ""} — ${montantSujet}`;
-  const etapes = "À FAIRE : vérifier la disponibilité et les informations complémentaires, puis « Valider le tarif » : " +
+  const subject = `${auto ? "[Paiement en ligne envoyé]" : "[À valider]"} Demande ${ref} — ${d.date.split("-").reverse().join("/")} ${d.heure.replace(":", "h")} — ${d.prenom} ${d.nom}${d.societe ? ` (${d.societe})` : ""} — ${montantSujet}`;
+  const etapes = auto ? "AUCUNE ACTION REQUISE POUR L'INSTANT : le tarif a été calculé par le site et le client a reçu son lien de paiement sécurisé (" + euros(paiement.montant) + " TTC). " +
+    "Vous serez prévenu dès que Stripe confirme réellement le paiement ; la course passera alors à « Payée — en attente d'attribution ». " +
+    "En cas d'indisponibilité, ouvrez la réservation et cliquez sur « Indisponible — annuler »." : "À FAIRE : vérifier la disponibilité et les informations complémentaires, puis « Valider le tarif » : " +
     "vous saisissez le tarif définitif (et, si vous le souhaitez, un lien de paiement Indy) et le message au client est préparé. " +
     "La réservation n'est confirmée qu'après l'accord ou le règlement du client et votre confirmation. Le client n'a rien payé.";
   const text = `Nouvelle demande de réservation reçue depuis le site ${brand}.\n${etapes}\n\n` +
@@ -341,7 +353,7 @@ export default async (req, context) => {
   if (idem && store) {
     try {
       const prev = await store.get(idem, { type: "json" });
-      if (prev && prev.ref && prev.etat === "envoye") return json(200, { ok: true, ref: prev.ref, deja: true, estimation: prev.estimation || null });
+      if (prev && prev.ref && prev.etat === "envoye") return json(200, { ok: true, ref: prev.ref, deja: true, estimation: prev.estimation || null, paiement: prev.paiement || null });
       if (prev && prev.etat === "envoi") {
         if (Date.now() - (prev.t || 0) < 60_000) return json(409, { ok: false, error: "pending" });
         await store.delete(idem);                                  // tentative interrompue : on peut renvoyer
@@ -392,10 +404,26 @@ export default async (req, context) => {
   let idDemande = "", stDemandes = null;
   try { stDemandes = magasinDemandes(); idDemande = await enregistrerDemande(stDemandes, { ref, d: data, est }); }
   catch (e) { console.error("Enregistrement de la demande impossible :", String(e && e.message).slice(0, 60)); idDemande = ""; }
+  /* Paiement en ligne automatique (mode test Stripe) : seulement si le prix est calculé par le serveur,
+     sans demande particulière et avec un délai suffisant. Sinon : validation manuelle dans /documents. */
+  const origine = new URL(req.url).origin;
+  let paiement = null, dossier = null, D = null;
+  if (idDemande && stripeActif()) {
+    const el = eligibleAuto(data, est);
+    paiement = { auto: false, motif: el.motif || "" };
+    if (el.ok) {
+      try {
+        const r = await chargerParId(stDemandes, idDemande);
+        D = r && r.record;
+        if (D) { dossier = (await preparerPaiement(D, { idDemande, montant: est.montant, origine, envoyerMail: false })).p; paiement = { auto: true, montant: est.montant, valableJusqu: dossier.valableJusqu }; }
+      } catch (e) { console.error("Lien de paiement non créé :", String(e && e.message).slice(0, 60)); paiement = { auto: false, motif: "erreur" }; }
+    }
+  }
   try {
-    await sendEmail({ ...buildEmail(data, ref, env("MAIL_FROM_NAME") || "ELEV8 Private Driver", est, new URL(req.url).origin, idDemande), replyTo: data.email || "" });
+    await sendEmail({ ...buildEmail(data, ref, env("MAIL_FROM_NAME") || "ELEV8 Private Driver", est, origine, idDemande, paiement), replyTo: data.email || "" });
   } catch (e) {
     console.error("Envoi impossible :", String(e && e.message).slice(0, 80)); // aucune donnée client
+    if (dossier) await modifierPaiement(magasinPaiements(), dossier.jeton, (x) => ({ ...x, statut: "annule", etape: "annulee" })).catch(() => {});
     if (idDemande && stDemandes) await supprimerDemande(stDemandes, { id: idDemande, ref });
     if (idem && store) { try { await store.delete(idem); } catch { /* ignoré */ } }
     return json(502, { ok: false, error: "send" });
@@ -403,7 +431,14 @@ export default async (req, context) => {
   if (idem && store) {
     try { await store.setJSON(idem, { etat: "envoye", ref, t: Date.now(), estimation: estPublic }); } catch { /* ignoré */ }
   }
-  return json(200, { ok: true, ref, statut: "demande_recue", estimation: estPublic });
+  // Lien de paiement envoyé au client APRÈS la notification d'ELEV8 (jamais de lien pour une demande non enregistrée)
+  let lienPaiement = null;
+  if (dossier) {
+    lienPaiement = { url: "/payer/" + dossier.jeton, montant: dossier.montantCents / 100, valableJusqu: dossier.valableJusqu, email: false, mode: "test" };
+    if (D && D.client.email) lienPaiement.email = await envoyerUneFois(magasinPaiements(), dossier, "client_lien", mailLienPaiement(D, dossier, origine + "/payer/" + dossier.jeton), D.client.email);
+    if (idem && store) { try { await store.setJSON(idem, { etat: "envoye", ref, t: Date.now(), estimation: estPublic, paiement: lienPaiement }); } catch { /* ignoré */ } }
+  }
+  return json(200, { ok: true, ref, statut: dossier ? "attente_paiement" : "demande_recue", estimation: estPublic, paiement: lienPaiement });
 };
 
 /* Identifiant de demande créé par le navigateur : « <secondes>-<aléa> », valable 24 h */
