@@ -22,6 +22,7 @@
 import { randomBytes } from "node:crypto";
 import { getStore } from "@netlify/blobs";
 import { nomMagasin } from "./environnement.mjs";
+import { stripeActif } from "./stripe.mjs";
 
 export const deps = { store: null, now: () => Date.now() };
 const env = (k) => (process.env[k] || "").trim();
@@ -111,7 +112,7 @@ export async function creer(st, { ref, idDemande, montant, libelle, description,
 const RANG = { en_attente: 0, expire: 0, annule: 0, remplace: 0, en_cours: 1, paye: 2, a_verifier: 2, rembourse_partiel: 3, rembourse: 4 };
 export function appliquerSession(p, s, now = deps.now()) {
   if (!p || !s) return p;
-  const conforme = s.amount_total === p.montantCents && s.currency === "eur" && s.metadata && s.metadata.ref === p.ref && s.metadata.paiement === p.jeton && s.livemode === false;
+  const conforme = s.amount_total === p.montantCents && s.currency === "eur" && s.metadata && s.metadata.ref === p.ref && s.metadata.paiement === p.jeton && s.livemode === (stripeActif()?.mode === "live");
   const sess = (p.sessions || []).find((x) => x.id === s.id);
   if (sess) sess.statut = s.status;
   if (s.status === "expired" && p.sessionActive === s.id) p.sessionActive = null;
