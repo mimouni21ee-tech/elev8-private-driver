@@ -21,10 +21,12 @@
    ========================================================================== */
 import { randomBytes } from "node:crypto";
 import { getStore } from "@netlify/blobs";
+import { nomMagasin } from "./environnement.mjs";
+import { stripeActif } from "./stripe.mjs";
 
 export const deps = { store: null, now: () => Date.now() };
 const env = (k) => (process.env[k] || "").trim();
-export function magasin() { return deps.store || getStore({ name: "elev8-paiements", consistency: "strong" }); }
+export function magasin() { return deps.store || getStore({ name: nomMagasin("elev8-paiements"), consistency: "strong" }); }
 export const JETON_RE = /^[A-Za-z0-9_-]{24}$/;
 export const nouveauJeton = () => randomBytes(18).toString("base64url");
 
@@ -110,7 +112,7 @@ export async function creer(st, { ref, idDemande, montant, libelle, description,
 const RANG = { en_attente: 0, expire: 0, annule: 0, remplace: 0, en_cours: 1, paye: 2, a_verifier: 2, rembourse_partiel: 3, rembourse: 4 };
 export function appliquerSession(p, s, now = deps.now()) {
   if (!p || !s) return p;
-  const conforme = s.amount_total === p.montantCents && s.currency === "eur" && s.metadata && s.metadata.ref === p.ref && s.metadata.paiement === p.jeton && s.livemode === false;
+  const conforme = s.amount_total === p.montantCents && s.currency === "eur" && s.metadata && s.metadata.ref === p.ref && s.metadata.paiement === p.jeton && s.livemode === (stripeActif()?.mode === "live");
   const sess = (p.sessions || []).find((x) => x.id === s.id);
   if (sess) sess.statut = s.status;
   if (s.status === "expired" && p.sessionActive === s.id) p.sessionActive = null;
@@ -142,11 +144,32 @@ export function appliquerCharge(p, ch, now = deps.now()) {
   if (ch.amount_refunded > 0) {
     const total = ch.amount_refunded >= ch.amount;
     if (p.rembourseCents === ch.amount_refunded && p.statut === (total ? "rembourse" : "rembourse_partiel")) return p;
+    if (ch.amount_refunded > (p.rembourseCents || 0))                 // date de chaque remboursement (rapprochement comptable)
+      p.remboursements = (p.remboursements || []).concat([{ le: new Date(now).toISOString(), montantCents: ch.amount_refunded - (p.rembourseCents || 0), charge: ch.id }]).slice(-20);
     p.rembourseCents = ch.amount_refunded; p.charge = ch.id;
     p.statut = total ? "rembourse" : "rembourse_partiel";
     return histo(p, (total ? "remboursement intégral" : "remboursement partiel") + " : " + (ch.amount_refunded / 100).toFixed(2) + " €", now);
   }
   return p;
+}
+
+/* Fenêtre de réalisation d'une course (contrôlée par le serveur, à la validation ET avant toute facture finale) :
+   - au plus tôt 30 min avant la prise en charge enregistrée (chauffeur en avance) ;
+   - au plus tard 24 h après la fin prévue (prise en charge, ou retour pour un aller-retour) ;
+   - jamais dans le futur, ni avant la prise en charge si aucune date n'est indiquée.
+   La prise en charge de référence est celle du dossier : elle ne change que par une modification
+   officielle enregistrée (modifierDatePrestation), avec motif et historique. */
+export const FENETRE = { avantMin: 30, apresH: 24 };
+export function controleRealisation(p, le, { now, fin } = {}) {
+  const debut = Date.parse(p.priseEnCharge);
+  const finPrevue = Math.max(debut, Number.isFinite(fin) ? fin : debut);
+  if (!Number.isFinite(le) || !Number.isFinite(debut)) return "Date et heure de réalisation invalides.";
+  if (now != null && le > now + 5 * 60_000) return "La date de réalisation ne peut pas être dans le futur.";
+  if (le < debut - FENETRE.avantMin * 60_000)
+    return "La date de réalisation est antérieure à la prise en charge prévue (" + new Date(debut).toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "long", timeStyle: "short" }) + ") : la course ne peut pas être déclarée réalisée. Si la date de la prestation a changé, enregistrez d'abord la nouvelle date (« Modifier la date de la prestation »).";
+  if (le > finPrevue + FENETRE.apresH * 3600_000)
+    return "La date de réalisation est plus de " + FENETRE.apresH + " h après la fin prévue de la prestation : vérifiez-la, ou enregistrez d'abord la nouvelle date de la prestation.";
+  return null;
 }
 
 /* Libellés affichés dans /documents */
@@ -155,12 +178,13 @@ export const LIBELLES = {
   a_verifier: "Paiement reçu — à vérifier", rembourse_partiel: "Remboursée partiellement", rembourse: "Remboursée",
   annule: "Lien annulé", expire: "Lien expiré (non payé)", remplace: "Lien remplacé",
   attente_paiement: "En attente de paiement", payee_attente_attribution: "Payée — en attente d'attribution",
-  chauffeur_confirme: "Chauffeur confirmé", annulee_indisponible: "Annulée — indisponibilité", sans_chauffeur: "Annulée — aucun chauffeur", annulee: "Annulée"
+  chauffeur_confirme: "Chauffeur confirmé", realisee: "Course réalisée", annulee_indisponible: "Annulée — indisponibilité", sans_chauffeur: "Annulée — aucun chauffeur", annulee: "Annulée"
 };
 export function resume(p) {
   if (!p) return null;
   return { lien: "/payer/" + p.jeton, montant: p.montantCents / 100, statut: p.statut, statutLibelle: LIBELLES[p.statut] || p.statut,
     etape: p.etape, etapeLibelle: LIBELLES[p.etape] || p.etape, valableJusqu: p.valableJusqu, priseEnCharge: p.priseEnCharge,
     payeLe: p.payeLe, paymentIntent: p.paymentIntent, rembourse: p.rembourseCents / 100, litige: !!p.litige, motifVerification: p.motifVerification || null,
-    chauffeur: p.chauffeur || null, huber: p.huber, historique: (p.historique || []).slice(-12), mode: "test" };
+    chauffeur: p.chauffeur || null, huber: p.huber, devis: p.devis || null, factures: p.factures || null,
+    realisation: p.realisation ? { le: p.realisation.le } : null, modificationsDate: p.modificationsDate || [], historique: (p.historique || []).slice(-12), mode: stripeActif()?.mode === "live" ? "live" : "test" };
 }

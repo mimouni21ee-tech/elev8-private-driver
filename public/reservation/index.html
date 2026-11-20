@@ -4,11 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Réserver un chauffeur privé — estimation immédiate | ELEV8 Private Driver</title>
-<meta name="description" content="Estimez votre trajet en un instant et envoyez votre demande de réservation gratuitement, sans paiement ni engagement. ELEV8 Private Driver vous confirme la disponibilité et le tarif.">
+<meta name="description" content="Estimez votre trajet en un instant et envoyez votre demande de réservation sans engagement. Devis par e-mail, paiement en ligne sécurisé, confirmation de votre chauffeur par ELEV8 Private Driver.">
 <meta name="theme-color" content="#0b0a09">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Réserver un chauffeur privé — ELEV8 Private Driver">
-<meta property="og:description" content="Estimation immédiate, demande gratuite et sans paiement. Confirmation personnelle par ELEV8.">
+<meta property="og:description" content="Estimation immédiate, devis par e-mail, paiement en ligne sécurisé. Confirmation de votre chauffeur par ELEV8.">
 <meta property="og:locale" content="fr_FR">
 <link rel="canonical" href="https://elev8privatedriver.com/reservation">
 <meta property="og:url" content="https://elev8privatedriver.com/reservation">
@@ -46,13 +46,13 @@
     <div class="wrap booking__wrap">
       <p class="eyebrow" data-c="pageReservation.surtitre">Réservation · Chauffeur privé</p>
       <h1 class="resa-intro__title" data-html="pageReservation.titre">Votre trajet,<br><em>estimé en un instant.</em></h1>
-      <p class="resa-intro__text" data-c="pageReservation.texte">Estimez votre trajet en quelques instants. Demande gratuite, sans paiement. ELEV8 confirme votre tarif et votre disponibilité.</p>
+      <p class="resa-intro__text" data-c="pageReservation.texte">Estimez votre trajet en quelques instants et envoyez votre demande sans engagement. Devis par e-mail, paiement en ligne sécurisé, puis confirmation de votre chauffeur par ELEV8.</p>
       <p class="resa-pro"><span data-c="pageReservation.proTexte">Vous êtes un professionnel ?</span> <a href="#pro" class="resa-pro__lien" id="proLien" aria-expanded="false" aria-controls="pro" data-c="pageReservation.proLien">Contactez ELEV8 directement</a></p>
       <p class="resa-pro__actions" id="pro" hidden><a class="js-tel" href="tel:+33626927218">Appeler · <span data-c="contact.telephoneAffiche">06 26 92 72 18</span></a><a data-wa-pro href="https://wa.me/33626927218" target="_blank" rel="noopener">WhatsApp</a><a class="js-mail" href="mailto:contact@elev8privatedriver.com">E-mail</a></p>
       <ol class="resa-steps">
         <li><span class="resa-steps__n">1</span><span><strong data-c="pageReservation.etape1">Estimation immédiate</strong><span data-c="pageReservation.etape1Texte">selon notre grille tarifaire</span></span></li>
-        <li><span class="resa-steps__n">2</span><span><strong data-c="pageReservation.etape2">Demande gratuite</strong><span data-c="pageReservation.etape2Texte">sans paiement ni acompte</span></span></li>
-        <li><span class="resa-steps__n">3</span><span><strong data-c="pageReservation.etape3">Confirmation par ELEV8</strong><span data-c="pageReservation.etape3Texte">disponibilité et tarif final</span></span></li>
+        <li><span class="resa-steps__n">2</span><span><strong data-c="pageReservation.etape2">Devis et paiement sécurisé</strong><span data-c="pageReservation.etape2Texte">règlement en ligne par carte (Stripe)</span></span></li>
+        <li><span class="resa-steps__n">3</span><span><strong data-c="pageReservation.etape3">Confirmation du chauffeur</strong><span data-c="pageReservation.etape3Texte">remboursement intégral si aucun n'est disponible</span></span></li>
       </ol>
     </div>
   </section>
@@ -128,7 +128,7 @@
           <p class="estimate__label" data-c="reservation.estimation.titre">Estimation de votre trajet</p>
           <p class="estimate__amount" id="estAmount">—</p>
           <p class="estimate__meta" id="estMeta" data-c="reservation.estimation.attente">Renseignez le départ, la destination, la date et l'heure pour obtenir une estimation immédiate.</p>
-          <p class="estimate__note" data-c="reservation.estimation.mention">Tarif indicatif, sous réserve de validation de la disponibilité et des conditions du trajet par ELEV8 Private Driver. Aucun paiement n'est demandé à cette étape.</p>
+          <p class="estimate__note" data-c="reservation.estimation.mention">Tarif calculé selon notre grille, repris dans votre devis. L'envoi de la demande est sans engagement : aucun paiement n'est prélevé à cette étape. Votre réservation devient définitive lorsqu'un chauffeur vous est confirmé.</p>
         </div>
 
         <fieldset class="form__group">
@@ -186,7 +186,7 @@
       <div class="recap" id="sent" hidden tabindex="-1">
         <p class="eyebrow"><span>Demande transmise · <span id="sentRef"></span></span></p>
         <h3 class="h3" id="sentTitle" data-c="reservation.envoi.titre">Votre demande a bien été envoyée !</h3>
-        <p class="sent__text" id="sentText" data-c="reservation.envoi.texte">Merci d'avoir choisi ELEV8 Private Driver. Nous avons bien reçu votre demande et votre estimation. Notre équipe va vérifier la disponibilité et confirmer le tarif de votre trajet. Votre réservation sera définitive uniquement après notre confirmation.</p>
+        <p class="sent__text" id="sentText" data-c="reservation.envoi.texte">Merci d'avoir choisi ELEV8 Private Driver. Nous avons bien reçu votre demande. Selon votre trajet, vous recevez votre devis à régler en ligne, ou ELEV8 vous communique le tarif. Votre réservation sera définitive uniquement lorsqu'un chauffeur vous aura été confirmé.</p>
         <dl class="recap__list" id="sentList"></dl>
         <p class="recap__hint" data-c="reservation.envoi.note">Aucun paiement ne vous a été demandé. Pour toute question, appelez-nous ou écrivez-nous sur WhatsApp en indiquant votre référence.</p>
         <div class="recap__actions">
@@ -230,14 +230,15 @@
     <a href="/">← <span data-c="pageReservation.retour">Découvrir le site ELEV8</span></a>
     <a href="/mentions-legales.html">Mentions légales</a>
     <a href="/confidentialite.html">Confidentialité</a>
+    <a href="#" data-cgv hidden>CGV</a>
     <p>© <span class="js-year"></span> <span data-c="marque.nomComplet">ELEV8 Private Driver</span></p>
   </div>
 </footer>
 
 <noscript><p class="noscript">Cette page nécessite JavaScript. Vous pouvez nous appeler au 06 26 92 72 18.</p></noscript>
 
-<script src="/config.js?v=20261118b"></script>
-<script src="/assets/js/reservation.js?v=20261118b"></script>
+<script src="/config.js?v=20261120j"></script>
+<script src="/assets/js/reservation.js?v=20261120i"></script>
 <script src="/assets/js/adresses.js?v=20261016g"></script>
 </body>
 </html>

@@ -44,6 +44,10 @@
     $("#emetteurMsg").hidden = !m.length;
     if (m.length) $("#emetteurMsg").textContent = "Avant de produire un devis ou une facture, complétez dans public/config.js (rubrique legal) : " + m.join(" ; ") + ".";
     chargerDepuisLien();
+    var d = new Date(), deb = new Date(d.getFullYear(), d.getMonth(), 1);
+    var iso = function (x) { return x.getFullYear() + "-" + ("0" + (x.getMonth() + 1)).slice(-2) + "-" + ("0" + x.getDate()).slice(-2); };
+    if (!v("#x-du")) { $("#x-du").value = iso(deb); $("#x-au").value = iso(d); }
+    afficherTableau(1);
   }
   $("#lockForm").addEventListener("submit", function (e) {
     e.preventDefault();
@@ -141,7 +145,11 @@
       }
       $("#sourceMsg").classList.remove("docs__msg--erreur");
       remplir(j.demande, j.facture);
+      modeStripe = j.modeStripe || modeStripe;
+      if (typeof j.facturationAutomatique === "boolean") factAuto = j.facturationAutomatique;
       afficherPaiement(j.paiement, j.paiementEnLigne);
+      preremplirFactureStripe(j.paiement);
+      $("#d-reglement").value = "auto";                                       // règlement du devis : selon la réservation
       if (etape === "validation") $("#validation").scrollIntoView({ block: "start" });
       else $("#recapDemande").scrollIntoView({ block: "start" });
     });
@@ -187,7 +195,7 @@
       montant: v("#d-montant").replace(/\s|€/g, "").replace(",", "."),
       supplements: $$("[data-sup]").map(function (r) { var i = r.querySelectorAll("input"); return { libelle: i[0].value.trim(), montant: i[1].value.replace(/\s|€/g, "").replace(",", ".") }; })
         .filter(function (x) { return x.libelle && parseFloat(x.montant) > 0; }),
-      devis: { valide: $("#d-valide").checked, validiteJours: v("#d-validite") },
+      devis: { valide: $("#d-valide").checked, validiteJours: v("#d-validite"), reglement: v("#d-reglement") || "auto" },
       facture: { datePrestation: v("#d-dateprestation"), paye: $("#d-paye").checked, datePaiement: v("#d-datepaiement"),
         modePaiement: v("#d-mode"), referencePaiement: v("#d-refpaiement"), echeanceJours: v("#d-echeance") }
     };
@@ -359,15 +367,16 @@
   $$("[data-sup] input").forEach(function (i) { i.addEventListener("input", majValidation); });
   majValidation();
 
-  /* ---------- Paiement en ligne (Stripe, mode test) ----------
+  /* ---------- Paiement en ligne (Stripe : mode test hors production, live en production) ----------
      L'état affiché vient du serveur, lui-même informé UNIQUEMENT par les notifications signées de Stripe.
      Aucune course n'est « attribuée » sans confirmation effective d'un chauffeur. */
-  var paiementEnLigne = false, paiementCourant = null;
+  var paiementEnLigne = false, paiementCourant = null, modeStripe = null, factAuto = true;
   function dateHeure(iso) { return iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "long", timeStyle: "short" }) : ""; }
   function afficherPaiement(P, actif) {
     paiementEnLigne = !!actif; paiementCourant = P || null;
     var bloc = $("#paiementBloc");
     bloc.hidden = !paiementEnLigne;
+    $("#pModeTest").hidden = (P && P.mode ? P.mode : modeStripe) === "live";      // étiquette « mode test » absente en production
     $("#pMsg").textContent = "";
     if (!paiementEnLigne) { majValidation(); return; }
     if (!P) {
@@ -378,13 +387,30 @@
     $("#pStatut").textContent = P.etapeLibelle + (P.statut !== "paye" ? " · " + P.statutLibelle : "") + (P.litige ? " · LITIGE" : "");
     var d = ["Montant : " + fmt(P.montant) + " TTC", "Lien : " + location.origin + P.lien];
     if (P.statut === "en_attente") d.push("Valable jusqu'au " + dateHeure(P.valableJusqu));
+    if (P.devis) d.push("Devis " + P.devis.numero + " envoyé le " + dateHeure(P.devis.le));
     if (P.payeLe) d.push("Payé le " + dateHeure(P.payeLe));
+    if (P.factures && P.factures.acompte) d.push("Facture d'acompte " + P.factures.acompte + " émise (100 %, reste à payer 0,00 €)");
+    if (P.priseEnCharge) d.push("Prise en charge enregistrée : " + dateHeure(P.priseEnCharge));
+    (P.modificationsDate || []).forEach(function (m) { d.push("Date modifiée le " + dateHeure(m.le) + " (" + m.motif + ")"); });
+    if (P.realisation) d.push("Course réalisée le " + dateHeure(P.realisation.le));
+    if (P.factures && P.factures.finale) d.push("Facture finale " + P.factures.finale + " émise (solde 0,00 €)");
+    if (P.factures && P.factures.avoirs && P.factures.avoirs.length) d.push("Avoir(s) : " + P.factures.avoirs.map(function (a) { return a.numero; }).join(", "));
     if (P.rembourse > 0) d.push("Remboursé : " + fmt(P.rembourse));
     if (P.motifVerification) d.push("À vérifier : " + P.motifVerification);
     if (P.chauffeur) d.push("Chauffeur : " + P.chauffeur.prenom + " · " + P.chauffeur.vehicule + (P.chauffeur.plaque ? " · " + P.chauffeur.plaque : ""));
     if (P.statut === "paye") d.push("HUBER : " + (P.huber && P.huber.etat === "en_attente_api" ? "transmission automatique dès que son API sera disponible (aucune publication pour l'instant)" : (P.huber && P.huber.etat) || "—"));
     $("#pDetail").textContent = d.join(" · ");
-    $("#pChauffeur").hidden = !(P.statut === "paye" && P.etape === "payee_attente_attribution");
+    $("#pChauffeur").hidden = !(["paye", "rembourse_partiel"].indexOf(P.statut) >= 0 && P.etape === "payee_attente_attribution");
+    // « Course réalisée » : paiement confirmé, chauffeur confirmé, ni annulée ni remboursée intégralement
+    var realisable = P.etape === "chauffeur_confirme" && ["paye", "rembourse_partiel"].indexOf(P.statut) >= 0;
+    $("#pRealisation").hidden = !realisable;
+    $("#rAide").textContent = factAuto
+      ? "Validation par ELEV8 uniquement (jamais automatique à l'heure prévue). Elle déclenche la facture finale, acompte déduit, envoyée au client avec copie à ELEV8."
+      : "Validation par ELEV8 uniquement (jamais automatique à l'heure prévue). Facturation automatique désactivée : établissez ensuite la facture dans la rubrique « Facture » (mode « Paiement en ligne Stripe », prérempli).";
+    // Proposition : la prise en charge enregistrée (le serveur contrôle la fenêtre de réalisation)
+    if (realisable && P.priseEnCharge) $("#r-le").value = localParis(P.priseEnCharge);
+    $("#pModifDate").hidden = !(["paye", "rembourse_partiel"].indexOf(P.statut) >= 0 && ["payee_attente_attribution", "chauffeur_confirme"].indexOf(P.etape) >= 0);
+    chargerDocuments();
     var annulable = ["attente_paiement", "payee_attente_attribution", "chauffeur_confirme"].indexOf(P.etape) >= 0 && ["en_attente", "expire", "paye", "a_verifier", "rembourse_partiel"].indexOf(P.statut) >= 0;
     $("#pAnnuler").hidden = !annulable;
     $("#btnSansChauffeur").hidden = ["paye", "a_verifier", "rembourse_partiel"].indexOf(P.statut) < 0;
@@ -402,14 +428,61 @@
       return j;
     });
   }
+  /* ---------- Facture d'une course payée par Stripe : mode, date et référence repris du paiement ----------
+     Le serveur refait les mêmes contrôles avant toute émission (montant encaissé, date, référence). */
+  var MODE_STRIPE = "paiement en ligne Stripe";
+  var paiementFacture = null;
+  function dateParis(iso) {
+    var p = {}; new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Paris", year: "numeric", month: "2-digit", day: "2-digit" })
+      .formatToParts(new Date(iso)).forEach(function (x) { p[x.type] = x.value; });
+    return p.year + "-" + p.month + "-" + p.day;
+  }
+  function preremplirFactureStripe(P) {
+    // Devis d'une réservation avec paiement en ligne (lien envoyé, payé ou remboursé) : montant fixé par le paiement
+    if (P && ["annule", "remplace", "expire"].indexOf(P.statut) < 0) {
+      $("#d-valide").checked = true;
+      if (!donnees().supplements.length && Math.abs(total() - P.montant) >= 0.005) { $("#d-montant").value = String(P.montant).replace(".", ","); majTotal(); }
+    }
+    paiementFacture = P && P.payeLe && ["paye", "rembourse_partiel", "rembourse"].indexOf(P.statut) >= 0 ? P : null;
+    if (paiementFacture && P.statut !== "rembourse") {
+      $("#d-paye").checked = true;
+      $("#d-mode").value = MODE_STRIPE;
+      $("#d-datepaiement").value = dateParis(P.payeLe);
+      $("#d-refpaiement").value = P.paymentIntent || "";
+      var pr = demandeChargee && demandeChargee.prestation;                 // date de la course réservée (modifiable)
+      if (!v("#d-dateprestation") && pr && /^\d{4}-\d{2}-\d{2}$/.test(pr.date || "")) $("#d-dateprestation").value = pr.date;
+      majAffichage();
+    }
+    coherenceFacture();
+  }
+  function coherenceFacture() {
+    var el = $("#stripeFactureMsg"), P = paiementFacture, mode = $("#d-mode").value, m = "", alerte = false;
+    if (P) {
+      var encaisse = Math.round((P.montant - (P.rembourse || 0)) * 100) / 100;
+      if (P.statut === "rembourse") { m = "Course remboursée intégralement par Stripe : aucune facture à émettre."; alerte = true; }
+      else if (mode !== MODE_STRIPE) { m = "Cette réservation a été payée en ligne par Stripe : choisissez « Paiement en ligne Stripe »."; alerte = true; }
+      else if (Math.abs(total() - encaisse) >= 0.005) { m = "Le total de la facture (" + fmt(total()) + ") diffère du montant encaissé par Stripe (" + fmt(encaisse) + (P.rembourse > 0 ? ", après remboursement de " + fmt(P.rembourse) : "") + ")."; alerte = true; }
+      else m = "Payée par Stripe le " + new Date(P.payeLe).toLocaleDateString("fr-FR", { timeZone: "Europe/Paris" }) + " : " + fmt(encaisse) + " encaissés, référence " + (P.paymentIntent || "—") + ". Mode, date et référence sont repris automatiquement.";
+    } else if (mode === MODE_STRIPE && demandeChargee && demandeChargee.ref) {
+      m = "Aucun paiement Stripe confirmé pour cette réservation : choisissez un autre mode de paiement."; alerte = true;
+    }
+    el.textContent = m; el.hidden = !m;
+    el.classList.toggle("docs__msg--erreur", alerte);
+  }
+  ["#d-mode", "#d-paye"].forEach(function (s) { $(s).addEventListener("change", coherenceFacture); });
+  $("#d-montant").addEventListener("input", coherenceFacture);
+  $$("[data-sup] input").forEach(function (i) { i.addEventListener("input", coherenceFacture); });
+
   $("#btnStripe").addEventListener("click", function () {
     if (!demandeChargee || !demandeChargee.ref) return;
     var t = total();
-    if (!confirm("Créer le lien de paiement Stripe de " + fmt(t) + " TTC pour " + demandeChargee.ref + " ? Tout lien précédent non payé sera désactivé.")) return;
-    actionPaiement({ action: "paiement-lien", montant: t }, function (j) {
+    if (!confirm("Valider " + fmt(t) + " TTC pour " + demandeChargee.ref + " : le devis PDF et le bouton « Accepter le devis et payer en ligne » seront envoyés automatiquement au client (copie à ELEV8). Tout lien précédent non payé sera désactivé.")) return;
+    var D0 = donnees();
+    actionPaiement({ action: "paiement-lien", montant: t, detail: { montant: D0.montant, supplements: D0.supplements } }, function (j) {
       $("#v-lien").value = location.origin + j.paiement.lien;
       $("#v-lien-ok").checked = true; majValidation();
-      return "Lien créé pour " + fmt(j.paiement.montant) + " : il est inséré à l'étape 3. Préparez maintenant le message au client.";
+      return (j.devis ? "Devis " + j.devis + " envoyé " + (j.sansEmailClient ? "à ELEV8 (client sans e-mail : transmettez-le)" : "au client, copie à ELEV8") : "Lien créé (devis PDF non produit : vérifiez les informations légales)") +
+        " — " + fmt(j.paiement.montant) + " TTC. Le message de l'étape 4 reste disponible (WhatsApp, par exemple).";
     });
   });
   $("#btnChauffeur").addEventListener("click", function () {
@@ -425,6 +498,129 @@
     actionPaiement({ action: "annuler-course", motif: motif }, function (j) { return j.rembourse ? "Remboursement intégral demandé à Stripe : il sera confirmé par notification." : "Lien désactivé, client prévenu."; });
   }
   $("#btnIndispo").addEventListener("click", function () { annuler("indisponible"); });
+  /* Devis tel qu'il a été envoyé au client (document figé, relu sur le serveur) */
+  function telechargerEnregistre(action, libelle, extra) {
+    if (!demandeChargee || !demandeChargee.ref) return;
+    $("#pMsg").textContent = "Préparation : " + libelle + "…";
+    var corps = { action: action, ref: demandeChargee.ref };
+    if (extra) for (var k in extra) corps[k] = extra[k];
+    appel(corps).then(function (j) {
+      if (!j.ok || !j.pdf) { $("#pMsg").textContent = j.message || "Document introuvable."; return; }
+      var bin = atob(j.pdf), bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      var a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" })); a.download = j.fichier;
+      document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+      $("#pMsg").textContent = j.numero + " téléchargé.";
+    });
+  }
+  /* Rubrique « Documents » : devis (toutes versions), facture d'acompte, facture finale, avoirs, références Stripe */
+  function chargerDocuments() {
+    if (!demandeChargee || !demandeChargee.ref) { $("#pDocuments").hidden = true; return; }
+    var ref = demandeChargee.ref;
+    appel({ action: "documents-reservation", ref: ref }).then(function (j) {
+      if (!demandeChargee || demandeChargee.ref !== ref) return;
+      if (!j.ok) { $("#pDocuments").hidden = true; return; }
+      $("#pDocuments").hidden = !j.docs.length && !j.stripe.paiement;
+      $("#pDocs").innerHTML = j.docs.map(function (d) {
+        return '<li><span class="docs__docinfo"><strong>' + esc(d.libelle) + "</strong> " + esc(d.numero) + " · " + esc(d.date ? d.date.split("-").reverse().join("/") : "") +
+          " · " + esc(fmt(d.montant)) + (d.facture ? " (sur " + esc(d.facture) + ")" : "") + '</span><button class="btn btn--quiet" type="button" data-doc="' + esc(d.numero) + '"><span>Télécharger</span></button></li>';
+      }).join("") || "<li>Aucun document émis pour l'instant.</li>";
+      var s = j.stripe, t = [];
+      if (s.paiement) t.push("Paiement Stripe : " + s.paiement + (s.payeLe ? " (reçu le " + dateHeure(s.payeLe) + ")" : ""));
+      if (s.rembourse > 0) t.push("Remboursé : " + fmt(s.rembourse) + (s.operations.length ? " (opérations " + s.operations.join(", ") + ")" : ""));
+      if (s.sessions.length) t.push("Sessions Checkout : " + s.sessions.join(", "));
+      $("#pStripe").textContent = t.join(" · ");
+    });
+  }
+  $("#pDocs").addEventListener("click", function (ev) {
+    var b = ev.target.closest("[data-doc]");
+    if (b) telechargerEnregistre("document-pdf", b.getAttribute("data-doc"), { numero: b.getAttribute("data-doc") });
+  });
+  function localParis(iso) {                                       // « AAAA-MM-JJTHH:MM » à l'heure de Paris
+    var p = {}; new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Paris", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+      .formatToParts(new Date(iso)).forEach(function (x) { p[x.type] = x.value; });
+    return p.year + "-" + p.month + "-" + p.day + "T" + p.hour + ":" + p.minute;
+  }
+  $("#btnModifDate").addEventListener("click", function () {
+    var date = v("#md-date"), heure = v("#md-heure"), motif = v("#md-motif");
+    if (!date || !heure || !motif) { $("#pMsg").textContent = "Indiquez la nouvelle date, l'heure et le motif."; return; }
+    if (!confirm("Enregistrer officiellement la nouvelle date de la prestation : " + date + " à " + heure + " ? Motif : " + motif)) return;
+    actionPaiement({ action: "modifier-date", date: date, heure: heure, motif: motif, validationClient: $("#md-validation").checked }, function (j) {
+      $("#md-motif").value = ""; $("#md-validation").checked = false;
+      return "Nouvelle date enregistrée dans la réservation. " + (j.sansEmailClient ? "Client sans e-mail : prévenez-le (ELEV8 a reçu le message)." : j.mail ? "Le client a été prévenu par e-mail (copie ELEV8)." : "E-mail au client non envoyé : prévenez-le.");
+    });
+  });
+  /* ---------- Tableau de gestion (filtres et pagination côté serveur) ---------- */
+  var tPage = 1;
+  function badge(t, cls) { return '<span class="docs__badge' + (cls ? " docs__badge--" + cls : "") + '">' + esc(t) + "</span>"; }
+  function afficherTableau(page) {
+    tPage = page || 1;
+    $("#tMsg").textContent = "Chargement…";
+    appel({ action: "tableau", filtre: $("#t-filtre").value, du: v("#t-du"), au: v("#t-au"), recherche: v("#t-q"), page: tPage, parPage: 20 }).then(function (j) {
+      if (j.code === "acces") { oublierSession(); verrouiller(j.message); return; }
+      if (!j.ok) { $("#tMsg").textContent = j.message || "Lecture impossible."; return; }
+      $("#tModeTest").hidden = !j.test;
+      if (typeof j.facturationAutomatique === "boolean") factAuto = j.facturationAutomatique;
+      $("#tMsg").textContent = j.total ? j.total + " réservation" + (j.total > 1 ? "s" : "") : "Aucune réservation pour ces critères.";
+      $("#tListe").innerHTML = j.lignes.map(function (l) {
+        var cls = l.statut === "paye" ? "ok" : l.statut === "rembourse" || l.statut === "rembourse_partiel" ? "alerte" : ["annule", "expire", "remplace"].indexOf(l.statut) >= 0 ? "neutre" : "";
+        var docs = [];
+        l.devis.forEach(function (d) { docs.push("Devis " + d.numero); });
+        if (l.acompte) docs.push("Acompte " + l.acompte);
+        if (l.finale) docs.push("Finale " + l.finale);
+        if (l.factureManuelle) docs.push("Facture " + l.factureManuelle);
+        l.avoirs.forEach(function (a) { docs.push("Avoir " + a.numero + (a.montant != null ? " (" + fmt(a.montant) + ")" : "")); });
+        return '<article class="docs__ligne" data-ref="' + esc(l.ref) + '">' +
+          '<div class="docs__ligne-tete"><strong>' + esc(l.ref) + "</strong> " + esc(l.client) + '<span class="docs__badges">' + badge(l.paiement, cls) + badge(l.etapeLibelle) + (l.litige ? badge("Litige", "alerte") : "") + (l.aFacturer ? badge("Facture à établir", "alerte") : "") + "</span></div>" +
+          '<div class="docs__ligne-trajet">' + esc(l.priseEnCharge ? dateHeure(l.priseEnCharge) : "") + " · " + esc(l.trajet) + (l.chauffeur ? " · chauffeur : " + esc(l.chauffeur) : "") + "</div>" +
+          '<dl class="docs__montants"><div><dt>Prix TTC</dt><dd>' + fmt(l.prixTTC) + "</dd></div><div><dt>Encaissé</dt><dd>" + fmt(l.encaisse) + "</dd></div><div><dt>Remboursé</dt><dd>" + fmt(l.rembourse) + "</dd></div><div><dt>Solde</dt><dd>" + fmt(l.solde) + "</dd></div></dl>" +
+          '<div class="docs__ligne-docs">' + (docs.length ? esc(docs.join(" · ")) : "Aucun document") + '</div>' +
+          '<button class="btn btn--quiet" type="button" data-ouvrir="' + esc(l.ref) + '"><span>Ouvrir</span></button></article>';
+      }).join("");
+      $("#tInfo").textContent = "Page " + j.page + " / " + j.pages;
+      $("#tPrec").disabled = j.page <= 1; $("#tSuiv").disabled = j.page >= j.pages;
+    });
+  }
+  $("#btnFiltrer").addEventListener("click", function () { afficherTableau(1); });
+  $("#tPrec").addEventListener("click", function () { afficherTableau(tPage - 1); });
+  $("#tSuiv").addEventListener("click", function () { afficherTableau(tPage + 1); });
+  $("#tListe").addEventListener("click", function (ev) {
+    var b = ev.target.closest("[data-ouvrir]");
+    if (!b) return;
+    etape = "";
+    var r = charger({ ref: b.getAttribute("data-ouvrir") }, false);
+    if (r && r.then) r.then(function () { var el = $("#paiementBloc"); if (!el.hidden) el.scrollIntoView({ block: "start" }); });
+  });
+  /* Export comptable (CSV) : lecture seule, aucun montant modifié */
+  function exporter(action, quoi) {
+    var du = v("#x-du"), au = v("#x-au");
+    if (!du || !au) { $("#xMsg").textContent = "Indiquez la date de début et la date de fin."; return; }
+    $("#xMsg").textContent = "Préparation de l'export…";
+    appel({ action: action, du: du, au: au }).then(function (j) {
+      if (!j.ok) { $("#xMsg").textContent = j.message || "Export impossible."; return; }
+      var bin = atob(j.zip || j.csv), bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      var a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([bytes], { type: j.zip ? "application/zip" : "text/csv;charset=utf-8" })); a.download = j.fichier;
+      document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+      $("#xMsg").textContent = j.documents + " " + quoi + (j.documents > 1 ? "s" : "") + " exporté" + (j.documents > 1 ? "s" : "") + " (" + j.fichier + ").";
+    });
+  }
+  $("#btnExport").addEventListener("click", function () { exporter("export-comptable", "document"); });
+  $("#btnExportEnc").addEventListener("click", function () { exporter("export-encaissements", "opération"); });
+  $("#btnArchive").addEventListener("click", function () { exporter("archive", "document"); });
+  var realisationEnCours = false;
+  $("#btnRealisee").addEventListener("click", function () {
+    if (realisationEnCours || !demandeChargee || !demandeChargee.ref) return;          // double clic ignoré (le serveur refuse aussi)
+    var le = v("#r-le");
+    if (!confirm("Confirmer que la course " + demandeChargee.ref + " a été réalisée" + (le ? " le " + le.replace("T", " à ") : "") + " ? " +
+      (factAuto ? "La facture finale sera émise et envoyée au client." : "La facturation automatique est désactivée : vous établirez ensuite la facture manuellement.") + " Cette action est définitive.")) return;
+    realisationEnCours = true; $("#btnRealisee").disabled = true;
+    actionPaiement({ action: "course-realisee", realiseeLe: le }, function (j) {
+      if (j.facture && j.facture.ignore === "desactivee") return "Course réalisée. Facturation automatique désactivée : établissez maintenant la facture dans la rubrique « Facture » ci-dessous (paiement Stripe prérempli).";
+      return j.facture && j.facture.numero ? "Course réalisée : facture finale " + j.facture.numero + (j.facture.envoye ? " envoyée au client (copie ELEV8)." : " émise (envoi relancé automatiquement).")
+        : "Course réalisée. Facture finale en cours (relance automatique).";
+    }).then(function () { realisationEnCours = false; $("#btnRealisee").disabled = false; });
+  });
   $("#btnSansChauffeur").addEventListener("click", function () { annuler("sans_chauffeur"); });
 
   function infos() {

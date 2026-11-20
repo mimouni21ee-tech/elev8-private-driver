@@ -17,7 +17,7 @@
    assujetti à la TVA, le PDF détaille HT, TVA et TTC ; en franchise en base, il
    porte la mention « TVA non applicable, art. 293 B du CGI ».
    ========================================================================== */
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDFDocument, StandardFonts, rgb, degrees } from "pdf-lib";
 
 /* ---------- Émetteur ---------- */
 const vide = (v) => v == null || String(v).trim() === "" || /^\s*\[/.test(String(v));
@@ -97,6 +97,60 @@ const ajouterJours = (iso, n) => { const d = new Date(iso + "T12:00:00Z"); d.set
 /* ---------- Données d'un document (nettoyées, bornées) ---------- */
 const s = (v, n = 200) => (typeof v === "string" ? v.replace(/[\u0000-\u0008\u000B-\u001F\u007F]/g, " ").trim().slice(0, n) : "");
 const reDate = /^\d{4}-\d{2}-\d{2}$/, reHeure = /^([01]\d|2[0-3]):[0-5]\d$/;
+/* Mode de règlement indiqué sur le devis : « auto » = déterminé par le serveur (paiement en ligne si un
+   lien Stripe existe pour la réservation, sinon règlement après la prestation). */
+export const REGLEMENTS = ["auto", "en_ligne", "apres", "virement_avant"];
+
+/* Textes du devis selon le règlement réellement prévu (meta.reglement, établi par le serveur) :
+   { mode: "en_ligne" | "apres" | "virement_avant", etat: "a_payer" | "paye" | "rembourse",
+     montant, payeLe, reference, valableJusqu, chauffeur } */
+export function textesDevis(doc, e, meta, totalTtc) {
+  const provisoire = !doc.devis.valide, r = meta.reglement || { mode: "apres" };
+  const validite = "Devis valable jusqu'au " + dateFr(ajouterJours(meta.dateEmission, doc.devis.validiteJours)) + ".";
+  const verif = "ELEV8 vérifie la disponibilité du chauffeur et du véhicule, puis vous confirme le tarif définitif.";
+  const attribution = "La réservation n'est définitivement confirmée qu'après l'acceptation de la course par un chauffeur ; vous en êtes informé par e-mail.";
+  const rembourse = "si aucun chauffeur n'est disponible, le montant réglé vous est intégralement remboursé.";
+  const Rembourse = "S" + rembourse.slice(1);
+  const lienJusqu = r.valableJusqu ? " (lien valable jusqu'au " + dateFr(r.valableJusqu) + ")" : "";
+  if (r.mode === "en_ligne") {
+    // Lien envoyé, payé ou remboursé : jamais traité comme un devis provisoire (le montant est fixé par le paiement)
+    if (provisoire && !r.etat) return { titre: "Étapes suivantes", signature: false, paragraphes: [verif + " Vous recevrez alors un lien de paiement sécurisé : le règlement s'effectue en ligne, par carte bancaire, avant l'attribution du chauffeur. " + attribution + " " + Rembourse] };
+    if (r.etat === "rembourse") return r.remboursementEnCours
+      ? { bandeau: "Réservation annulée : le remboursement intégral de " + euros(r.montant) + " est en cours.", titre: "Règlement", signature: false,
+          paragraphes: ["Le montant réglé en ligne (" + euros(r.montant) + ") vous est intégralement remboursé sur le moyen de paiement utilisé. Aucun montant ne reste dû."] }
+      : { bandeau: "Réservation annulée : le montant réglé de " + euros(r.montant) + " vous a été intégralement remboursé.", titre: "Règlement", signature: false,
+          paragraphes: ["Le règlement effectué en ligne a été intégralement remboursé sur le moyen de paiement utilisé. Aucun montant ne reste dû."] };
+    if (r.etat === "en_cours") return { bandeau: "Règlement en ligne de " + euros(r.montant) + " en cours de validation par votre banque.", titre: "Étapes suivantes", signature: false,
+      paragraphes: ["1. Règlement : votre paiement en ligne de " + euros(r.montant) + " est en cours de validation ; vous recevrez un e-mail dès sa confirmation.",
+        "2. Attribution : votre course est ensuite proposée à nos chauffeurs. " + attribution, "3. Indisponibilité : " + rembourse] };
+    if (r.etat === "paye") {
+      const recu = "Règlement de " + euros(r.montant) + " TTC reçu en ligne le " + dateFr(r.payeLe) + (r.reference ? " (référence Stripe : " + r.reference + ")" : "") + "." +
+        (r.rembourse > 0 ? " Remboursement partiel de " + euros(r.rembourse) + " ; montant encaissé : " + euros(r.montant - r.rembourse) + "." : "");
+      return r.chauffeur
+        ? { bandeau: recu + " Réservation confirmée : un chauffeur a accepté votre course.", titre: "Réservation confirmée", signature: false,
+            paragraphes: [recu, "Un chauffeur a accepté votre course : votre réservation est définitivement confirmée. Aucun autre paiement n'est demandé.",
+              "En cas d'empêchement de dernière minute et sans chauffeur de remplacement, le montant réglé vous serait intégralement remboursé."] }
+        : { bandeau: recu + " Votre course est en cours d'attribution à un chauffeur.", titre: "Étapes suivantes", signature: false,
+            paragraphes: ["1. Règlement : " + euros(r.montant) + " TTC reçus en ligne le " + dateFr(r.payeLe) + (r.reference ? " (référence Stripe : " + r.reference + ")" : "") + ", valant acceptation du présent devis. Aucun autre paiement n'est demandé.",
+              "2. Attribution : votre course est proposée à nos chauffeurs. " + attribution, "3. Indisponibilité : " + rembourse] };
+    }
+    return { bandeau: validite + " Le règlement s'effectue en ligne, avant l'attribution du chauffeur, avec le lien de paiement sécurisé transmis par ELEV8.", titre: "Étapes suivantes", signature: false,
+      paragraphes: ["1. Règlement : réglez " + euros(totalTtc) + " TTC en ligne, par carte bancaire, avec le lien de paiement sécurisé transmis par ELEV8" + lienJusqu + ". Le paiement vaut acceptation du présent devis.",
+        "2. Attribution : votre course est ensuite proposée à nos chauffeurs. " + attribution, "3. Indisponibilité : " + rembourse] };
+  }
+  if (r.mode === "virement_avant") {
+    const virement = "Règlement par virement bancaire avant la prestation, selon les modalités convenues avec ELEV8 ; la réservation est confirmée à réception du règlement.";
+    if (provisoire) return { titre: "Étapes suivantes", signature: false, paragraphes: [verif + " Votre réservation est définitive uniquement après cette confirmation et votre accord. " + virement] };
+    return { bandeau: validite + " Après votre accord, le règlement s'effectue par virement bancaire avant la prestation.", titre: "Bon pour accord", signature: true,
+      paragraphes: ["Pour accepter ce devis, répondez simplement « J'accepte » par e-mail ou par WhatsApp, ou retournez-le daté et signé avec la mention « Bon pour accord ». " + virement] };
+  }
+  // Règlement après la prestation (fonctionnement d'origine, inchangé)
+  const apres = e.modesPaiement ? " Règlement après la prestation, par " + e.modesPaiement + "." : "";
+  if (provisoire) return { titre: "Étapes suivantes", signature: false, paragraphes: [verif + " Votre réservation est définitive uniquement après cette confirmation et votre accord." + apres] };
+  return { bandeau: validite + " Aucun paiement n'est demandé à cette étape : la réservation est confirmée par ELEV8 après votre accord.", titre: "Bon pour accord", signature: true,
+    paragraphes: ["Pour accepter ce devis, répondez simplement « J'accepte » par e-mail ou par WhatsApp, ou retournez-le daté et signé avec la mention « Bon pour accord »." + apres] };
+}
+
 export function nettoyer(d) {
   d = d || {};
   const c = d.client || {}, p = d.prestation || {}, f = d.facture || {}, v = d.devis || {};
@@ -117,7 +171,8 @@ export function nettoyer(d) {
     supplements: (Array.isArray(d.supplements) ? d.supplements : []).slice(0, 5)
       .map((x) => ({ libelle: s(x && x.libelle, 120), montant: Math.round((+String(x && x.montant).replace(",", ".") || 0) * 100) / 100 }))
       .filter((x) => x.libelle && x.montant > 0 && x.montant <= 10000),
-    devis: { valide: v.valide === true, validiteJours: Math.max(1, Math.min(90, parseInt(v.validiteJours, 10) || 15)) },
+    devis: { valide: v.valide === true, validiteJours: Math.max(1, Math.min(90, parseInt(v.validiteJours, 10) || 15)),
+      reglement: REGLEMENTS.includes(v.reglement) ? v.reglement : "auto" },
     facture: { datePrestation: date(f.datePrestation), paye: f.paye === true, datePaiement: date(f.datePaiement),
       modePaiement: s(f.modePaiement, 40), referencePaiement: s(f.referencePaiement, 60), echeanceJours: Math.max(0, Math.min(60, parseInt(f.echeanceJours, 10) || 0)) }
   };
@@ -136,9 +191,12 @@ export function aCompleter(doc, type) {
   }
   return m;
 }
-export function designationAuto(p) {
+/* Désignation par défaut. Les factures émises avant le 20/11/2026 sans désignation enregistrée gardent
+   l'ancien libellé « (VTC) » (une facture émise ne change jamais) ; les nouvelles enregistrent leur libellé. */
+export const DESIGNATION = "Transport de personnes avec chauffeur";
+export function designationAuto(p, ancienne = false) {
   if (p.designation) return p.designation;
-  return "Transport de personnes avec chauffeur (VTC)" + (p.allerRetour ? " — aller-retour" : "");
+  return DESIGNATION + (ancienne ? " (VTC)" : "") + (p.allerRetour ? " — aller-retour" : "");
 }
 
 /* ---------- PDF ---------- */
@@ -148,7 +206,10 @@ const NOIR = rgb(0.043, 0.039, 0.035), OR = rgb(0.737, 0.655, 0.514), OR_FONCE =
 
 export async function pdf(type, doc, e, meta = {}) {
   const P = await PDFDocument.create();
-  P.setTitle((type === "facture" ? "Facture " + meta.numero : "Devis " + meta.numero) + " — ELEV8 Private Driver");
+  // « acompte » : facture d'acompte ; « finale » : facture après la course (acompte déduit) ; « avoir » : avoir après remboursement
+  const estFacture = type === "facture" || type === "acompte" || type === "finale" || type === "avoir";
+  const NOMS = { facture: "Facture", finale: "Facture", acompte: "Facture d'acompte", avoir: "Avoir", devis: "Devis" };
+  P.setTitle((NOMS[type] || "Devis") + " " + meta.numero + " — ELEV8 Private Driver");
   P.setAuthor(e.nom || "ELEV8 Private Driver"); P.setCreator("ELEV8 Private Driver"); P.setProducer("ELEV8 Private Driver");
   const horodatage = new Date(meta.horodatage || Date.now());
   P.setCreationDate(horodatage); P.setModificationDate(horodatage);   // facture redemandée : fichier identique à l'octet près
@@ -188,21 +249,22 @@ export async function pdf(type, doc, e, meta = {}) {
   const etiquette = (t, x, yy) => txt(t.toUpperCase(), x, yy, { size: 6.8, font: F.b, color: OR_FONCE, cs: 1.4 });
 
   /* En-tête noir et or */
-  const provisoire = type === "devis" && !doc.devis.valide;
-  const titre = type === "facture" ? "Facture" : provisoire ? "Devis provisoire" : "Devis";
+  // Un devis lié à un paiement en ligne (lien envoyé, payé ou remboursé) n'est jamais « provisoire » : le montant est fixé
+  const provisoire = type === "devis" && !doc.devis.valide && !(meta.reglement && meta.reglement.etat);
+  const titre = type === "devis" ? (provisoire ? "Devis provisoire" : "Devis") : NOMS[type];
   page.drawRectangle({ x: 0, y: H - 118, width: W, height: 118, color: NOIR });
   page.drawRectangle({ x: 0, y: H - 120, width: W, height: 2, color: OR });
   txt("ELEV8", M, H - 64, { font: F.t, size: 30, color: OR, cs: 5 });
   txt("PRIVATE DRIVER", M + 1, H - 82, { size: 7.2, color: rgb(0.85, 0.80, 0.70), cs: 3.2 });
   const tW = largeur(titre, F.ti, 24);
   txt(titre, W - M - tW, H - 60, { font: F.ti, size: 24, color: IVOIRE });
-  const sous = (type === "facture" ? "N° " : "Réf. ") + meta.numero + "  ·  " + dateFr(meta.dateEmission);
+  const sous = (estFacture ? "N° " : "Réf. ") + meta.numero + "  ·  " + dateFr(meta.dateEmission);
   txt(sous, W - M - largeur(sous, F.r, 8.5), H - 82, { size: 8.5, color: rgb(0.85, 0.80, 0.70) });
   y = H - 150;
 
   /* Émetteur / client */
   const col2 = W / 2 + 10, cw = W / 2 - M - 20;
-  etiquette("Émetteur", M, y); etiquette(type === "facture" ? "Facturé à" : "Client", col2, y);
+  etiquette("Émetteur", M, y); etiquette(estFacture ? "Facturé à" : "Client", col2, y);
   y -= 16;
   const yDebut = y;
   const identite = e.nom + (e.forme ? ", " + e.forme : "") + (e.capital && !vide(e.capital) ? " au capital de " + e.capital : "");
@@ -228,10 +290,12 @@ export async function pdf(type, doc, e, meta = {}) {
   y = Math.min(y, yGauche) - 14;
 
   /* Bandeau d'état */
-  if (provisoire || type === "devis") {
+  const TD = type === "devis" ? textesDevis(doc, e, meta, montants(doc.montant, e, doc.supplements).ttc) : null;
+  const AC = type === "acompte" ? meta.acompte : null, FI = type === "finale" ? meta.finale : null, AV = type === "avoir" ? meta.avoir : null;
+  if (provisoire || type === "devis") {               // facture d'acompte : « Acompte de 100 % reçu » figure dans les totaux et la rubrique Paiement
     const msg = provisoire
       ? "DEVIS PROVISOIRE — Tarif indicatif, sous réserve de validation de la disponibilité et des conditions du trajet par ELEV8 Private Driver. Aucun paiement n'est demandé à cette étape."
-      : "Devis valable jusqu'au " + dateFr(ajouterJours(meta.dateEmission, doc.devis.validiteJours)) + ". Aucun paiement n'est demandé à cette étape : la réservation est confirmée par ELEV8 après votre accord.";
+      : TD.bandeau;
     const l = couper(msg, W - 2 * M - 24, provisoire ? F.b : F.r, 8.8), h = l.length * 12 + 14;
     page.drawRectangle({ x: M, y: y - h + 4, width: W - 2 * M, height: h, color: FOND_DOUX, borderColor: OR, borderWidth: provisoire ? 1.2 : 0.6 });
     let yy = y - 9;
@@ -244,7 +308,10 @@ export async function pdf(type, doc, e, meta = {}) {
   etiquette("Prestation", M, y); y -= 6; filet(y); y -= 15;
   const quand = (d, h) => [dateFr(d, true), h ? "à " + h.replace(":", "h") : ""].filter(Boolean).join(" ");
   const lignesP = [
-    ["Date", type === "facture" ? dateFr(doc.facture.datePrestation, true) + (p.heure && doc.facture.datePrestation === p.date ? " à " + p.heure.replace(":", "h") : "") : quand(p.date, p.heure)],
+    ...((AC || FI || AV) && doc.ref ? [["Réservation", doc.ref]] : []),       // factures automatiques : référence de la réservation
+    FI ? ["Date de réalisation", dateFr(doc.facture.datePrestation, true) + (FI.heureRealisation ? " à " + FI.heureRealisation : "")] :
+    AV ? ["Prestation du", quand(p.date, p.heure)] :
+    type === "acompte" ? ["Date prévue", quand(p.date, p.heure)] : ["Date", type === "facture" ? dateFr(doc.facture.datePrestation, true) + (p.heure && doc.facture.datePrestation === p.date ? " à " + p.heure.replace(":", "h") : "") : quand(p.date, p.heure)],
     ["Départ", p.depart], ["Destination", p.destination],
     ...(p.allerRetour ? [["Retour", quand(p.dateRetour, p.heureRetour) || "Aller-retour"]] : []),
     ["Véhicule", p.vehicule],
@@ -274,7 +341,7 @@ export async function pdf(type, doc, e, meta = {}) {
   const th = mt.franchise ? "MONTANT" : "TOTAL HT";
   txt(th, cols[3] - largeur(th, F.b, 7, 1.2), y - 10, { size: 7, font: F.b, color: OR, cs: 1.2 });
   y -= 36;
-  const des = couper(designationAuto(p) + (p.depart && p.destination ? ", de " + p.depart + " à " + p.destination : ""), cols[1] - cols[0] - 16, F.r, 9.5);
+  const des = couper(designationAuto(p, type === "facture") + (p.depart && p.destination ? ", de " + p.depart + " à " + p.destination : ""), cols[1] - cols[0] - 16, F.r, 9.5);
   const yLigne = y;
   for (const x of des) { besoin(14); txt(x, cols[0], y); y -= 13; }
   const base = mt.lignesHt[0];
@@ -282,7 +349,7 @@ export async function pdf(type, doc, e, meta = {}) {
   txt(euros(base), cols[3] - largeur(euros(base)), yLigne);
   sup.forEach((x, i) => {
     y -= 6; besoin(16);
-    const l = couper("Supplément : " + x.libelle, cols[1] - cols[0] - 16, F.r, 9.5), y0 = y, v = mt.lignesHt[i + 1];
+    const l = couper((x.montant < 0 ? "" : "Supplément : ") + x.libelle, cols[1] - cols[0] - 16, F.r, 9.5), y0 = y, v = mt.lignesHt[i + 1];
     for (const t of l) { txt(t, cols[0], y); y -= 13; }
     txt("1", cols[1], y0); txt(euros(v), cols[2], y0); txt(euros(v), cols[3] - largeur(euros(v)), y0);
   });
@@ -299,13 +366,44 @@ export async function pdf(type, doc, e, meta = {}) {
     total("Total HT", euros(mt.ht)); total("TVA " + String(mt.taux).replace(".", ",") + " %", euros(mt.tva));
     y -= 6;
     page.drawRectangle({ x: W - M - 240, y: y - 6, width: 240, height: 20, color: FOND_DOUX });
-    total("Total TTC", euros(mt.ttc), true);
+    total(AV ? "Total TTC de l'avoir" : "Total TTC", euros(mt.ttc), true);
+  }
+  if (FI) {                                                                // facture finale : acompte déduit, solde 0
+    total("Acompte versé (" + FI.acompte.numero + ")" + (FI.avoirs.length ? ", net des avoirs" : ""), "- " + euros(FI.deductionCents / 100));
+    total("Solde à payer", euros(FI.soldeCents / 100), true);
+  }
+  if (AV) total("Montant remboursé", euros(AV.montantCents / 100), true);
+  if (AC) {                                                                // acompte de 100 % : déjà réglé, reste 0
+    total("Acompte reçu (100 %)", "- " + euros(AC.montantCents / 100));
+    total("Reste à payer", euros(0), true);
   }
   if (mt.franchise) { txt("TVA non applicable, art. 293 B du CGI", W - M - 230, y, { size: 8, font: F.ti, color: GRIS }); y -= 14; }
   y -= 10;
 
   /* Paiement / validation */
-  if (type === "facture") {
+  if (FI) {
+    besoin(60); etiquette("Paiement", M, y); y -= 6; filet(y); y -= 15;
+    bloc("Facture réglée par l'acompte de " + euros(FI.acompte.montantCents / 100) + " TTC reçu le " + dateFr(doc.facture.datePaiement) + " (facture d'acompte " + FI.acompte.numero + " du " + dateFr(FI.acompte.date) + ") — " + FI.mode + ", référence " + FI.reference + ".", M, W - 2 * M, { font: F.b });
+    if (FI.avoirs.length) bloc("Remboursement" + (FI.avoirs.length > 1 ? "s" : "") + " déjà effectué" + (FI.avoirs.length > 1 ? "s" : "") + " : " + FI.avoirs.map((a) => "avoir " + a.numero + " du " + dateFr(a.date) + " (" + euros(a.montantCents / 100) + ")").join(", ") + ".", M, W - 2 * M);
+    bloc("Solde à payer : " + euros(FI.soldeCents / 100) + ".", M, W - 2 * M);
+    y -= 4;
+    bloc("Prestation de services réalisée le " + dateFr(doc.facture.datePrestation) + (FI.heureRealisation ? " à " + FI.heureRealisation : "") + ". Pas d'escompte pour paiement anticipé.", M, W - 2 * M, { size: 7.8, color: GRIS, lh: 11 });
+  } else if (AV) {
+    besoin(60); etiquette("Remboursement", M, y); y -= 6; filet(y); y -= 15;
+    bloc("Avoir sur la facture " + (AV.facture.type === "acompte" ? "d'acompte " : "") + AV.facture.numero + " du " + dateFr(AV.facture.date) + ".", M, W - 2 * M, { font: F.b });
+    bloc((AV.total ? "Remboursement intégral" : "Remboursement") + " de " + euros(AV.montantCents / 100) + " TTC effectué le " + dateFr(AV.dateRemboursement) + " — " + AV.mode + ", sur le paiement " + AV.reference + (AV.charge ? " (opération " + AV.charge + ")" : "") + ".", M, W - 2 * M);
+    bloc("Total remboursé à ce jour : " + euros(AV.cumulCents / 100) + " TTC. Reste dû : 0,00 €.", M, W - 2 * M);
+  } else if (AC) {
+    besoin(60); etiquette("Paiement", M, y); y -= 6; filet(y); y -= 15;
+    bloc("Acompte de 100 % reçu le " + dateFr(AC.dateEncaissement) + " — règlement par " + AC.mode + " (référence du paiement : " + AC.reference + ").", M, W - 2 * M, { font: F.b });
+    bloc("Montant déjà réglé : " + euros(AC.montantCents / 100) + " TTC. Reste à payer : 0,00 €.", M, W - 2 * M);
+    y -= 4;
+    const mentions = [
+      "Facture d'acompte émise à la réception du paiement, avant la prestation" + (AC.devis ? " (devis accepté : " + AC.devis + ")" : "") + ". Date prévue de la prestation : " + dateFr(doc.prestation.date) + ".",
+      "Prestation de services. La facture finale sera établie après la réalisation de la course ; elle déduira cet acompte. Pas d'escompte pour paiement anticipé."
+    ];
+    for (const x of mentions) bloc(x, M, W - 2 * M, { size: 7.8, color: GRIS, lh: 11 });
+  } else if (type === "facture") {
     besoin(60); etiquette("Paiement", M, y); y -= 6; filet(y); y -= 15;
     const fa = doc.facture;
     if (fa.paye) bloc("Facture acquittée le " + dateFr(fa.datePaiement) + " — règlement par " + fa.modePaiement + (fa.referencePaiement ? " (référence : " + fa.referencePaiement + ")" : "") + ".", M, W - 2 * M, { font: F.b });
@@ -323,10 +421,9 @@ export async function pdf(type, doc, e, meta = {}) {
     for (const x of mentions) bloc(x, M, W - 2 * M, { size: 7.8, color: GRIS, lh: 11 });
   } else {
     besoin(70);
-    etiquette(provisoire ? "Étapes suivantes" : "Bon pour accord", M, y); y -= 6; filet(y); y -= 15;
-    if (provisoire) bloc("ELEV8 vérifie la disponibilité du chauffeur et du véhicule, puis vous confirme le tarif définitif. Votre réservation est définitive uniquement après cette confirmation et votre accord." + (e.modesPaiement ? " Règlement après la prestation, par " + e.modesPaiement + "." : ""), M, W - 2 * M);
-    else {
-      bloc("Pour accepter ce devis, répondez simplement « J'accepte » par e-mail ou par WhatsApp, ou retournez-le daté et signé avec la mention « Bon pour accord »." + (e.modesPaiement ? " Règlement après la prestation, par " + e.modesPaiement + "." : ""), M, W - 2 * M);
+    etiquette(TD.titre, M, y); y -= 6; filet(y); y -= 15;
+    TD.paragraphes.forEach((p, i) => { if (i) y -= 4; bloc(p, M, W - 2 * M); });
+    if (TD.signature) {
       y -= 6;
       page.drawRectangle({ x: W - M - 220, y: y - 52, width: 220, height: 56, borderColor: FILET, borderWidth: 0.8 });
       txt("Date et signature du client", W - M - 210, y - 8, { size: 7.5, color: GRIS });
@@ -347,5 +444,15 @@ export async function pdf(type, doc, e, meta = {}) {
     }
     if (pages.length > 1) { const n = (i + 1) + " / " + pages.length; txt(n, W - M - largeur(n, F.r, 7), M + 8, { size: 7, color: GRIS }); }
   });
+  /* Site de test : chaque page porte « DOCUMENT DE TEST — SANS VALEUR COMPTABLE » (bandeau + filigrane) */
+  if (meta.test) {
+    const ROUGE = rgb(0.70, 0.15, 0.12), mention = "DOCUMENT DE TEST — SANS VALEUR COMPTABLE";
+    P.getPages().forEach((pg, i) => {
+      const lw = F.b.widthOfTextAtSize(w(mention), 9), yb = i === 0 ? H - 138 : H - 18;   // page 1 : sous l'en-tête ; suivantes : tout en haut
+      pg.drawRectangle({ x: 0, y: yb, width: W, height: 18, color: ROUGE });
+      pg.drawText(w(mention), { x: (W - lw) / 2, y: yb + 6, size: 9, font: F.b, color: rgb(1, 1, 1), characterSpacing: 0.6 });
+      pg.drawText(w(mention), { x: 62, y: 170, size: 23, font: F.b, color: ROUGE, opacity: 0.12, rotate: degrees(38) });
+    });
+  }
   return await P.save();
 }

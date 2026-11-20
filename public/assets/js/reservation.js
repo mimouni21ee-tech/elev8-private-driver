@@ -5,7 +5,7 @@
      - la rubrique « Réservation » de l'accueil (et le mode passager du QR code) ;
      - la page dédiée /reservation (publicités Google Ads, Facebook Ads…).
    Estimation calculée par la fonction Netlify /estimation (grille ELEV8),
-   demande envoyée à /envoi-reservation (Brevo), sans paiement.
+   demande envoyée à /envoi-reservation (Brevo) ; paiement éventuel ensuite, sur la page Stripe.
    Tout le contenu provient de config.js.
    Préselection possible par le lien : /reservation?vehicule=tesla | classe-v
    et /reservation?prestation=<titre exact d'une prestation>.
@@ -286,8 +286,8 @@
     if (etat === "ok" || etat === "devis") {
       estRecap.hidden = false;
       estRecap.innerHTML = etat === "ok"
-        ? "Estimation : <strong>" + esc(montant) + "</strong> · tarif indicatif, aucun paiement à cette étape"
-        : "Tarif <strong>sur devis</strong> · demande gratuite, ELEV8 vous communique le tarif";
+        ? "Estimation : <strong>" + esc(montant) + "</strong> · aucun paiement à cette étape"
+        : "Tarif <strong>sur devis</strong> · demande sans engagement, ELEV8 vous communique le tarif";
     } else estRecap.hidden = true;
   }
   function estimate() {
@@ -536,6 +536,20 @@
     });
   });
 
+  /* Conditions générales de vente : liens affichés seulement si legal.cgv est renseigné dans config.js */
+  (function () {
+    var cgv = C.legal && typeof C.legal.cgv === "string" ? C.legal.cgv.trim() : "";
+    if (!/^(\/[^\s"'<>]*|https:\/\/[^\s"'<>]+)$/.test(cgv)) return;
+    $$("[data-cgv]").forEach(function (a) { a.href = cgv; a.hidden = false; });
+    $$('[data-html="reservation.noteConfidentialite"]').forEach(function (p) {
+      if (p.querySelector("[data-cgv-note]")) return;
+      var s = document.createElement("span"), a = document.createElement("a");
+      s.setAttribute("data-cgv-note", ""); a.href = cgv; a.textContent = "conditions générales de vente";
+      s.appendChild(document.createTextNode(" Le règlement du devis vaut acceptation de nos ")); s.appendChild(a); s.appendChild(document.createTextNode("."));
+      p.appendChild(s);
+    });
+  })();
+
   /* Paiement en ligne : bouton vers le lien individuel (le montant est fixé par le serveur, jamais ici) */
   function afficherPaiement(pay) {
     var ancien = document.getElementById("sentPayer");
@@ -551,10 +565,11 @@
     bloc.id = "sentPayer"; bloc.className = "sent__payer";
     var a = document.createElement("a");
     a.className = "btn btn--gold"; a.href = pay.url;
-    var sp = document.createElement("span"); sp.textContent = "Payer " + fmtEuro(pay.montant) + " en toute sécurité"; a.appendChild(sp);
+    var sp = document.createElement("span"); sp.textContent = "Accepter le devis et payer en ligne (" + fmtEuro(pay.montant) + ")"; a.appendChild(sp);
     a.addEventListener("click", function () { suivi("clic_paiement", { value: pay.montant, currency: "EUR" }); });
     var p = document.createElement("p");
-    p.textContent = (pay.email ? "Ce lien vous a aussi été envoyé par e-mail. " : "") +
+    p.textContent = (pay.email ? "Votre devis (PDF) et ce lien vous ont aussi été envoyés par e-mail. " : "") +
+      "Le paiement vaut acceptation du devis. " +
       "Dès réception de votre règlement, nous attribuons votre course à un chauffeur ; vous recevrez la confirmation par e-mail. Sans chauffeur disponible, vous seriez intégralement remboursé." +
       (pay.mode === "test" ? " (Paiement en mode test : aucune somme réelle n'est prélevée.)" : "");
     bloc.appendChild(a); bloc.appendChild(p);
