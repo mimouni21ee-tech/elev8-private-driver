@@ -281,17 +281,19 @@ window.SITE_CONFIG = {
                                              // "indy" : factures établies dans Indy (le site ne fait plus que les devis).
                                              // Une course = une seule facture, jamais dans les deux outils.
     penalitesRetard: "",                     // vide = « trois fois le taux d'intérêt légal »
-    registreVTC: "[Numéro d'inscription au registre des exploitants VTC]",
-    directeurPublication: "[Prénom Nom]",
+    registreVTC: "",                         // N° EVTC : la ligne apparaît dans les mentions légales et les CGV dès qu'il est renseigné
+    directeurPublication: "Enzo Mimouni",
     hebergeur: "Netlify, Inc. — 101 2nd Street, San Francisco, CA 94105, États-Unis",
     prestataireEnvoi: "Brevo (Sendinblue SAS) — 9-17 rue Salneuve, 75017 Paris, France",
     dureeDemandes: "12 mois après la date du trajet demandé, lorsque la demande n'a pas donné lieu à une prestation",
     dureeClients: "3 ans après la dernière prestation, pièces comptables conservées 10 ans",
     dureeEmpreintes: "24 heures, suppression automatique au plus tard une heure après",
-    messagerie: "[Ex. : Google Workspace, OVHcloud, Infomaniak…]",
-    cgv: "",                                 // Adresse des conditions générales de vente une fois publiées (ex. "/cgv.html").
+    messagerie: "Microsoft 365 (Outlook)",
+    cgv: "/cgv.html",                        // Adresse des conditions générales de vente.
                                              // Vide = aucun lien. Renseignée : lien dans le pied de page, sous le formulaire
                                              // et sur la page de paiement Stripe (« En procédant au paiement, vous acceptez… »).
-    dateMiseAJour: "11 octobre 2026"
+    mediateur: "",                           // Médiateur de la consommation (nom, adresse, site) : OBLIGATOIRE, à renseigner dès l'adhésion
+    assurance: "",                           // Assureur RC professionnelle, n° de contrat, couverture géographique : à renseigner
+    dateMiseAJour: "20 novembre 2026"
   }
 };

@@ -1341,8 +1341,9 @@ await t("archive de sauvegarde (ZIP) : PDF de chaque document émis, CSV, donné
   assert.equal(json.environnement, "TEST"); assert.equal(json.documents.length, attendus);
 });
 await t("CGV : aucun texte sur la page Stripe tant que legal.cgv est vide ; renseignée → mention « vous acceptez… nos conditions générales de vente » avec l'adresse complète", async () => {
-  const cfg = DEVIS.deps.config;
-  assert.equal(cfg.legal.cgv, "", "config.js livré sans adresse de CGV");
+  const cfg0 = DEVIS.deps.config, cfg = { ...cfg0, legal: { ...cfg0.legal, cgv: "" } };
+  assert.equal(cfg0.legal.cgv, "/cgv.html", "config.js : CGV publiées sur /cgv.html");
+  DEVIS.deps.config = cfg;
   const a = await envoyer({ date: "2026-12-22", heure: "09:00" });
   await ouvrir(a.j.paiement.url);
   assert.equal([...S.sessions.values()].pop().texteCgv, null);
@@ -1355,7 +1356,7 @@ await t("CGV : aucun texte sur la page Stripe tant que legal.cgv est vide ; rens
     const c = await envoyer({ date: "2026-12-22", heure: "11:00" });
     await ouvrir(c.j.paiement.url);
     assert.equal([...S.sessions.values()].pop().texteCgv, null, "adresse invalide ignorée");
-  } finally { DEVIS.deps.config = cfg; }
+  } finally { DEVIS.deps.config = cfg0; }
 });
 await t("textes du site : plus de « Demande gratuite, sans paiement » ; paiement sécurisé et confirmation du chauffeur annoncés", async () => {
   const { readFileSync } = await import("node:fs");
@@ -1366,8 +1367,24 @@ await t("textes du site : plus de « Demande gratuite, sans paiement » ; paieme
   for (const f of ["../public/index.html", "../public/reservation/index.html"]) {
     const h = readFileSync(new URL(f, import.meta.url), "utf8");
     assert.ok(!/Demande gratuite|sans paiement ni|gratuitement, sans paiement/.test(h), f);
-    assert.ok(/data-cgv hidden/.test(h), f + " : lien CGV masqué tant que l'adresse est vide");
+    assert.ok(/data-cgv hidden/.test(h), f + " : lien CGV affiché par le script seulement si l'adresse est renseignée");
   }
+});
+
+await t("pages légales : aucune information provisoire affichée ; lignes EVTC, assurance et médiateur masquées tant qu'elles sont vides", async () => {
+  const { readFileSync } = await import("node:fs");
+  const L = DEVIS.deps.config.legal;
+  assert.equal(L.directeurPublication, "Enzo Mimouni"); assert.equal(L.messagerie, "Microsoft 365 (Outlook)");
+  for (const [k, v] of Object.entries(L)) assert.ok(!/^\[.*\]$/.test(String(v)), "valeur provisoire dans legal." + k);
+  for (const f of ["../public/cgv.html", "../public/mentions-legales.html", "../public/confidentialite.html"]) {
+    const h = readFileSync(new URL(f, import.meta.url), "utf8");
+    assert.ok(!/\[(Prénom|Numéro|Ex\.|assureur|nom du médiateur)/i.test(h), f);
+    assert.match(h, /config\.js\?v=20261120j/);
+  }
+  const cgv = readFileSync(new URL("../public/cgv.html", import.meta.url), "utf8");
+  for (const x of ['data-if="legal.registreVTC"', 'data-if="legal.assurance"', 'data-if="legal.mediateur"', "25 % du prix, avec un minimum de 10 €", "au plus tard 3 heures avant", "sous-traitance", "L. 221-2"]) assert.ok(cgv.includes(x), x);
+  const conf = readFileSync(new URL("../public/confidentialite.html", import.meta.url), "utf8");
+  assert.ok(!conf.includes("les devis ne sont pas conservés") && !conf.includes("seul destinataire des demandes") && !conf.includes("par e-mail au chauffeur"));
 });
 
 console.log(`\n${ok} test(s) réussi(s)` + (process.exitCode ? " — ÉCHECS ci-dessus" : ""));
