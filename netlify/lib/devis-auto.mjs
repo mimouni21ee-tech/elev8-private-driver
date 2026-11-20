@@ -23,7 +23,7 @@ export const deps = { store: null, config: null };
 export function magasinDevis() { return deps.store || getStore({ name: nomMagasin("elev8-factures"), consistency: "strong" }); }
 
 function parseConfig(src) { const sandbox = {}; new Function("window", src)(sandbox); return sandbox.SITE_CONFIG; }
-async function chargerConfig(origine) {
+export async function chargerConfig(origine) {
   if (deps.config) return deps.config;
   const r = await fetch(`${origine}/config.js`, { headers: { "cache-control": "no-cache" } });
   if (!r.ok) throw new Error("config " + r.status);

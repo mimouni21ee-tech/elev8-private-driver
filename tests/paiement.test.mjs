@@ -11,7 +11,8 @@ const t = async (nom, f) => { try { await f(); ok++; console.log("✓ " + nom); 
 /* ---------- Environnement de test ---------- */
 const CLE = "sk_test_" + "x".repeat(24), SECRET = "whsec_" + "s".repeat(32);
 Object.assign(process.env, { PAIEMENT_STRIPE: "test", STRIPE_SECRET_KEY: CLE, STRIPE_WEBHOOK_SECRET: SECRET, DOCUMENTS_MOT_DE_PASSE: "mot-de-passe-de-test",
-  EMAIL_API_KEY: "cle-email", MAIL_TO: "contact@elev8privatedriver.com", MAIL_FROM: "reservations@example.test", GOOGLE_MAPS_API_KEY: "cle-google", EMAILS_TEST_AUTORISES: "claire@example.test" });
+  EMAIL_API_KEY: "cle-email", MAIL_TO: "contact@elev8privatedriver.com", MAIL_FROM: "reservations@example.test", GOOGLE_MAPS_API_KEY: "cle-google", EMAILS_TEST_AUTORISES: "claire@example.test",
+  FACTURATION_AUTOMATIQUE: "non" });          // étapes précédentes testées sans facturation automatique ; activée pour les tests de l'étape 2
 let NOW = Date.parse("2026-11-17T12:00:00Z");
 const horloge = () => NOW;
 
@@ -676,6 +677,157 @@ await t("site officiel : devis « D-… » sans mention de test ; site de test :
   ENV.retenirContexte({ deploy: { context: "production" } });
   assert.equal(ENV.estSiteDeTest(), false);                    // en production : numéros « D-… », sans mention
   ENV._reinitialiser();
+});
+
+/* ---------- Étape 2 : facture d'acompte de 100 % émise automatiquement au paiement confirmé ---------- */
+const FACT = await import("../netlify/lib/facturation.mjs");
+const factures = (ref) => [...docDeps.store.m.entries()].filter(([k, v]) => k.startsWith("facture/") && v.d.ref === ref && v.d.type === "acompte").map(([, v]) => v.d);
+async function reserverEtPayer(extra = {}) {
+  const { j } = await envoyer({ date: "2026-12-02", heure: "09:00", ...extra });
+  const sid = (await ouvrir(j.paiement.url)).loc.split("/").pop();
+  payerChezStripe(sid);
+  const e = await evenement("checkout.session.completed", { id: sid });
+  return { j, sid, e };
+}
+await t("paiement confirmé → UNE facture d'acompte TEST-F-AAAA-…, PDF joint au client, copie identique à ELEV8, rattachée au dossier", async () => {
+  process.env.FACTURATION_AUTOMATIQUE = "";
+  envoyes.length = 0;
+  const { j, e } = await reserverEtPayer({ societe: "Hôtel Exemple" });
+  assert.equal(e.j.resultat, "paye");
+  const F = factures(j.ref);
+  assert.equal(F.length, 1);
+  const f = F[0];
+  assert.match(f.numero, /^TEST-F-2026-\d{4}$/); assert.equal(f.test, true); assert.equal(f.type, "acompte");
+  const P = await dossier(j.ref);
+  assert.equal(P.factures.acompte, f.numero);
+  // Égalité exacte paiement = facture = devis
+  const dv = docDeps.store.m.get("devis/" + P.devis.numero).d;
+  assert.equal(f.acompte.montantCents, P.montantCents); assert.equal(dv.montantCents, P.montantCents); assert.equal(Math.round(f.montants.ttc * 100), P.montantCents);
+  assert.deepEqual(f.doc.supplements, dv.doc.supplements); assert.equal(f.doc.montant, dv.doc.montant);
+  assert.deepEqual([f.montants.ht, f.montants.tva, f.montants.ttc, f.montants.taux], [18.18, 1.82, 20, 10]);
+  assert.equal(f.acompte.reference, P.paymentIntent); assert.equal(f.acompte.mode, "carte bancaire via Stripe"); assert.equal(f.acompte.pourcentage, 100);
+  assert.equal(f.acompte.devis, P.devis.numero); assert.equal(f.acompte.dateEncaissement, "2026-11-17");
+  // E-mail au client avec le PDF, copie cachée identique à ELEV8
+  const m = envoyes.find((x) => /facture d'acompte/.test(x.subject));
+  assert.equal(m.to, "claire@example.test"); assert.equal(m.copie, "contact@elev8privatedriver.com");
+  assert.equal(m.subject, "[TEST] ELEV8 Private Driver — Votre facture d'acompte " + f.numero + " | " + j.ref);
+  assert.equal(m.pieces[0].nom, f.numero + ".pdf");
+  for (const x of ["acompte de 100 % reçu, reste à payer : 0,00 €", "carte bancaire via Stripe", "La facture finale vous sera adressée après la réalisation"]) assert.ok(m.text.includes(x), x);
+  // Contenu du PDF
+  const txt = textePdf(m.pieces[0].contenu);
+  for (const x of ["Facture d'acompte", f.numero, j.ref, "SASU au capital de 1 000", "SIRET 131 595 068 00019", "FR66131595068", "Hôtel Exemple", "Date prévue", "mercredi 2 décembre 2026",
+    "Transport de personnes avec chauffeur", "8,3 km", "Tesla Model Y", "Total HT", "18,18", "TVA 10 %", "1,82", "Total TTC", "20,00", "Acompte reçu (100 %)", "Reste à payer", "0,00",
+    "Acompte de 100 % reçu le 17 novembre 2026", "carte bancaire via Stripe", P.paymentIntent, "Montant déjà réglé : 20,00", "DOCUMENT DE TEST", "SANS VALEUR COMPTABLE", "Pas d'escompte"]) assert.ok(txt.includes(x), x);
+  assert.ok(!txt.includes("(VTC)"));
+  A.acompte = { ref: j.ref, numero: f.numero, sid: e.id, pdf: m.pieces[0].contenu };
+});
+await t("notifications Stripe répétées ou simultanées : toujours UNE seule facture d'acompte, facture jamais modifiée", async () => {
+  const ref = A.acompte.ref, avant = structuredClone(factures(ref)[0]);
+  const P = await dossier(ref);
+  const sid = (P.sessions || []).find((x) => x.statut === "complete").id;
+  envoyes.length = 0;
+  const corps = JSON.stringify({ id: A.acompte.sid, type: "checkout.session.completed", livemode: false, data: { object: { id: sid } } });
+  await webhook(new Request(ORIGINE + "/stripe-webhook", { method: "POST", headers: { "stripe-signature": signer(corps) }, body: corps }));
+  await evenement("checkout.session.completed", { id: sid });                // nouvel identifiant d'événement, même paiement
+  await evenement("checkout.session.async_payment_succeeded", { id: sid });
+  await Promise.all([FACT.facturerPaiement(PAI.magasin(), P, { now: NOW }), FACT.facturerPaiement(PAI.magasin(), P, { now: NOW })]);
+  await suivre(NOW);
+  assert.equal(factures(ref).length, 1);
+  assert.deepEqual(factures(ref)[0], avant, "facture inchangée");
+  assert.equal(envoyes.filter((x) => /facture d'acompte/.test(x.subject)).length, 0, "aucun second envoi");
+});
+await t("échec de l'e-mail : facture conservée, puis envoi relancé par la tâche horaire, une seule fois", async () => {
+  const envoiNormal = MAIL.deps.send;
+  let panne = true;
+  MAIL.deps.send = async (m) => { if (panne && /facture d'acompte/.test(m.subject)) throw new Error("provider:503"); envoyes.push(m); };
+  envoyes.length = 0;
+  const { j } = await reserverEtPayer();
+  const F = factures(j.ref);
+  assert.equal(F.length, 1, "facture émise malgré l'échec de l'e-mail");
+  let P = await dossier(j.ref);
+  assert.equal(P.factures.acompte, F[0].numero); assert.ok(!P.notifications.client_facture_acompte, "envoi non marqué");
+  assert.equal(FACT.acompteEnAttente(P), true);
+  await suivre(NOW);                                                        // le prestataire est toujours en panne
+  assert.equal(envoyes.filter((x) => /facture d'acompte/.test(x.subject)).length, 0);
+  panne = false;
+  await suivre(NOW); await suivre(NOW);
+  const recus = envoyes.filter((x) => /facture d'acompte/.test(x.subject) && x.subject.includes(j.ref));
+  assert.equal(recus.length, 1); assert.ok(recus[0].subject.includes(F[0].numero));
+  assert.equal(factures(j.ref).length, 1, "aucune nouvelle facture");
+  P = await dossier(j.ref); assert.equal(FACT.acompteEnAttente(P), false);
+  MAIL.deps.send = envoiNormal;
+});
+await t("paiement refusé, incomplet (différé) ou à vérifier : aucune facture", async () => {
+  // Différé puis refusé
+  const { j } = await envoyer({ date: "2026-12-03", heure: "09:00" });
+  const s1 = (await ouvrir(j.paiement.url)).loc.split("/").pop();
+  payerChezStripe(s1, { differe: true });
+  await evenement("checkout.session.completed", { id: s1 });
+  assert.equal((await dossier(j.ref)).statut, "en_cours"); assert.equal(factures(j.ref).length, 0);
+  await evenement("checkout.session.async_payment_failed", { id: s1 });
+  await suivre(NOW);
+  assert.equal(factures(j.ref).length, 0);
+  // Session ouverte mais jamais payée (retour navigateur seul)
+  const { j: j2 } = await envoyer({ date: "2026-12-03", heure: "10:00" });
+  await ouvrir(j2.paiement.url);
+  assert.equal(factures(j2.ref).length, 0);
+  // Montant payé différent : « à vérifier », jamais facturé
+  const { j: j3 } = await envoyer({ date: "2026-12-03", heure: "11:00" });
+  const s3 = (await ouvrir(j3.paiement.url)).loc.split("/").pop();
+  payerChezStripe(s3, { montant: 500 }); await evenement("checkout.session.completed", { id: s3 });
+  assert.equal((await dossier(j3.ref)).statut, "a_verifier"); await suivre(NOW);
+  assert.equal(factures(j3.ref).length, 0);
+});
+await t("téléchargement dans /documents : PDF enregistré identique à l'envoi, réservé à une session ELEV8", async () => {
+  const r = await admin({ action: "facture-acompte", ref: A.acompte.ref });
+  assert.equal(r.status, 200); assert.equal(r.j.numero, A.acompte.numero); assert.equal(r.j.fichier, A.acompte.numero + ".pdf");
+  assert.equal(Buffer.from(r.j.pdf, "base64").compare(Buffer.from(A.acompte.pdf)), 0);
+  const sans = await documents(post("/documents-api", { action: "facture-acompte", ref: A.acompte.ref }), { ip: "9.9.9.9" });
+  assert.equal(sans.status, 401);
+  assert.equal((await admin({ action: "facture-acompte", ref: "E8-261120-SANSLIEN" })).status, 404);
+  const chg = await admin({ action: "charger", ref: A.acompte.ref });
+  assert.equal(chg.j.paiement.factures.acompte, A.acompte.numero);
+});
+await t("pas de seconde facture manuelle pour une course déjà facturée en acompte", async () => {
+  docDeps.config = DEVIS.deps.config;
+  const r = await admin({ action: "facture", doc: { ref: A.acompte.ref, client: { nom: "Martin", adresse: "1 rue X" }, prestation: { depart: "A", destination: "B" }, montant: "20",
+    facture: { datePrestation: "2026-11-16", paye: true, datePaiement: "2026-11-17", modePaiement: "paiement en ligne Stripe" } } });
+  assert.equal(r.status, 409); assert.equal(r.j.code, "acompte_emis"); assert.ok(r.j.message.includes(A.acompte.numero));
+  docDeps.config = null;
+});
+await t("cas particulier avec supplément : HT/TVA calculés ligne à ligne, facture = devis = paiement", async () => {
+  envoyes.length = 0;
+  const { j } = await envoyer({ date: "2026-12-04", heure: "09:00", precisions: "Siège enfant" });
+  const r = await admin({ action: "paiement-lien", ref: j.ref, montant: 45.5, detail: { montant: "40", supplements: [{ libelle: "Siège enfant", montant: "5,50" }] } });
+  const sid = (await ouvrir(r.j.paiement.lien)).loc.split("/").pop();
+  payerChezStripe(sid); await evenement("checkout.session.completed", { id: sid });
+  const f = factures(j.ref)[0];
+  assert.deepEqual([f.montants.ht, f.montants.tva, f.montants.ttc], [41.36, 4.14, 45.5]);
+  assert.equal(f.acompte.montantCents, 4550);
+  const txt = textePdf(envoyes.find((x) => /facture d'acompte/.test(x.subject)).pieces[0].contenu);
+  assert.ok(txt.includes("Siège enfant") && txt.includes("41,36") && txt.includes("4,14") && txt.includes("45,50"));
+});
+await t("réglages : FACTURATION_AUTOMATIQUE=non ou facturation « indy » → aucune facture ; production : série F-AAAA continue, sans mention de test", async () => {
+  process.env.FACTURATION_AUTOMATIQUE = "non";
+  const { j } = await reserverEtPayer({ heure: "12:00" });
+  assert.equal(factures(j.ref).length, 0);
+  process.env.FACTURATION_AUTOMATIQUE = "";
+  const cfg = DEVIS.deps.config; DEVIS.deps.config = { ...cfg, legal: { ...cfg.legal, facturation: "indy" } };
+  const { j: j2 } = await reserverEtPayer({ heure: "13:00" });
+  assert.equal(factures(j2.ref).length, 0);
+  DEVIS.deps.config = cfg;
+  // Production : même compteur que les factures déjà émises (« compteur/AAAA »), jamais réinitialisé ni réutilisé
+  const { numeroSuivant } = await import("../netlify/lib/numerotation.mjs");
+  const avant = docDeps.store.m.get("compteur/2026").d.n;
+  ENV.retenirContexte({ deploy: { context: "production" } });
+  const n1 = await numeroSuivant(docDeps.store, "2026"), n2 = await numeroSuivant(docDeps.store, "2026");
+  ENV._reinitialiser();
+  assert.equal(n1, "F-2026-" + String(avant + 1).padStart(4, "0")); assert.equal(n2, "F-2026-" + String(avant + 2).padStart(4, "0"));
+  const L = await import("../netlify/lib/documents.mjs");
+  const rec = factures(A.acompte.ref)[0];
+  const prod = textePdf(await L.pdf("acompte", rec.doc, rec.emetteur, { numero: "F-2026-0099", dateEmission: rec.dateEmission, acompte: rec.acompte }));
+  assert.ok(!prod.includes("DOCUMENT DE TEST") && prod.includes("Facture d'acompte"));
+  process.env.FACTURATION_AUTOMATIQUE = "non";
 });
 
 console.log(`\n${ok} test(s) réussi(s)` + (process.exitCode ? " — ÉCHECS ci-dessus" : ""));

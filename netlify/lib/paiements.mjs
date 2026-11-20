@@ -163,5 +163,5 @@ export function resume(p) {
   return { lien: "/payer/" + p.jeton, montant: p.montantCents / 100, statut: p.statut, statutLibelle: LIBELLES[p.statut] || p.statut,
     etape: p.etape, etapeLibelle: LIBELLES[p.etape] || p.etape, valableJusqu: p.valableJusqu, priseEnCharge: p.priseEnCharge,
     payeLe: p.payeLe, paymentIntent: p.paymentIntent, rembourse: p.rembourseCents / 100, litige: !!p.litige, motifVerification: p.motifVerification || null,
-    chauffeur: p.chauffeur || null, huber: p.huber, devis: p.devis || null, historique: (p.historique || []).slice(-12), mode: "test" };
+    chauffeur: p.chauffeur || null, huber: p.huber, devis: p.devis || null, factures: p.factures || null, historique: (p.historique || []).slice(-12), mode: "test" };
 }

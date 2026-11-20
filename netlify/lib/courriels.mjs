@@ -122,6 +122,19 @@ export function mailDevis(D, p, lienAbsolu, devis) {
   };
 }
 
+/* 2 bis. Facture d'acompte (100 %) émise à la confirmation du paiement, PDF joint */
+export function mailFactureAcompte(D, rec) {
+  const a = rec.acompte, montant = euros(a.montantCents) + " TTC";
+  const dateEnc = new Date(a.dateEncaissement + "T12:00:00Z").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+  const blocs = ["Nous vous remercions pour votre règlement de " + montant + " (" + a.mode + ", le " + dateEnc + ").",
+    "Vous trouverez ci-joint votre facture d'acompte n° " + rec.numero + " : acompte de 100 % reçu, reste à payer : 0,00 €.",
+    "La facture finale vous sera adressée après la réalisation de votre course ; elle tiendra compte de cet acompte."];
+  const L = lignesTrajet(D);
+  return { subject: `${MARQUE} — Votre facture d'acompte ${rec.numero} | ${rec.ref}`,
+    text: texte(bonjourDe(D), [blocs.join("\n\n"), "Votre trajet\n\n" + L.map(([k, v]) => k + " : " + v).join("\n")]),
+    html: gabarit({ titre: "Votre facture d'acompte", intro: [bonjourDe(D), ...blocs], lignes: L, encadre: "Acompte de 100 % reçu : " + montant + " — reste à payer : 0,00 €" }) };
+}
+
 /* 2. Paiement confirmé par Stripe : la course est EN ATTENTE d'attribution (pas encore confirmée) */
 export function mailPaiementRecu(D, p) {
   const blocs = ["Nous avons bien reçu votre règlement de " + euros(p.montantCents) + " TTC pour la réservation " + D.ref + ". Merci.",

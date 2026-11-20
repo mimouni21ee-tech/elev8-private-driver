@@ -32,6 +32,8 @@ import { retenirContexte, estSiteDeTest, nomMagasin, destinataireTest, marquerTe
 import { magasin as magasinPaiements, parRef as paiementParRef, resume as resumePaiement } from "../lib/paiements.mjs";
 import { creerLienManuel, confirmerChauffeur, annulerEtRembourser } from "../lib/actions-paiement.mjs";
 import { magasinDevis, pdfDevis } from "../lib/devis-auto.mjs";
+import { pdfFacture } from "../lib/facturation.mjs";
+import { numeroSuivant } from "../lib/numerotation.mjs";
 
 export const config = {
   path: "/documents-api",
@@ -102,17 +104,7 @@ async function chargerConfig(origin) {
   return parseConfig(await r.text());
 }
 
-/* Numéro suivant, sans trou ni doublon (écriture conditionnelle) */
-async function numeroSuivant(st, annee) {
-  const cle = "compteur/" + annee;
-  for (let i = 0; i < 10; i++) {
-    const cur = await st.getWithMetadata(cle, { type: "json" });
-    const n = (cur && cur.data && Number.isInteger(cur.data.n) ? cur.data.n : 0) + 1;
-    const r = cur ? await st.setJSON(cle, { n }, { onlyIfMatch: cur.etag }) : await st.setJSON(cle, { n }, { onlyIfNew: true });
-    if (r && r.modified) return `F-${annee}-${String(n).padStart(4, "0")}`;
-  }
-  throw new Error("numérotation occupée");
-}
+/* Numéro suivant, sans trou ni doublon : netlify/lib/numerotation.mjs (série commune avec les factures automatiques) */
 
 const nomFichier = (type, numero) => (type === "facture" ? "Facture-" : "Devis-") + numero + ".pdf";
 
@@ -262,6 +254,21 @@ export default async (req, context) => {
   }
 
   /* ----- Paiement en ligne (Stripe, mode test) : lien après validation manuelle, chauffeur confirmé, annulation ----- */
+  /* Facture d'acompte émise automatiquement (document enregistré, accès réservé à ELEV8) */
+  if (b.action === "facture-acompte") {
+    const ref = String(b.ref || "").trim().toUpperCase();
+    try {
+      const l = /^E8-[A-Z0-9-]{3,30}$/.test(ref) ? await magasinDevis().get("acompte-ref/" + ref, { type: "json" }) : null;
+      const rec = l && l.numero ? await magasinDevis().get("facture/" + l.numero, { type: "json" }) : null;
+      if (!rec) return json(404, { ok: false, code: "facture", message: "Aucune facture d'acompte pour cette référence." });
+      const bytes = await pdfFacture(rec);
+      return json(200, { ok: true, numero: rec.numero, fichier: rec.numero + ".pdf", pdf: Buffer.from(bytes).toString("base64") });
+    } catch (e) {
+      console.error("Facture d'acompte :", String(e && e.message).slice(0, 60));
+      return json(502, { ok: false, code: "facture", message: "Lecture de la facture impossible pour le moment." });
+    }
+  }
+
   /* Devis tel qu'il a été envoyé au client (document figé) */
   if (b.action === "devis-envoye") {
     const ref = String(b.ref || "").trim().toUpperCase();
@@ -314,6 +321,12 @@ export default async (req, context) => {
     message: "Informations légales d'ELEV8 à compléter dans public/config.js (rubrique legal) : " + manque.join(" ; ") + "." });
 
   const type = action === "envoyer" ? (b.type === "facture" ? "facture" : "devis") : action;
+  // Une facture d'acompte automatique existe déjà : pas de seconde facture manuelle pour la même course
+  if (type === "facture" && action === "facture") {
+    const refF = String((b.doc && b.doc.ref) || "").trim().toUpperCase();
+    const ac = /^E8-[A-Z0-9-]{3,30}$/.test(refF) ? await store().get("acompte-ref/" + refF, { type: "json" }).catch(() => null) : null;
+    if (ac && ac.numero) return json(409, { ok: false, code: "acompte_emis", message: "Une facture d'acompte (" + ac.numero + ") a déjà été émise automatiquement pour cette réservation. La facture finale sera établie après « Course réalisée » (prochaine étape) : aucune autre facture n'est créée ici." });
+  }
   if (type === "facture" && estSiteDeTest()) {
     // Site de test : aucune facture émise, mais les contrôles de cohérence avec le paiement Stripe sont effectués
     if (action === "facture") { const k = await coherenceStripe(nettoyer(b.doc), E); if (k.erreur) return json(k.erreur[0], { ok: false, code: k.erreur[1], message: k.erreur[2] }); }

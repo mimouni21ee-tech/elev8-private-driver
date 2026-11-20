@@ -206,7 +206,8 @@ const NOIR = rgb(0.043, 0.039, 0.035), OR = rgb(0.737, 0.655, 0.514), OR_FONCE =
 
 export async function pdf(type, doc, e, meta = {}) {
   const P = await PDFDocument.create();
-  P.setTitle((type === "facture" ? "Facture " + meta.numero : "Devis " + meta.numero) + " — ELEV8 Private Driver");
+  const estFacture = type === "facture" || type === "acompte";       // « acompte » : facture d'acompte (paiement anticipé)
+  P.setTitle((type === "facture" ? "Facture " : type === "acompte" ? "Facture d'acompte " : "Devis ") + meta.numero + " — ELEV8 Private Driver");
   P.setAuthor(e.nom || "ELEV8 Private Driver"); P.setCreator("ELEV8 Private Driver"); P.setProducer("ELEV8 Private Driver");
   const horodatage = new Date(meta.horodatage || Date.now());
   P.setCreationDate(horodatage); P.setModificationDate(horodatage);   // facture redemandée : fichier identique à l'octet près
@@ -248,20 +249,20 @@ export async function pdf(type, doc, e, meta = {}) {
   /* En-tête noir et or */
   // Un devis lié à un paiement en ligne (lien envoyé, payé ou remboursé) n'est jamais « provisoire » : le montant est fixé
   const provisoire = type === "devis" && !doc.devis.valide && !(meta.reglement && meta.reglement.etat);
-  const titre = type === "facture" ? "Facture" : provisoire ? "Devis provisoire" : "Devis";
+  const titre = type === "facture" ? "Facture" : type === "acompte" ? "Facture d'acompte" : provisoire ? "Devis provisoire" : "Devis";
   page.drawRectangle({ x: 0, y: H - 118, width: W, height: 118, color: NOIR });
   page.drawRectangle({ x: 0, y: H - 120, width: W, height: 2, color: OR });
   txt("ELEV8", M, H - 64, { font: F.t, size: 30, color: OR, cs: 5 });
   txt("PRIVATE DRIVER", M + 1, H - 82, { size: 7.2, color: rgb(0.85, 0.80, 0.70), cs: 3.2 });
   const tW = largeur(titre, F.ti, 24);
   txt(titre, W - M - tW, H - 60, { font: F.ti, size: 24, color: IVOIRE });
-  const sous = (type === "facture" ? "N° " : "Réf. ") + meta.numero + "  ·  " + dateFr(meta.dateEmission);
+  const sous = (estFacture ? "N° " : "Réf. ") + meta.numero + "  ·  " + dateFr(meta.dateEmission);
   txt(sous, W - M - largeur(sous, F.r, 8.5), H - 82, { size: 8.5, color: rgb(0.85, 0.80, 0.70) });
   y = H - 150;
 
   /* Émetteur / client */
   const col2 = W / 2 + 10, cw = W / 2 - M - 20;
-  etiquette("Émetteur", M, y); etiquette(type === "facture" ? "Facturé à" : "Client", col2, y);
+  etiquette("Émetteur", M, y); etiquette(estFacture ? "Facturé à" : "Client", col2, y);
   y -= 16;
   const yDebut = y;
   const identite = e.nom + (e.forme ? ", " + e.forme : "") + (e.capital && !vide(e.capital) ? " au capital de " + e.capital : "");
@@ -288,7 +289,8 @@ export async function pdf(type, doc, e, meta = {}) {
 
   /* Bandeau d'état */
   const TD = type === "devis" ? textesDevis(doc, e, meta, montants(doc.montant, e, doc.supplements).ttc) : null;
-  if (provisoire || type === "devis") {
+  const AC = type === "acompte" ? meta.acompte : null;
+  if (provisoire || type === "devis") {               // facture d'acompte : « Acompte de 100 % reçu » figure dans les totaux et la rubrique Paiement
     const msg = provisoire
       ? "DEVIS PROVISOIRE — Tarif indicatif, sous réserve de validation de la disponibilité et des conditions du trajet par ELEV8 Private Driver. Aucun paiement n'est demandé à cette étape."
       : TD.bandeau;
@@ -304,7 +306,7 @@ export async function pdf(type, doc, e, meta = {}) {
   etiquette("Prestation", M, y); y -= 6; filet(y); y -= 15;
   const quand = (d, h) => [dateFr(d, true), h ? "à " + h.replace(":", "h") : ""].filter(Boolean).join(" ");
   const lignesP = [
-    ["Date", type === "facture" ? dateFr(doc.facture.datePrestation, true) + (p.heure && doc.facture.datePrestation === p.date ? " à " + p.heure.replace(":", "h") : "") : quand(p.date, p.heure)],
+    type === "acompte" ? ["Date prévue", quand(p.date, p.heure)] : ["Date", type === "facture" ? dateFr(doc.facture.datePrestation, true) + (p.heure && doc.facture.datePrestation === p.date ? " à " + p.heure.replace(":", "h") : "") : quand(p.date, p.heure)],
     ["Départ", p.depart], ["Destination", p.destination],
     ...(p.allerRetour ? [["Retour", quand(p.dateRetour, p.heureRetour) || "Aller-retour"]] : []),
     ["Véhicule", p.vehicule],
@@ -361,11 +363,25 @@ export async function pdf(type, doc, e, meta = {}) {
     page.drawRectangle({ x: W - M - 240, y: y - 6, width: 240, height: 20, color: FOND_DOUX });
     total("Total TTC", euros(mt.ttc), true);
   }
+  if (AC) {                                                                // acompte de 100 % : déjà réglé, reste 0
+    total("Acompte reçu (100 %)", "- " + euros(AC.montantCents / 100));
+    total("Reste à payer", euros(0), true);
+  }
   if (mt.franchise) { txt("TVA non applicable, art. 293 B du CGI", W - M - 230, y, { size: 8, font: F.ti, color: GRIS }); y -= 14; }
   y -= 10;
 
   /* Paiement / validation */
-  if (type === "facture") {
+  if (AC) {
+    besoin(60); etiquette("Paiement", M, y); y -= 6; filet(y); y -= 15;
+    bloc("Acompte de 100 % reçu le " + dateFr(AC.dateEncaissement) + " — règlement par " + AC.mode + " (référence du paiement : " + AC.reference + ").", M, W - 2 * M, { font: F.b });
+    bloc("Montant déjà réglé : " + euros(AC.montantCents / 100) + " TTC. Reste à payer : 0,00 €.", M, W - 2 * M);
+    y -= 4;
+    const mentions = [
+      "Facture d'acompte émise à la réception du paiement, avant la prestation" + (AC.devis ? " (devis accepté : " + AC.devis + ")" : "") + ". Date prévue de la prestation : " + dateFr(doc.prestation.date) + ".",
+      "Prestation de services. La facture finale sera établie après la réalisation de la course ; elle déduira cet acompte. Pas d'escompte pour paiement anticipé."
+    ];
+    for (const x of mentions) bloc(x, M, W - 2 * M, { size: 7.8, color: GRIS, lh: 11 });
+  } else if (type === "facture") {
     besoin(60); etiquette("Paiement", M, y); y -= 6; filet(y); y -= 15;
     const fa = doc.facture;
     if (fa.paye) bloc("Facture acquittée le " + dateFr(fa.datePaiement) + " — règlement par " + fa.modePaiement + (fa.referencePaiement ? " (référence : " + fa.referencePaiement + ")" : "") + ".", M, W - 2 * M, { font: F.b });
@@ -409,12 +425,12 @@ export async function pdf(type, doc, e, meta = {}) {
   /* Site de test : chaque page porte « DOCUMENT DE TEST — SANS VALEUR COMPTABLE » (bandeau + filigrane) */
   if (meta.test) {
     const ROUGE = rgb(0.70, 0.15, 0.12), mention = "DOCUMENT DE TEST — SANS VALEUR COMPTABLE";
-    for (const pg of P.getPages()) {
-      const lw = F.b.widthOfTextAtSize(w(mention), 9);
-      pg.drawRectangle({ x: 0, y: H - 138, width: W, height: 18, color: ROUGE });
-      pg.drawText(w(mention), { x: (W - lw) / 2, y: H - 132, size: 9, font: F.b, color: rgb(1, 1, 1), characterSpacing: 0.6 });
+    P.getPages().forEach((pg, i) => {
+      const lw = F.b.widthOfTextAtSize(w(mention), 9), yb = i === 0 ? H - 138 : H - 18;   // page 1 : sous l'en-tête ; suivantes : tout en haut
+      pg.drawRectangle({ x: 0, y: yb, width: W, height: 18, color: ROUGE });
+      pg.drawText(w(mention), { x: (W - lw) / 2, y: yb + 6, size: 9, font: F.b, color: rgb(1, 1, 1), characterSpacing: 0.6 });
       pg.drawText(w(mention), { x: 62, y: 170, size: 23, font: F.b, color: ROUGE, opacity: 0.12, rotate: degrees(38) });
-    }
+    });
   }
   return await P.save();
 }

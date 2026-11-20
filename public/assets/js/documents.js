@@ -382,6 +382,7 @@
     if (P.statut === "en_attente") d.push("Valable jusqu'au " + dateHeure(P.valableJusqu));
     if (P.devis) d.push("Devis " + P.devis.numero + " envoyé le " + dateHeure(P.devis.le));
     if (P.payeLe) d.push("Payé le " + dateHeure(P.payeLe));
+    if (P.factures && P.factures.acompte) d.push("Facture d'acompte " + P.factures.acompte + " émise (100 %, reste à payer 0,00 €)");
     if (P.rembourse > 0) d.push("Remboursé : " + fmt(P.rembourse));
     if (P.motifVerification) d.push("À vérifier : " + P.motifVerification);
     if (P.chauffeur) d.push("Chauffeur : " + P.chauffeur.prenom + " · " + P.chauffeur.vehicule + (P.chauffeur.plaque ? " · " + P.chauffeur.plaque : ""));
@@ -389,6 +390,7 @@
     $("#pDetail").textContent = d.join(" · ");
     $("#pChauffeur").hidden = !(P.statut === "paye" && P.etape === "payee_attente_attribution");
     $("#btnDevisEnvoye").hidden = !P.devis;
+    $("#btnFactureAcompte").hidden = !(P.factures && P.factures.acompte);
     var annulable = ["attente_paiement", "payee_attente_attribution", "chauffeur_confirme"].indexOf(P.etape) >= 0 && ["en_attente", "expire", "paye", "a_verifier", "rembourse_partiel"].indexOf(P.statut) >= 0;
     $("#pAnnuler").hidden = !annulable;
     $("#btnSansChauffeur").hidden = ["paye", "a_verifier", "rembourse_partiel"].indexOf(P.statut) < 0;
@@ -477,18 +479,20 @@
   }
   $("#btnIndispo").addEventListener("click", function () { annuler("indisponible"); });
   /* Devis tel qu'il a été envoyé au client (document figé, relu sur le serveur) */
-  $("#btnDevisEnvoye").addEventListener("click", function () {
+  function telechargerEnregistre(action, libelle) {
     if (!demandeChargee || !demandeChargee.ref) return;
-    $("#pMsg").textContent = "Préparation du devis envoyé…";
-    appel({ action: "devis-envoye", ref: demandeChargee.ref }).then(function (j) {
-      if (!j.ok || !j.pdf) { $("#pMsg").textContent = j.message || "Devis introuvable."; return; }
+    $("#pMsg").textContent = "Préparation : " + libelle + "…";
+    appel({ action: action, ref: demandeChargee.ref }).then(function (j) {
+      if (!j.ok || !j.pdf) { $("#pMsg").textContent = j.message || "Document introuvable."; return; }
       var bin = atob(j.pdf), bytes = new Uint8Array(bin.length);
       for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
       var a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" })); a.download = j.fichier;
       document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
-      $("#pMsg").textContent = "Devis " + j.numero + " téléchargé.";
+      $("#pMsg").textContent = j.numero + " téléchargé.";
     });
-  });
+  }
+  $("#btnDevisEnvoye").addEventListener("click", function () { telechargerEnregistre("devis-envoye", "devis envoyé"); });
+  $("#btnFactureAcompte").addEventListener("click", function () { telechargerEnregistre("facture-acompte", "facture d'acompte"); });
   $("#btnSansChauffeur").addEventListener("click", function () { annuler("sans_chauffeur"); });
 
   function infos() {

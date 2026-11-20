@@ -13,9 +13,10 @@ import { magasin, modifier, REGLES, deps as P } from "../lib/paiements.mjs";
 import { alerteElev8 } from "../lib/courriels.mjs";
 import { envoyerUneFois, demandeDe, lienDocuments } from "../lib/notifications.mjs";
 import { annulerEtRembourser } from "../lib/actions-paiement.mjs";
+import { acompteEnAttente, facturerPaiement } from "../lib/facturation.mjs";
 
 export async function suivre(now = P.now()) {
-  const st = magasin(), bilan = { expires: 0, alertes: 0, rembourses: 0 };
+  const st = magasin(), bilan = { expires: 0, alertes: 0, rembourses: 0, factures: 0 };
   const { blobs } = await st.list({ prefix: "paiement/" });
   for (const b of blobs) {
     const p = await st.get(b.key, { type: "json" });
@@ -26,6 +27,11 @@ export async function suivre(now = P.now()) {
       const r = await modifier(st, p.jeton, (x) => (x.statut === "en_attente" ? { ...x, statut: "expire", sessionActive: null, historique: (x.historique || []).concat([{ le: new Date(now).toISOString(), quoi: "lien expiré (date limite)" }]) } : null));
       if (r.change) bilan.expires++;
       continue;
+    }
+    // Facture d'acompte non émise ou e-mail non parti (échec passager) : nouvelle tentative, sans doublon
+    if (acompteEnAttente(p)) {
+      try { const f = await facturerPaiement(st, p, { now }); if (f && f.numero) bilan.factures++; }
+      catch (e) { console.error("Facture d'acompte (relance) :", String(e && e.message).slice(0, 60)); }
     }
     if (p.statut === "paye" && p.etape === "payee_attente_attribution" && avant > -1) {
       for (const seuil of REGLES.alertesH) {
@@ -45,7 +51,7 @@ export async function suivre(now = P.now()) {
 export default async (req, context) => {
   retenirContexte(context);
   if (!stripeActif()) return;
-  try { const b = await suivre(); console.log(`Suivi des paiements : ${b.expires} lien(s) expiré(s), ${b.alertes} alerte(s), ${b.rembourses} remboursement(s) automatique(s)`); }
+  try { const b = await suivre(); console.log(`Suivi des paiements : ${b.expires} lien(s) expiré(s), ${b.alertes} alerte(s), ${b.rembourses} remboursement(s) automatique(s), ${b.factures} facture(s) d'acompte traitée(s)`); }
   catch (e) { console.error("Suivi des paiements impossible :", String(e && e.message).slice(0, 80)); }
 };
 export const config = { schedule: "@hourly" };

@@ -20,6 +20,7 @@ import { retenirContexte } from "../lib/environnement.mjs";
 import { magasin, parCle, lire, modifier, appliquerSession, appliquerEchecDiffere, appliquerCharge, deps as P } from "../lib/paiements.mjs";
 import { mailPaiementRecu, alerteElev8 } from "../lib/courriels.mjs";
 import { envoyerUneFois, demandeDe, lienDocuments } from "../lib/notifications.mjs";
+import { facturerPaiement } from "../lib/facturation.mjs";
 
 export const config = { path: "/stripe-webhook" };
 const rep = (status, body) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -76,6 +77,9 @@ async function traiter(st, ev, now) {
       if (D && D.client && D.client.email) await envoyerUneFois(st, n, "client_paiement_recu", mailPaiementRecu(D, n), D.client.email, now);
       await envoyerUneFois(st, n, "elev8_paiement_recu", alerteElev8(D, n, "Paiement reçu — course à attribuer",
         ["Le paiement est confirmé par Stripe.", "Statut : Payée — en attente d'attribution.", "HUBER : transmission automatique dès que son API sera disponible ; d'ici là, confirmez le chauffeur dans /documents."], lienDocuments(n)), "elev8", now);
+      // Facture d'acompte (100 %) : isolée, elle ne peut pas faire échouer la confirmation du paiement ; reprise par la tâche horaire
+      try { await facturerPaiement(st, n, { now }); }
+      catch (e) { console.error("Facture d'acompte différée :", String(e && e.message).slice(0, 60)); }
       return "paye";
     }
     if (n.statut === "a_verifier" && r.change)
