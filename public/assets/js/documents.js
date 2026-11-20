@@ -145,6 +145,8 @@
       }
       $("#sourceMsg").classList.remove("docs__msg--erreur");
       remplir(j.demande, j.facture);
+      modeStripe = j.modeStripe || modeStripe;
+      if (typeof j.facturationAutomatique === "boolean") factAuto = j.facturationAutomatique;
       afficherPaiement(j.paiement, j.paiementEnLigne);
       preremplirFactureStripe(j.paiement);
       $("#d-reglement").value = "auto";                                       // règlement du devis : selon la réservation
@@ -365,15 +367,16 @@
   $$("[data-sup] input").forEach(function (i) { i.addEventListener("input", majValidation); });
   majValidation();
 
-  /* ---------- Paiement en ligne (Stripe, mode test) ----------
+  /* ---------- Paiement en ligne (Stripe : mode test hors production, live en production) ----------
      L'état affiché vient du serveur, lui-même informé UNIQUEMENT par les notifications signées de Stripe.
      Aucune course n'est « attribuée » sans confirmation effective d'un chauffeur. */
-  var paiementEnLigne = false, paiementCourant = null;
+  var paiementEnLigne = false, paiementCourant = null, modeStripe = null, factAuto = true;
   function dateHeure(iso) { return iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "long", timeStyle: "short" }) : ""; }
   function afficherPaiement(P, actif) {
     paiementEnLigne = !!actif; paiementCourant = P || null;
     var bloc = $("#paiementBloc");
     bloc.hidden = !paiementEnLigne;
+    $("#pModeTest").hidden = (P && P.mode ? P.mode : modeStripe) === "live";      // étiquette « mode test » absente en production
     $("#pMsg").textContent = "";
     if (!paiementEnLigne) { majValidation(); return; }
     if (!P) {
@@ -401,6 +404,9 @@
     // « Course réalisée » : paiement confirmé, chauffeur confirmé, ni annulée ni remboursée intégralement
     var realisable = P.etape === "chauffeur_confirme" && ["paye", "rembourse_partiel"].indexOf(P.statut) >= 0;
     $("#pRealisation").hidden = !realisable;
+    $("#rAide").textContent = factAuto
+      ? "Validation par ELEV8 uniquement (jamais automatique à l'heure prévue). Elle déclenche la facture finale, acompte déduit, envoyée au client avec copie à ELEV8."
+      : "Validation par ELEV8 uniquement (jamais automatique à l'heure prévue). Facturation automatique désactivée : établissez ensuite la facture dans la rubrique « Facture » (mode « Paiement en ligne Stripe », prérempli).";
     // Proposition : la prise en charge enregistrée (le serveur contrôle la fenêtre de réalisation)
     if (realisable && P.priseEnCharge) $("#r-le").value = localParis(P.priseEnCharge);
     $("#pModifDate").hidden = !(["paye", "rembourse_partiel"].indexOf(P.statut) >= 0 && ["payee_attente_attribution", "chauffeur_confirme"].indexOf(P.etape) >= 0);
@@ -554,6 +560,7 @@
       if (j.code === "acces") { oublierSession(); verrouiller(j.message); return; }
       if (!j.ok) { $("#tMsg").textContent = j.message || "Lecture impossible."; return; }
       $("#tModeTest").hidden = !j.test;
+      if (typeof j.facturationAutomatique === "boolean") factAuto = j.facturationAutomatique;
       $("#tMsg").textContent = j.total ? j.total + " réservation" + (j.total > 1 ? "s" : "") : "Aucune réservation pour ces critères.";
       $("#tListe").innerHTML = j.lignes.map(function (l) {
         var cls = l.statut === "paye" ? "ok" : l.statut === "rembourse" || l.statut === "rembourse_partiel" ? "alerte" : ["annule", "expire", "remplace"].indexOf(l.statut) >= 0 ? "neutre" : "";
@@ -561,9 +568,10 @@
         l.devis.forEach(function (d) { docs.push("Devis " + d.numero); });
         if (l.acompte) docs.push("Acompte " + l.acompte);
         if (l.finale) docs.push("Finale " + l.finale);
+        if (l.factureManuelle) docs.push("Facture " + l.factureManuelle);
         l.avoirs.forEach(function (a) { docs.push("Avoir " + a.numero + (a.montant != null ? " (" + fmt(a.montant) + ")" : "")); });
         return '<article class="docs__ligne" data-ref="' + esc(l.ref) + '">' +
-          '<div class="docs__ligne-tete"><strong>' + esc(l.ref) + "</strong> " + esc(l.client) + '<span class="docs__badges">' + badge(l.paiement, cls) + badge(l.etapeLibelle) + (l.litige ? badge("Litige", "alerte") : "") + "</span></div>" +
+          '<div class="docs__ligne-tete"><strong>' + esc(l.ref) + "</strong> " + esc(l.client) + '<span class="docs__badges">' + badge(l.paiement, cls) + badge(l.etapeLibelle) + (l.litige ? badge("Litige", "alerte") : "") + (l.aFacturer ? badge("Facture à établir", "alerte") : "") + "</span></div>" +
           '<div class="docs__ligne-trajet">' + esc(l.priseEnCharge ? dateHeure(l.priseEnCharge) : "") + " · " + esc(l.trajet) + (l.chauffeur ? " · chauffeur : " + esc(l.chauffeur) : "") + "</div>" +
           '<dl class="docs__montants"><div><dt>Prix TTC</dt><dd>' + fmt(l.prixTTC) + "</dd></div><div><dt>Encaissé</dt><dd>" + fmt(l.encaisse) + "</dd></div><div><dt>Remboursé</dt><dd>" + fmt(l.rembourse) + "</dd></div><div><dt>Solde</dt><dd>" + fmt(l.solde) + "</dd></div></dl>" +
           '<div class="docs__ligne-docs">' + (docs.length ? esc(docs.join(" · ")) : "Aucun document") + '</div>' +
@@ -584,26 +592,31 @@
     if (r && r.then) r.then(function () { var el = $("#paiementBloc"); if (!el.hidden) el.scrollIntoView({ block: "start" }); });
   });
   /* Export comptable (CSV) : lecture seule, aucun montant modifié */
-  $("#btnExport").addEventListener("click", function () {
+  function exporter(action, quoi) {
     var du = v("#x-du"), au = v("#x-au");
     if (!du || !au) { $("#xMsg").textContent = "Indiquez la date de début et la date de fin."; return; }
     $("#xMsg").textContent = "Préparation de l'export…";
-    appel({ action: "export-comptable", du: du, au: au }).then(function (j) {
+    appel({ action: action, du: du, au: au }).then(function (j) {
       if (!j.ok) { $("#xMsg").textContent = j.message || "Export impossible."; return; }
-      var bin = atob(j.csv), bytes = new Uint8Array(bin.length);
+      var bin = atob(j.zip || j.csv), bytes = new Uint8Array(bin.length);
       for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      var a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([bytes], { type: "text/csv;charset=utf-8" })); a.download = j.fichier;
+      var a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([bytes], { type: j.zip ? "application/zip" : "text/csv;charset=utf-8" })); a.download = j.fichier;
       document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
-      $("#xMsg").textContent = j.documents + " document" + (j.documents > 1 ? "s" : "") + " exporté" + (j.documents > 1 ? "s" : "") + " (" + j.fichier + ").";
+      $("#xMsg").textContent = j.documents + " " + quoi + (j.documents > 1 ? "s" : "") + " exporté" + (j.documents > 1 ? "s" : "") + " (" + j.fichier + ").";
     });
-  });
+  }
+  $("#btnExport").addEventListener("click", function () { exporter("export-comptable", "document"); });
+  $("#btnExportEnc").addEventListener("click", function () { exporter("export-encaissements", "opération"); });
+  $("#btnArchive").addEventListener("click", function () { exporter("archive", "document"); });
   var realisationEnCours = false;
   $("#btnRealisee").addEventListener("click", function () {
     if (realisationEnCours || !demandeChargee || !demandeChargee.ref) return;          // double clic ignoré (le serveur refuse aussi)
     var le = v("#r-le");
-    if (!confirm("Confirmer que la course " + demandeChargee.ref + " a été réalisée" + (le ? " le " + le.replace("T", " à ") : "") + " ? La facture finale sera émise et envoyée au client. Cette action est définitive.")) return;
+    if (!confirm("Confirmer que la course " + demandeChargee.ref + " a été réalisée" + (le ? " le " + le.replace("T", " à ") : "") + " ? " +
+      (factAuto ? "La facture finale sera émise et envoyée au client." : "La facturation automatique est désactivée : vous établirez ensuite la facture manuellement.") + " Cette action est définitive.")) return;
     realisationEnCours = true; $("#btnRealisee").disabled = true;
     actionPaiement({ action: "course-realisee", realiseeLe: le }, function (j) {
+      if (j.facture && j.facture.ignore === "desactivee") return "Course réalisée. Facturation automatique désactivée : établissez maintenant la facture dans la rubrique « Facture » ci-dessous (paiement Stripe prérempli).";
       return j.facture && j.facture.numero ? "Course réalisée : facture finale " + j.facture.numero + (j.facture.envoye ? " envoyée au client (copie ELEV8)." : " émise (envoi relancé automatiquement).")
         : "Course réalisée. Facture finale en cours (relance automatique).";
     }).then(function () { realisationEnCours = false; $("#btnRealisee").disabled = false; });

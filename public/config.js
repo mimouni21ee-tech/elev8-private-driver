@@ -81,7 +81,7 @@ window.SITE_CONFIG = {
     zones: ["Genève", "Stations de ski", "Côte d'Azur", "Dijon & Bourgogne"],
     lienDecouvrir: "Voir véhicules & prestations",
     lienSiteComplet: "Découvrir le site complet",
-    introReservation: "Indiquez votre trajet : estimation immédiate, demande gratuite. Votre chauffeur vous confirme la disponibilité et le tarif."
+    introReservation: "Indiquez votre trajet : estimation immédiate et demande sans engagement. Vous recevez votre devis, à régler en ligne de façon sécurisée, puis la confirmation de votre chauffeur."
   },
 
   /* ---------- 2. Flotte ---------- */
@@ -161,12 +161,12 @@ window.SITE_CONFIG = {
   reservation: {
     surtitre: "Réservation",
     titre: "Demander une réservation",
-    intro: "Obtenez une estimation immédiate, puis envoyez votre demande gratuitement : ELEV8 vérifie la disponibilité et vous confirme le tarif. Aucun paiement, aucun compte à créer.",
+    intro: "Obtenez une estimation immédiate, puis envoyez votre demande, sans engagement ni compte à créer. Vous recevez votre devis, à régler en ligne par paiement sécurisé ; ELEV8 attribue ensuite votre course à un chauffeur et vous la confirme.",
     waTexte: "Écrire directement, sans formulaire",
     ouTexte: "ou estimez votre trajet et envoyez votre demande",
     // Message prérempli du contact WhatsApp direct (boutons « Contacter via WhatsApp »)
     messageWhatsAppDirect: "Bonjour ELEV8, je souhaite des renseignements pour un trajet.",
-    boutonEnvoyer: "Demander ma réservation",      // Bouton principal : demande gratuite, sans paiement
+    boutonEnvoyer: "Demander ma réservation",      // Bouton principal : envoi de la demande, sans paiement à cette étape
     boutonAppeler: "Appeler ELEV8",
     sousTitreAppeler: "Pour une demande urgente.",       // petit texte sous « Appeler ELEV8 », dans le bouton
     sousTitreWhatsApp: "Pour échanger directement.",     // petit texte sous « WhatsApp », dans le bouton
@@ -175,23 +175,23 @@ window.SITE_CONFIG = {
     /* Estimation affichée dans le formulaire (calculée par le serveur, jamais modifiable par le client) */
     estimation: {
       titre: "Estimation de votre trajet",
-      mention: "Tarif indicatif, sous réserve de validation de la disponibilité et des conditions du trajet par ELEV8 Private Driver. Aucun paiement n'est demandé à cette étape.",
+      mention: "Tarif calculé selon notre grille, repris dans votre devis. L'envoi de la demande est sans engagement : aucun paiement n'est prélevé à cette étape. Votre réservation devient définitive lorsqu'un chauffeur vous est confirmé.",
       attente: "Renseignez le départ, la destination, la date et l'heure pour obtenir une estimation immédiate.",
       calcul: "Calcul de votre estimation…",
       surDevis: "Sur devis",
-      horsZone: "L'estimation automatique couvre Dijon, la Côte de Nuits, Beaune et leurs environs (50 km autour de Dijon). Envoyez votre demande gratuitement : ELEV8 vous communique le tarif de ce trajet avant toute confirmation.",
-      miseADisposition: "Mise à disposition : le tarif dépend de la durée et du programme. Envoyez votre demande gratuitement : ELEV8 vous communique le tarif avant toute confirmation.",
+      horsZone: "L'estimation automatique couvre Dijon, la Côte de Nuits, Beaune et leurs environs (50 km autour de Dijon). Envoyez votre demande sans engagement : ELEV8 vous communique le tarif de ce trajet avant toute confirmation.",
+      miseADisposition: "Mise à disposition : le tarif dépend de la durée et du programme. Envoyez votre demande sans engagement : ELEV8 vous communique le tarif avant toute confirmation.",
       aideInfos: "Une demande particulière peut modifier le tarif : ELEV8 vous confirme le montant final avant toute réservation."
     },
     /* Message affiché après l'envoi (jamais « réservation confirmée » : seule ELEV8 confirme) */
     envoi: {
       titre: "Votre demande a bien été envoyée !",
-      texte: "Merci d'avoir choisi ELEV8 Private Driver. Nous avons bien reçu votre demande et votre estimation. Notre équipe va vérifier la disponibilité et confirmer le tarif de votre trajet. Votre réservation sera définitive uniquement après notre confirmation.",
+      texte: "Merci d'avoir choisi ELEV8 Private Driver. Nous avons bien reçu votre demande. Selon votre trajet, vous recevez votre devis à régler en ligne, ou ELEV8 vous communique le tarif. Votre réservation sera définitive uniquement lorsqu'un chauffeur vous aura été confirmé.",
       note: "Aucun paiement ne vous a été demandé. Pour toute question, appelez-nous ou écrivez-nous sur WhatsApp en indiquant votre référence."
     },
     introMessage: "Bonjour, je souhaite faire une demande de réservation :",
     // Si vous modifiez legal.dureeDemandes, adaptez aussi la durée citée ici.
-    noteConfidentialite: "Les champs sans mention « facultatif » sont nécessaires. « Demander ma réservation » est gratuit et sans engagement : aucun paiement n'est demandé. Ce bouton transmet vos informations par e-mail à ELEV8 Private Driver, via notre prestataire d'envoi, et les enregistre de façon sécurisée (accès réservé à ELEV8), uniquement pour traiter votre demande ; elles sont conservées au plus 12 mois si la demande reste sans suite. Vous pouvez y accéder ou demander leur suppression : <a href=\"/confidentialite.html\">politique de confidentialité</a>.",
+    noteConfidentialite: "Les champs sans mention « facultatif » sont nécessaires. « Demander ma réservation » est gratuit et sans engagement : aucun paiement n'est prélevé à cette étape. Le règlement éventuel du devis s'effectue ensuite sur la page sécurisée de notre prestataire de paiement Stripe : ELEV8 n'a jamais accès à votre numéro de carte. Ce bouton transmet vos informations par e-mail à ELEV8 Private Driver, via notre prestataire d'envoi, et les enregistre de façon sécurisée (accès réservé à ELEV8), uniquement pour traiter votre demande ; elles sont conservées au plus 12 mois si la demande reste sans suite. Vous pouvez y accéder ou demander leur suppression : <a href=\"/confidentialite.html\">politique de confidentialité</a>.",
     noteWhatsApp: "WhatsApp s'ouvre avec votre message prérempli. Il ne part qu'après avoir appuyé sur « Envoyer » dans l'application, et l'échange est alors traité par WhatsApp (groupe Meta) selon ses propres conditions.",
     indicatifParDefaut: "+33"
   },
@@ -203,13 +203,13 @@ window.SITE_CONFIG = {
   pageReservation: {
     surtitre: "Réservation · Chauffeur privé",
     titre: "Votre trajet,<br><em>estimé en un instant.</em>",       // <br> = retour à la ligne
-    texte: "Estimez votre trajet en quelques instants. Demande gratuite, sans paiement. ELEV8 confirme votre tarif et votre disponibilité.",
+    texte: "Estimez votre trajet en quelques instants et envoyez votre demande sans engagement. Devis par e-mail, paiement en ligne sécurisé, puis confirmation de votre chauffeur par ELEV8.",
     proTexte: "Vous êtes un professionnel ?",             // hôtels, entreprises, restaurants, conciergeries
     proLien: "Contactez ELEV8 directement",
     proMessageWhatsApp: "Bonjour ELEV8, je vous contacte pour des trajets professionnels (hôtel, entreprise, restaurant ou conciergerie).",
     etape1: "Estimation immédiate", etape1Texte: "selon notre grille tarifaire",
-    etape2: "Demande gratuite", etape2Texte: "sans paiement ni acompte",
-    etape3: "Confirmation par ELEV8", etape3Texte: "disponibilité et tarif final",
+    etape2: "Devis et paiement sécurisé", etape2Texte: "règlement en ligne par carte (Stripe)",
+    etape3: "Confirmation du chauffeur", etape3Texte: "remboursement intégral si aucun n'est disponible",
     aideTitre: "Une question avant de réserver ?",
     retour: "Découvrir le site ELEV8"
   },
@@ -289,6 +289,9 @@ window.SITE_CONFIG = {
     dureeClients: "3 ans après la dernière prestation, pièces comptables conservées 10 ans",
     dureeEmpreintes: "24 heures, suppression automatique au plus tard une heure après",
     messagerie: "[Ex. : Google Workspace, OVHcloud, Infomaniak…]",
+    cgv: "",                                 // Adresse des conditions générales de vente une fois publiées (ex. "/cgv.html").
+                                             // Vide = aucun lien. Renseignée : lien dans le pied de page, sous le formulaire
+                                             // et sur la page de paiement Stripe (« En procédant au paiement, vous acceptez… »).
     dateMiseAJour: "11 octobre 2026"
   }
 };

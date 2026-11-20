@@ -14,6 +14,16 @@ import { stripeActif, creerSession, lireSession } from "../lib/stripe.mjs";
 import { retenirContexte } from "../lib/environnement.mjs";
 import { magasin, lire, modifier, appliquerSession, deps as P } from "../lib/paiements.mjs";
 import { magasin as magasinDemandes, chargerParId } from "../lib/demandes.mjs";
+import { chargerConfig } from "../lib/devis-auto.mjs";
+
+/* Adresse complète des CGV (legal.cgv de config.js), affichée sur la page Stripe ; "" si absente */
+async function adresseCgv(origine) {
+  try {
+    const c = String(((await chargerConfig(origine)).legal || {}).cgv || "").trim();
+    if (/^\/[^\s"'<>]*$/.test(c)) return origine + c;
+    return /^https:\/\/[^\s"'<>]+$/.test(c) ? c : "";
+  } catch { return ""; }                                           // facultatif : jamais bloquant pour le paiement
+}
 
 export const config = { path: "/payer/:jeton", rateLimit: { windowLimit: 20, windowSize: 60, aggregateBy: ["ip", "domain"] } };
 
@@ -54,8 +64,9 @@ export default async (req, context) => {
     const expireA = Math.min(now + 23 * 3600_000, limite);
     let email = "";                                                                  // e-mail prérempli sur la page Stripe (facultatif)
     try { const d = p.idDemande ? await chargerParId(magasinDemandes(), p.idDemande, now) : null; email = (d && d.record && d.record.client.email) || ""; } catch { /* facultatif */ }
+    const origine = new URL(req.url).origin;
     const s = await creerSession({ ref: p.ref, jeton, version: p.v || 1, tentative, montantCents: p.montantCents, libelle: p.libelle, description: p.description,
-      expireA, origine: new URL(req.url).origin, email });
+      expireA, origine, email, cgv: await adresseCgv(origine) });
     const r = await modifier(st, jeton, (x) => {
       if (x.statut !== "en_attente") return null;
       if ((x.sessions || []).some((y) => y.id === s.id)) return null;

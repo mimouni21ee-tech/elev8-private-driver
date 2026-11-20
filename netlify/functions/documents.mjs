@@ -32,8 +32,8 @@ import { retenirContexte, estSiteDeTest, nomMagasin, destinataireTest, marquerTe
 import { magasin as magasinPaiements, parRef as paiementParRef, resume as resumePaiement } from "../lib/paiements.mjs";
 import { creerLienManuel, confirmerChauffeur, annulerEtRembourser, confirmerRealisation, modifierDatePrestation } from "../lib/actions-paiement.mjs";
 import { magasinDevis, pdfDevis } from "../lib/devis-auto.mjs";
-import { pdfFacture } from "../lib/facturation.mjs";
-import { listerReservations, documentsReservation, documentArchive, exportComptable } from "../lib/gestion.mjs";
+import { pdfFacture, facturationAutomatique } from "../lib/facturation.mjs";
+import { listerReservations, documentsReservation, documentArchive, exportComptable, exportEncaissements, archiveDocuments } from "../lib/gestion.mjs";
 import { numeroSuivant } from "../lib/numerotation.mjs";
 
 export const config = {
@@ -251,7 +251,7 @@ export default async (req, context) => {
     let paiement = null;
     try { paiement = resumePaiement(await paiementParRef(magasinPaiements(), r.ref)); } catch { /* information facultative */ }
     return json(200, { ok: true, demande: { ref: r.ref, recu: r.recu, client: r.client, prestation: r.prestation, estimation: r.estimation, origine: r.origine }, facture,
-      paiement, paiementEnLigne: !!stripeActif() });
+      paiement, paiementEnLigne: !!stripeActif(), modeStripe: stripeActif()?.mode || null, facturationAutomatique: facturationAutomatique() });
   }
 
   /* ----- Paiement en ligne (Stripe, mode test) : lien après validation manuelle, chauffeur confirmé, annulation ----- */
@@ -302,7 +302,7 @@ export default async (req, context) => {
 
   /* Tableau de gestion, documents d'une réservation, export comptable (lecture seule) */
   if (b.action === "tableau") {
-    try { return json(200, { ok: true, ...(await listerReservations({ filtre: b.filtre, du: b.du, au: b.au, recherche: b.recherche, page: b.page, parPage: b.parPage })), test: estSiteDeTest() }); }
+    try { return json(200, { ok: true, ...(await listerReservations({ filtre: b.filtre, du: b.du, au: b.au, recherche: b.recherche, page: b.page, parPage: b.parPage })), test: estSiteDeTest(), facturationAutomatique: facturationAutomatique() }); }
     catch (e) { console.error("Tableau :", String(e && e.message).slice(0, 60)); return json(502, { ok: false, code: "tableau", message: "Lecture des réservations impossible pour le moment." }); }
   }
   if (b.action === "documents-reservation") {
@@ -313,14 +313,24 @@ export default async (req, context) => {
       return r ? json(200, { ok: true, ...r }) : json(404, { ok: false, code: "ref", message: "Aucun paiement en ligne pour cette référence." });
     } catch (e) { console.error("Documents :", String(e && e.message).slice(0, 60)); return json(502, { ok: false, code: "documents", message: "Lecture des documents impossible pour le moment." }); }
   }
-  if (b.action === "export-comptable") {
+  if (b.action === "export-comptable" || b.action === "export-encaissements" || b.action === "archive") {
     try {
+      if (b.action === "archive") {
+        const r = await archiveDocuments({ du: String(b.du || ""), au: String(b.au || ""), origine: url.origin, now });
+        return json(200, { ok: true, fichier: r.fichier, documents: r.documents, zip: r.zip.toString("base64") });
+      }
+      if (b.action === "export-encaissements") {
+        const r = await exportEncaissements({ du: String(b.du || ""), au: String(b.au || ""), origine: url.origin });
+        return json(200, { ok: true, fichier: r.fichier, documents: r.operations, csv: Buffer.from(r.csv, "utf8").toString("base64") });
+      }
       const r = await exportComptable({ du: String(b.du || ""), au: String(b.au || "") });
       return json(200, { ok: true, fichier: r.fichier, documents: r.documents, csv: Buffer.from(r.csv, "utf8").toString("base64") });
     } catch (e) {
       const m = String(e && e.message);
       if (m === "periode") return json(422, { ok: false, code: "periode", message: "Indiquez une date de début et une date de fin valides (début ≤ fin)." });
       if (m === "periode_longue") return json(422, { ok: false, code: "periode", message: "Période trop longue : 366 jours au maximum par export." });
+      if (m === "periode_archive") return json(422, { ok: false, code: "periode", message: "Archive : 31 jours au maximum (un mois par archive)." });
+      if (m === "archive_volumineuse") return json(422, { ok: false, code: "periode", message: "Archive trop volumineuse pour un seul téléchargement : choisissez une période plus courte (par exemple une quinzaine)." });
       console.error("Export comptable :", m.slice(0, 60));
       return json(502, { ok: false, code: "export", message: "Export impossible pour le moment." });
     }
@@ -329,7 +339,7 @@ export default async (req, context) => {
   if (["paiement-etat", "paiement-lien", "chauffeur-confirme", "annuler-course", "course-realisee", "modifier-date"].includes(b.action)) {
     const ref = String(b.ref || "").trim().toUpperCase();
     if (!/^E8-[A-Z0-9-]{3,30}$/.test(ref)) return json(400, { ok: false, code: "ref", message: "Référence invalide." });
-    if (!stripeActif()) return json(503, { ok: false, code: "stripe", message: "Paiement en ligne non activé (variables Stripe de test absentes)." });
+    if (!stripeActif()) return json(503, { ok: false, code: "stripe", message: "Paiement en ligne non activé : variables Stripe absentes ou incohérentes avec ce site (test hors production, live en production uniquement)." });
     try {
       let r;
       if (b.action === "paiement-etat") r = { paiement: resumePaiement(await paiementParRef(magasinPaiements(), ref)) };

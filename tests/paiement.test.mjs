@@ -49,7 +49,8 @@ async function fauxStripe(url, init = {}) {
       amount_total: Number(corps.get("line_items[0][price_data][unit_amount]")), currency: corps.get("line_items[0][price_data][currency]"),
       client_reference_id: corps.get("client_reference_id"), customer_email: corps.get("customer_email"), expires_at: Number(corps.get("expires_at")),
       metadata: { ref: corps.get("metadata[ref]"), paiement: corps.get("metadata[paiement]"), version: corps.get("metadata[version]") },
-      payment_method_types: [corps.get("payment_method_types[0]")], mode: corps.get("mode"), success_url: corps.get("success_url"), payment_intent: null };
+      payment_method_types: [corps.get("payment_method_types[0]")], mode: corps.get("mode"), success_url: corps.get("success_url"), payment_intent: null,
+      texteCgv: corps.get("custom_text[submit][message]") };
     S.sessions.set(id, r);
   } else if (init.method === "GET" && chemin.startsWith("/v1/checkout/sessions/")) {
     r = S.sessions.get(decodeURIComponent(chemin.split("/")[4]));
@@ -1236,6 +1237,137 @@ await t("changement officiel de date : e-mail au client (ancienne/nouvelle date,
   assert.equal((await dossier(ref)).modificationsDate[1].validationClient, true);
   assert.equal([...docDeps.store.m.keys()].filter((k) => k.startsWith("facture/") || k.startsWith("avoir/")).length, nbFactures, "aucune facture créée");
   process.env.FACTURATION_AUTOMATIQUE = "non";
+});
+
+/* ---------- Étape B : préparation de la mise en production ---------- */
+await t("mode live : en production, aucune mention « mode test » (suivi ELEV8, e-mail interne, alertes) ; hors production, mentions conservées", async () => {
+  const p = await dossier(G.r1);
+  assert.equal(PAI.resume(p).mode, "test");
+  assert.match(MAIL.alerteElev8(null, p, "Alerte", ["x"], "").text, /Mode test Stripe/);
+  const { buildEmail } = await import("../netlify/functions/reservation.mjs");
+  const d = demande();
+  assert.match(JSON.stringify(buildEmail(d, "E8-X", "ELEV8", null, ORIGINE, "", { auto: true })), /MODE TEST/);
+  const old = { m: process.env.PAIEMENT_STRIPE, k: process.env.STRIPE_SECRET_KEY };
+  ENV.retenirContexte({ deploy: { context: "production" } });
+  try {
+    process.env.PAIEMENT_STRIPE = "live"; process.env.STRIPE_SECRET_KEY = "rk_live_" + "y".repeat(24);
+    assert.equal(STR.stripeActif().mode, "live");
+    assert.equal(PAI.resume(p).mode, "live");
+    assert.ok(!/test/i.test(MAIL.alerteElev8(null, p, "Alerte", ["x"], "").text.replace(/E8-[A-Z0-9-]+/g, "")));
+    assert.ok(!/MODE TEST/.test(JSON.stringify(buildEmail(d, "E8-X", "ELEV8", null, ORIGINE, "", { auto: true }))));
+    // Une session de test présentée au site live est refusée (et l'inverse) : aucun mélange possible
+    const q = await dossier(G.r3); assert.equal(q.statut, "en_attente");
+    const s = { id: "cs_x", amount_total: q.montantCents, currency: "eur", metadata: { ref: q.ref, paiement: q.jeton }, status: "complete", payment_status: "paid", payment_intent: "pi_x" };
+    assert.notEqual(PAI.appliquerSession(structuredClone(q), { ...s, livemode: false }).statut, "paye", "session de test refusée en production");
+    assert.equal(PAI.appliquerSession(structuredClone(q), { ...s, livemode: true }).statut, "paye", "session live acceptée en production");
+  } finally { process.env.PAIEMENT_STRIPE = old.m; process.env.STRIPE_SECRET_KEY = old.k; ENV._reinitialiser(); }
+});
+await t("facturation automatique : désactivée par défaut sur le site officiel, activée seulement par FACTURATION_AUTOMATIQUE=oui ; « non » partout respecté", async () => {
+  const avant = process.env.FACTURATION_AUTOMATIQUE;
+  try {
+    process.env.FACTURATION_AUTOMATIQUE = "";
+    assert.equal(FACT.facturationAutomatique(), true, "site de test : activée par défaut");
+    ENV.retenirContexte({ deploy: { context: "production" } });
+    assert.equal(FACT.facturationAutomatique(), false, "production sans variable : désactivée");
+    process.env.FACTURATION_AUTOMATIQUE = "oui"; assert.equal(FACT.facturationAutomatique(), true);
+    process.env.FACTURATION_AUTOMATIQUE = "non"; assert.equal(FACT.facturationAutomatique(), false);
+    ENV.retenirContexte({ deploy: { context: "branch-deploy" } });
+    assert.equal(FACT.facturationAutomatique(), false);
+  } finally { process.env.FACTURATION_AUTOMATIQUE = avant; ENV._reinitialiser(); }
+});
+await t("facturation désactivée : course réalisée sans facture → « Facture à établir » (tableau, filtre) ; facture manuelle reconnue, téléchargeable, exportée", async () => {
+  process.env.FACTURATION_AUTOMATIQUE = "non";
+  const ref = await courseConfirmee("2026-12-21", "09:00");
+  const r = await aLaDate("2026-12-21T09:00:00Z", () => admin({ action: "course-realisee", ref, realiseeLe: "2026-12-21T09:20" }));
+  assert.equal(r.status, 200); assert.equal(r.j.facture.ignore, "desactivee");
+  assert.equal(docsDe(ref, "finale").length, 0); assert.equal(docsDe(ref, "acompte").length, 0);
+  const ch = await admin({ action: "charger", ref }); assert.equal(ch.j.facturationAutomatique, false);
+  const tab = async (o) => (await admin({ action: "tableau", du: "2026-12-21", au: "2026-12-21", ...o })).j;
+  const l = (await tab({})).lignes.find((x) => x.ref === ref);
+  assert.equal(l.aFacturer, true); assert.equal(l.factureManuelle, null);
+  assert.deepEqual((await tab({ filtre: "a_facturer" })).lignes.map((x) => x.ref), [ref]);
+  assert.equal((await tab({ filtre: "a_facturer", du: "2026-12-14", au: "2026-12-14" })).total, 0, "course avec facture finale : rien à établir");
+  // Facture établie à la main dans /documents (même enregistrement que l'outil de facturation : « ref/<réf> » + « facture/<n°> »)
+  const modele = docsDe(G.r1, "finale")[0];
+  const man = structuredClone(modele); delete man.type; delete man.finale; delete man.ref; delete man.test;
+  man.numero = "TEST-F-2026-0900"; man.dateEmission = "2026-12-21"; man.doc.ref = ref;
+  await docDeps.store.setJSON("facture/" + man.numero, man); await docDeps.store.setJSON("ref/" + ref, { numero: man.numero, t: NOW });
+  const l2 = (await tab({})).lignes.find((x) => x.ref === ref);
+  assert.equal(l2.aFacturer, false); assert.equal(l2.factureManuelle, man.numero);
+  assert.equal((await tab({ filtre: "a_facturer" })).total, 0);
+  const docs = (await admin({ action: "documents-reservation", ref })).j;
+  assert.ok(docs.docs.some((d) => d.numero === man.numero && /manuellement/.test(d.libelle))); assert.equal(docs.aFacturer, false);
+  const pdf = await admin({ action: "document-pdf", ref, numero: man.numero });
+  assert.equal(pdf.status, 200); assert.ok(Buffer.from(pdf.j.pdf, "base64").subarray(0, 5).toString() === "%PDF-");
+  assert.equal((await admin({ action: "document-pdf", ref: G.r2, numero: man.numero })).status, 404, "document d'une autre réservation refusé");
+  const x = lireCsv((await admin({ action: "export-comptable", du: "2026-12-21", au: "2026-12-21" })).j.csv);
+  assert.ok(x.some((li) => li[3] === man.numero && li[2] === "Facture"));
+});
+await t("journal des encaissements Stripe : paiement et remboursement à leur date, TVA incluse, total net, facture liée ou « à établir »", async () => {
+  assert.equal((await documents(post("/documents-api", { action: "export-encaissements", du: "2026-01-01", au: "2026-12-31" }), { ip: "4.4.4.9" })).status, 401);
+  assert.equal((await admin({ action: "export-encaissements", du: "2026-12-31", au: "2026-01-01" })).status, 422);
+  const r = await admin({ action: "export-encaissements", du: "2026-01-01", au: "2026-12-31" });
+  assert.equal(r.status, 200); assert.match(r.j.fichier, /^elev8-encaissements-TEST-2026-01-01_2026-12-31\.csv$/);
+  const csv = lireCsv(r.j.csv), tete = csv[0], C = (n) => tete.indexOf(n), lignes = csv.slice(1, -1), total = csv[csv.length - 1];
+  assert.equal(lignes.length, r.j.documents);
+  const de = (ref) => lignes.filter((l) => l[C("Référence réservation")] === ref);
+  const p2 = await dossier(G.r2), r2 = de(G.r2);
+  assert.deepEqual(r2.map((l) => l[C("Opération")]), ["Paiement reçu", "Remboursement"]);
+  assert.equal(num(r2[0][C("Montant TTC")]), p2.montantCents); assert.equal(num(r2[1][C("Montant TTC")]), -500);
+  assert.equal(num(r2[0][C("dont TVA")]), p2.montantCents - Math.round(p2.montantCents / 1.1)); assert.equal(r2[0][C("Taux TVA")], "10 %");
+  assert.match(r2[0][C("PaymentIntent Stripe")], /^pi_test_/); assert.match(r2[1][C("Opération Stripe")], /^ch_test_/);
+  assert.match(r2[0][C("Facture(s)")], /TEST-F-.*TEST-AV-/);
+  assert.equal(de(G.r3).length, 0, "lien non payé : aucun encaissement");
+  assert.equal(num(total[C("Montant TTC")]), lignes.reduce((a, l) => a + num(l[C("Montant TTC")]), 0));
+  // Période : un paiement n'apparaît qu'à sa date
+  assert.equal((await admin({ action: "export-encaissements", du: "2026-01-01", au: "2026-01-31" })).j.documents, 0);
+});
+await t("archive de sauvegarde (ZIP) : PDF de chaque document émis, CSV, données d'origine ; un mois au plus ; accès réservé", async () => {
+  assert.equal((await documents(post("/documents-api", { action: "archive", du: "2026-11-01", au: "2026-11-30" }), { ip: "4.4.4.10" })).status, 401);
+  assert.equal((await admin({ action: "archive", du: "2026-11-01", au: "2026-12-31" })).status, 422);
+  const r = await admin({ action: "archive", du: "2026-11-01", au: "2026-11-30" });
+  assert.equal(r.status, 200); assert.match(r.j.fichier, /^elev8-archive-TEST-2026-11-01_2026-11-30\.zip$/);
+  const { writeFileSync, mkdtempSync } = await import("node:fs"), { tmpdir } = await import("node:os"), { join } = await import("node:path");
+  const f = join(mkdtempSync(join(tmpdir(), "elev8-")), "a.zip"); writeFileSync(f, Buffer.from(r.j.zip, "base64"));
+  const { execFileSync } = await import("node:child_process");
+  const sortie = JSON.parse(execFileSync("python3", ["-I", "-c", "import zipfile,sys,json;z=zipfile.ZipFile(sys.argv[1]);assert z.testzip() is None;print(json.dumps([[i.filename,i.file_size] for i in z.infolist()]))", f]).toString());
+  const noms = sortie.map((x) => x[0]);
+  const attendus = [...docDeps.store.m.entries()].filter(([k, v]) => /^(facture|avoir|devis)\//.test(k) && v.d.dateEmission >= "2026-11-01" && v.d.dateEmission <= "2026-11-30").length;
+  assert.equal(r.j.documents, attendus); assert.ok(attendus > 3);
+  assert.equal(noms.filter((n) => n.endsWith(".pdf")).length, attendus);
+  assert.ok(noms.some((n) => /^factures\/TEST-F-/.test(n)) && noms.some((n) => /^avoirs\/TEST-AV-/.test(n)) && noms.some((n) => /^devis\/TEST-D-/.test(n)));
+  for (const n of ["elev8-comptabilite-TEST-2026-11-01_2026-11-30.csv", "elev8-encaissements-TEST-2026-11-01_2026-11-30.csv", "donnees-documents.json", "LISEZMOI.txt"]) assert.ok(noms.includes(n), n);
+  const json = JSON.parse(execFileSync("python3", ["-I", "-c", "import zipfile,sys;print(zipfile.ZipFile(sys.argv[1]).read('donnees-documents.json').decode())", f]).toString());
+  assert.equal(json.environnement, "TEST"); assert.equal(json.documents.length, attendus);
+});
+await t("CGV : aucun texte sur la page Stripe tant que legal.cgv est vide ; renseignée → mention « vous acceptez… nos conditions générales de vente » avec l'adresse complète", async () => {
+  const cfg = DEVIS.deps.config;
+  assert.equal(cfg.legal.cgv, "", "config.js livré sans adresse de CGV");
+  const a = await envoyer({ date: "2026-12-22", heure: "09:00" });
+  await ouvrir(a.j.paiement.url);
+  assert.equal([...S.sessions.values()].pop().texteCgv, null);
+  DEVIS.deps.config = { ...cfg, legal: { ...cfg.legal, cgv: "/cgv.html" } };
+  try {
+    const b = await envoyer({ date: "2026-12-22", heure: "10:00" });
+    await ouvrir(b.j.paiement.url);
+    assert.equal([...S.sessions.values()].pop().texteCgv, "En procédant au paiement, vous acceptez le devis et nos conditions générales de vente : " + ORIGINE + "/cgv.html");
+    DEVIS.deps.config = { ...cfg, legal: { ...cfg.legal, cgv: "javascript:alert(1)" } };
+    const c = await envoyer({ date: "2026-12-22", heure: "11:00" });
+    await ouvrir(c.j.paiement.url);
+    assert.equal([...S.sessions.values()].pop().texteCgv, null, "adresse invalide ignorée");
+  } finally { DEVIS.deps.config = cfg; }
+});
+await t("textes du site : plus de « Demande gratuite, sans paiement » ; paiement sécurisé et confirmation du chauffeur annoncés", async () => {
+  const { readFileSync } = await import("node:fs");
+  const C = DEVIS.deps.config;
+  const tout = JSON.stringify([C.accueil, C.reservation, C.pageReservation]);
+  for (const x of ["Demande gratuite", "sans paiement ni acompte", "Aucun paiement, aucun compte", "Aucun paiement n'est demandé"]) assert.ok(!tout.includes(x), x);
+  assert.match(C.pageReservation.etape2, /paiement sécurisé/); assert.match(C.pageReservation.etape3Texte, /remboursement intégral/);
+  for (const f of ["../public/index.html", "../public/reservation/index.html"]) {
+    const h = readFileSync(new URL(f, import.meta.url), "utf8");
+    assert.ok(!/Demande gratuite|sans paiement ni|gratuitement, sans paiement/.test(h), f);
+    assert.ok(/data-cgv hidden/.test(h), f + " : lien CGV masqué tant que l'adresse est vide");
+  }
 });
 
 console.log(`\n${ok} test(s) réussi(s)` + (process.exitCode ? " — ÉCHECS ci-dessus" : ""));

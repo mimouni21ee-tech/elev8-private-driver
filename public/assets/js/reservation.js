@@ -5,7 +5,7 @@
      - la rubrique « Réservation » de l'accueil (et le mode passager du QR code) ;
      - la page dédiée /reservation (publicités Google Ads, Facebook Ads…).
    Estimation calculée par la fonction Netlify /estimation (grille ELEV8),
-   demande envoyée à /envoi-reservation (Brevo), sans paiement.
+   demande envoyée à /envoi-reservation (Brevo) ; paiement éventuel ensuite, sur la page Stripe.
    Tout le contenu provient de config.js.
    Préselection possible par le lien : /reservation?vehicule=tesla | classe-v
    et /reservation?prestation=<titre exact d'une prestation>.
@@ -286,8 +286,8 @@
     if (etat === "ok" || etat === "devis") {
       estRecap.hidden = false;
       estRecap.innerHTML = etat === "ok"
-        ? "Estimation : <strong>" + esc(montant) + "</strong> · tarif indicatif, aucun paiement à cette étape"
-        : "Tarif <strong>sur devis</strong> · demande gratuite, ELEV8 vous communique le tarif";
+        ? "Estimation : <strong>" + esc(montant) + "</strong> · aucun paiement à cette étape"
+        : "Tarif <strong>sur devis</strong> · demande sans engagement, ELEV8 vous communique le tarif";
     } else estRecap.hidden = true;
   }
   function estimate() {
@@ -535,6 +535,20 @@
       if (cfgForm.turnstileSiteKey && window.turnstile && turnstileId !== null) { turnstileToken = ""; window.turnstile.reset(turnstileId); }
     });
   });
+
+  /* Conditions générales de vente : liens affichés seulement si legal.cgv est renseigné dans config.js */
+  (function () {
+    var cgv = C.legal && typeof C.legal.cgv === "string" ? C.legal.cgv.trim() : "";
+    if (!/^(\/[^\s"'<>]*|https:\/\/[^\s"'<>]+)$/.test(cgv)) return;
+    $$("[data-cgv]").forEach(function (a) { a.href = cgv; a.hidden = false; });
+    $$('[data-html="reservation.noteConfidentialite"]').forEach(function (p) {
+      if (p.querySelector("[data-cgv-note]")) return;
+      var s = document.createElement("span"), a = document.createElement("a");
+      s.setAttribute("data-cgv-note", ""); a.href = cgv; a.textContent = "conditions générales de vente";
+      s.appendChild(document.createTextNode(" Le règlement du devis vaut acceptation de nos ")); s.appendChild(a); s.appendChild(document.createTextNode("."));
+      p.appendChild(s);
+    });
+  })();
 
   /* Paiement en ligne : bouton vers le lien individuel (le montant est fixé par le serveur, jamais ici) */
   function afficherPaiement(pay) {

@@ -17,18 +17,21 @@
    La somme de chaque colonne sur une période donne donc le CA, la TVA et les avances réels.
    ========================================================================== */
 import { magasin, LIBELLES } from "./paiements.mjs";
-import { magasinDevis } from "./devis-auto.mjs";
+import { magasinDevis, chargerConfig, pdfDevis } from "./devis-auto.mjs";
 import { demandeDe } from "./notifications.mjs";
 import { estSiteDeTest } from "./environnement.mjs";
-import { aujourdhuiParis } from "./documents.mjs";
+import { facturationAutomatique, pdfFacture } from "./facturation.mjs";
+import { creerZip } from "./zip.mjs";
+import { aujourdhuiParis, emetteur } from "./documents.mjs";
 
-export const FILTRES = ["tous", "payees", "a_attribuer", "realisees", "annulees", "remboursees", "attente_paiement"];
+export const FILTRES = ["tous", "payees", "a_attribuer", "realisees", "a_facturer", "annulees", "remboursees", "attente_paiement"];
 const ANNULEES = ["annulee", "annulee_indisponible", "sans_chauffeur"];
 function correspond(p, filtre) {
   switch (filtre) {
     case "payees": return ["paye", "rembourse_partiel"].includes(p.statut);
     case "a_attribuer": return p.etape === "payee_attente_attribution" && ["paye", "rembourse_partiel"].includes(p.statut);
     case "realisees": return p.etape === "realisee";
+    case "a_facturer": return p.etape === "realisee" && !(p.factures && p.factures.finale);   // + aucune facture manuelle (vérifié ensuite)
     case "annulees": return ANNULEES.includes(p.etape) || ["annule", "expire"].includes(p.statut);
     case "remboursees": return (p.rembourseCents || 0) > 0;
     case "attente_paiement": return p.statut === "en_attente" || p.statut === "en_cours";
@@ -50,6 +53,16 @@ async function devisDe(st, ref) {
   return out;
 }
 
+/* Facture établie manuellement dans /documents (facturation automatique désactivée) : lien « ref/<réf> » */
+async function factureManuelle(stF, ref) {
+  const l = await stF.get("ref/" + ref, { type: "json" });
+  if (!l || !l.numero) return null;
+  const r = await stF.get("facture/" + l.numero, { type: "json" });
+  return r ? { numero: r.numero, date: r.dateEmission, montant: r.montants.ttc } : null;
+}
+/* Course réalisée et payée, sans facture finale ni facture manuelle : facture à établir */
+const aEtablir = (p, manuelle) => p.etape === "realisee" && ["paye", "rembourse_partiel"].includes(p.statut) && !(p.factures && p.factures.finale) && !manuelle;
+
 /* ---------- Tableau de gestion (filtres, période de prise en charge, pagination) ---------- */
 export async function listerReservations({ filtre = "tous", du = "", au = "", recherche = "", page = 1, parPage = 20 } = {}) {
   if (!FILTRES.includes(filtre)) filtre = "tous";
@@ -66,6 +79,7 @@ export async function listerReservations({ filtre = "tous", du = "", au = "", re
     const l = await st.get("ref/" + ref, { type: "json" });
     const p = l && l.jeton ? await st.get("paiement/" + l.jeton, { type: "json" }) : null;
     if (!p || !correspond(p, filtre)) continue;
+    if (filtre === "a_facturer" && await factureManuelle(stF, p.ref)) continue;
     const jour = p.priseEnCharge ? aujourdhuiParis(Date.parse(p.priseEnCharge)) : "";
     if ((du && jour < du) || (au && jour > au)) continue;
     total++;
@@ -79,7 +93,7 @@ async function ligne(st, stF, p) {
   const F = p.factures || {};
   const paye = ["paye", "rembourse_partiel", "rembourse"].includes(p.statut);
   const rembourse = (p.rembourseCents || 0) / 100;
-  const avoirs = [];
+  const avoirs = [], manuelle = await factureManuelle(stF, p.ref);
   for (const a of F.avoirs || []) { const r = await stF.get("avoir/" + a.numero, { type: "json" }); avoirs.push({ numero: a.numero, montant: r ? r.avoir.montantCents / 100 : null }); }
   return {
     ref: p.ref, client: D ? nomClient(D.client) : "", priseEnCharge: p.priseEnCharge,
@@ -88,7 +102,8 @@ async function ligne(st, stF, p) {
     solde: paye || ["annule", "expire", "remplace"].includes(p.statut) ? 0 : p.montantCents / 100,
     paiement: LIBELLES[p.statut] || p.statut, statut: p.statut, etape: p.etape, etapeLibelle: LIBELLES[p.etape] || p.etape,
     chauffeur: p.chauffeur ? p.chauffeur.prenom : "", realisee: p.realisation ? p.realisation.le : null,
-    devis: await devisDe(stF, p.ref), acompte: F.acompte || null, finale: F.finale || null, avoirs, litige: !!p.litige
+    devis: await devisDe(stF, p.ref), acompte: F.acompte || null, finale: F.finale || null, factureManuelle: manuelle ? manuelle.numero : null,
+    aFacturer: aEtablir(p, manuelle), avoirs, litige: !!p.litige
   };
 }
 
@@ -106,6 +121,8 @@ export async function documentsReservation(ref) {
     const r = await stF.get("facture/" + F[cle], { type: "json" });
     if (r) docs.push({ type: cle, libelle, numero: r.numero, date: r.dateEmission, montant: r.montants.ttc });
   }
+  const manuelle = await factureManuelle(stF, ref);
+  if (manuelle) docs.push({ type: "facture", libelle: "Facture (établie manuellement)", numero: manuelle.numero, date: manuelle.date, montant: manuelle.montant });
   const operations = [];
   for (const a of F.avoirs || []) {
     const r = await stF.get("avoir/" + a.numero, { type: "json" });
@@ -115,7 +132,7 @@ export async function documentsReservation(ref) {
   }
   const stripe = { paiement: p.paymentIntent || null, payeLe: p.payeLe || null, montant: p.montantCents / 100, rembourse: (p.rembourseCents || 0) / 100,
     sessions: (p.sessions || []).map((x) => x.id), operations };
-  return { ref, docs, stripe };
+  return { ref, docs, stripe, aFacturer: aEtablir(p, manuelle), facturationAutomatique: facturationAutomatique() };
 }
 
 /* Document archivé appartenant à cette réservation (devis, facture, avoir) */
@@ -123,7 +140,7 @@ export async function documentArchive(ref, numero) {
   const stF = magasinDevis();
   const cle = /(^|-)AV-/.test(numero) ? "avoir/" : /(^|-)D-/.test(numero) ? "devis/" : "facture/";
   const rec = await stF.get(cle + numero, { type: "json" });
-  return rec && rec.ref === ref ? { rec, devis: cle === "devis/" } : null;
+  return rec && (rec.ref || (rec.doc && rec.doc.ref)) === ref ? { rec, devis: cle === "devis/" } : null;   // facture manuelle : référence dans doc
 }
 
 /* ---------- Export comptable ---------- */
@@ -180,4 +197,83 @@ export async function exportComptable({ du, au }) {
   lignes.push(["", "", "TOTAL DE LA PÉRIODE", "", "", "", "", "", "", "", eur(totaux.ca), eur(totaux.tva), eur(totaux.avance), eur(totaux.enc), eur(totaux.remb), "", "", "", ""]);
   const csv = "﻿" + [COLONNES, ...lignes].map((l) => l.map(csvCase).join(";")).join("\r\n") + "\r\n";
   return { csv, documents: recs.length, fichier: "elev8-comptabilite-" + (env === "TEST" ? "TEST-" : "") + du + "_" + au + ".csv", totaux };
+}
+
+/* ---------- Journal des encaissements Stripe (rapprochement, TVA sur encaissements) ----------
+   Une ligne par paiement reçu et par remboursement, à sa date (heure de Paris), avec la facture
+   correspondante si elle existe. Indispensable tant que la facturation automatique est désactivée :
+   un paiement reçu avant la course n'apparaît sinon dans aucun document. Lecture seule. */
+export const COLONNES_ENCAISSEMENTS = ["Environnement", "Date", "Opération", "Référence réservation", "Client", "Prise en charge",
+  "Montant TTC", "dont TVA", "Taux TVA", "Statut du paiement", "Étape", "PaymentIntent Stripe", "Opération Stripe", "Facture(s)"];
+export async function exportEncaissements({ du, au, origine = "" }) {
+  if (!reDate.test(du || "") || !reDate.test(au || "") || du > au) throw new Error("periode");
+  if ((Date.parse(au) - Date.parse(du)) / 86400_000 > 366) throw new Error("periode_longue");
+  const st = magasin(), stF = magasinDevis();
+  const E = emetteur(await chargerConfig(origine));
+  const tvaDe = (c) => (E.regimeTVA === "assujetti" ? c - Math.round(c / (1 + E.tauxTVA / 100)) : 0);
+  const env = estSiteDeTest() ? "TEST" : "PRODUCTION";
+  const ops = [];
+  const { blobs } = await st.list({ prefix: "paiement/" });
+  for (const b of blobs) {
+    const p = await st.get(b.key, { type: "json" });
+    if (!p || !p.payeLe) continue;
+    const evts = [{ le: p.payeLe, op: "Paiement reçu", c: p.montantCents, id: p.paymentIntent || "" }]
+      .concat((p.remboursements || []).map((r) => ({ le: r.le, op: "Remboursement", c: -r.montantCents, id: r.charge || "" })));
+    // remboursement antérieur à ce journal (sans date enregistrée) : signalé à la date du paiement
+    const dates = (p.remboursements || []).reduce((a, r) => a + r.montantCents, 0);
+    if ((p.rembourseCents || 0) > dates) evts.push({ le: p.payeLe, op: "Remboursement (date à vérifier dans Stripe)", c: -((p.rembourseCents || 0) - dates), id: p.charge || "" });
+    const garde = evts.filter((e) => { const j = aujourdhuiParis(Date.parse(e.le)); return j >= du && j <= au; });
+    if (!garde.length) continue;
+    const D = await demandeDe(p, Date.now());
+    const F = p.factures || {}, man = await factureManuelle(stF, p.ref);
+    const facts = [F.acompte, F.finale, man && man.numero, ...(F.avoirs || []).map((a) => a.numero)].filter(Boolean).join(", ");
+    for (const e of garde) ops.push({ tri: e.le + p.ref, l: [env, new Date(e.le).toLocaleString("fr-FR", { timeZone: "Europe/Paris" }), e.op, p.ref, D ? nomClient(D.client) : "",
+      p.priseEnCharge ? new Date(p.priseEnCharge).toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "short", timeStyle: "short" }) : "",
+      eur(e.c), eur(Math.sign(e.c) * tvaDe(Math.abs(e.c))), E.regimeTVA === "assujetti" ? E.tauxTVA + " %" : "franchise", LIBELLES[p.statut] || p.statut, LIBELLES[p.etape] || p.etape,
+      p.paymentIntent || "", e.id, facts || "aucune (à établir)"], c: e.c, tva: Math.sign(e.c) * tvaDe(Math.abs(e.c)) });
+  }
+  ops.sort((a, b) => a.tri.localeCompare(b.tri));
+  const tot = ops.reduce((a, o) => ({ c: a.c + o.c, tva: a.tva + o.tva }), { c: 0, tva: 0 });
+  const lignes = ops.map((o) => o.l).concat([["", "", "TOTAL NET DE LA PÉRIODE", "", "", "", eur(tot.c), eur(tot.tva), "", "", "", "", "", ""]]);
+  const csv = "\uFEFF" + [COLONNES_ENCAISSEMENTS, ...lignes].map((l) => l.map(csvCase).join(";")).join("\r\n") + "\r\n";
+  return { csv, operations: ops.length, fichier: "elev8-encaissements-" + (env === "TEST" ? "TEST-" : "") + du + "_" + au + ".csv", totalCents: tot.c, tvaCents: tot.tva };
+}
+
+/* ---------- Archive de sauvegarde (conservation 10 ans) ----------
+   ZIP d'une période (31 jours au plus) : PDF de chaque devis, facture et avoir émis, données
+   d'origine (JSON, permettent de régénérer chaque PDF à l'identique), export comptable et journal
+   des encaissements. À télécharger chaque mois et à conserver hors de Netlify (disque, cloud). */
+export const ARCHIVE_MAX_OCTETS = 4_200_000;          // réponse d'une fonction Netlify : 6 Mo au plus en base64
+export async function archiveDocuments({ du, au, origine = "", now = Date.now() }) {
+  if (!reDate.test(du || "") || !reDate.test(au || "") || du > au) throw new Error("periode");
+  if ((Date.parse(au) - Date.parse(du)) / 86400_000 > 31) throw new Error("periode_archive");
+  const stF = magasinDevis();
+  const fichiers = [], index = [];
+  for (const [prefixe, dossier] of [["facture/", "factures"], ["avoir/", "avoirs"], ["devis/", "devis"]]) {
+    const { blobs } = await stF.list({ prefix: prefixe });
+    for (const b of blobs) {
+      const r = await stF.get(b.key, { type: "json" });
+      if (!r || !r.numero || !(r.dateEmission >= du && r.dateEmission <= au)) continue;
+      const bytes = dossier === "devis" ? await pdfDevis(r) : await pdfFacture(r);
+      fichiers.push({ nom: dossier + "/" + r.numero + ".pdf", contenu: Buffer.from(bytes) });
+      index.push({ cle: b.key, numero: r.numero, dateEmission: r.dateEmission, ref: r.ref || (r.doc && r.doc.ref) || "", donnees: r });
+    }
+  }
+  index.sort((a, b) => (a.dateEmission + a.numero).localeCompare(b.dateEmission + b.numero));
+  const compta = await exportComptable({ du, au });
+  const enc = await exportEncaissements({ du, au, origine });
+  const env = estSiteDeTest() ? "TEST" : "PRODUCTION";
+  fichiers.push({ nom: compta.fichier, contenu: compta.csv }, { nom: enc.fichier, contenu: enc.csv },
+    { nom: "donnees-documents.json", contenu: JSON.stringify({ environnement: env, periode: { du, au }, creeLe: new Date(now).toISOString(), documents: index }, null, 1) },
+    { nom: "LISEZMOI.txt", contenu: [
+      "Archive ELEV8 Private Driver (" + env + ") — documents émis du " + du + " au " + au + ".",
+      "Créée le " + new Date(now).toLocaleString("fr-FR", { timeZone: "Europe/Paris" }) + ".", "",
+      "factures/, avoirs/, devis/ : PDF des documents émis sur la période (" + index.length + ").",
+      compta.fichier + " : export comptable (documents émis).",
+      enc.fichier + " : journal des paiements et remboursements Stripe de la période.",
+      "donnees-documents.json : données d'origine de chaque document (permettent de régénérer les PDF à l'identique).", "",
+      "Pièces comptables : à conserver 10 ans, hors du site (disque, cloud), sans les modifier."].join("\r\n") });
+  const zip = creerZip(fichiers, now);
+  if (zip.length > ARCHIVE_MAX_OCTETS) throw new Error("archive_volumineuse");
+  return { zip, documents: index.length, fichier: "elev8-archive-" + (env === "TEST" ? "TEST-" : "") + du + "_" + au + ".zip" };
 }

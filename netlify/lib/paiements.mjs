@@ -144,6 +144,8 @@ export function appliquerCharge(p, ch, now = deps.now()) {
   if (ch.amount_refunded > 0) {
     const total = ch.amount_refunded >= ch.amount;
     if (p.rembourseCents === ch.amount_refunded && p.statut === (total ? "rembourse" : "rembourse_partiel")) return p;
+    if (ch.amount_refunded > (p.rembourseCents || 0))                 // date de chaque remboursement (rapprochement comptable)
+      p.remboursements = (p.remboursements || []).concat([{ le: new Date(now).toISOString(), montantCents: ch.amount_refunded - (p.rembourseCents || 0), charge: ch.id }]).slice(-20);
     p.rembourseCents = ch.amount_refunded; p.charge = ch.id;
     p.statut = total ? "rembourse" : "rembourse_partiel";
     return histo(p, (total ? "remboursement intégral" : "remboursement partiel") + " : " + (ch.amount_refunded / 100).toFixed(2) + " €", now);
@@ -184,5 +186,5 @@ export function resume(p) {
     etape: p.etape, etapeLibelle: LIBELLES[p.etape] || p.etape, valableJusqu: p.valableJusqu, priseEnCharge: p.priseEnCharge,
     payeLe: p.payeLe, paymentIntent: p.paymentIntent, rembourse: p.rembourseCents / 100, litige: !!p.litige, motifVerification: p.motifVerification || null,
     chauffeur: p.chauffeur || null, huber: p.huber, devis: p.devis || null, factures: p.factures || null,
-    realisation: p.realisation ? { le: p.realisation.le } : null, modificationsDate: p.modificationsDate || [], historique: (p.historique || []).slice(-12), mode: "test" };
+    realisation: p.realisation ? { le: p.realisation.le } : null, modificationsDate: p.modificationsDate || [], historique: (p.historique || []).slice(-12), mode: stripeActif()?.mode === "live" ? "live" : "test" };
 }

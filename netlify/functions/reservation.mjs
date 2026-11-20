@@ -178,14 +178,14 @@ export function lienDocuments(idDemande, origin, etape = "") {
   return `${origin}/documents/?r=${encodeURIComponent(idDemande)}${etape ? "&etape=" + etape : ""}`;
 }
 
-/* Paiement en ligne (mode test Stripe) : { auto: true, montant, valableJusqu } si le lien a été envoyé
+/* Paiement en ligne (Stripe) : { auto: true, montant, valableJusqu } si le lien a été envoyé
    automatiquement au client ; { auto: false, motif } si la demande exige une validation manuelle. */
 const MOTIFS_MANUEL = { sur_devis: "tarif sur devis", demande_particuliere: "informations complémentaires à examiner", delai_court: "prise en charge trop proche", erreur: "création du lien impossible" };
 export function buildEmail(d, ref, brand, est = null, origin = "https://elev8privatedriver.com", idDemande = "", paiement = null) {
   const auto = !!(paiement && paiement.auto);
   const rows = [
     ["Référence", ref],
-    ["Statut", auto ? "Tarif calculé automatiquement — lien de paiement envoyé au client (Stripe, MODE TEST)" : "Demande reçue — en attente de validation par ELEV8"],
+    ["Statut", auto ? "Tarif calculé automatiquement — lien de paiement envoyé au client (Stripe" + (estSiteDeTest() ? ", MODE TEST" : "") + ")" : "Demande reçue — en attente de validation par ELEV8"],
     ...(paiement && !paiement.auto ? [["Paiement en ligne", "Validation manuelle requise : " + (MOTIFS_MANUEL[paiement.motif] || paiement.motif)]] : []),
     ["Reçue le", new Date().toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "full", timeStyle: "short" })],
     ["Estimation", texteEstimation(est)],
@@ -406,7 +406,7 @@ export default async (req, context) => {
   let idDemande = "", stDemandes = null;
   try { stDemandes = magasinDemandes(); idDemande = await enregistrerDemande(stDemandes, { ref, d: data, est }); }
   catch (e) { console.error("Enregistrement de la demande impossible :", String(e && e.message).slice(0, 60)); idDemande = ""; }
-  /* Paiement en ligne automatique (mode test Stripe) : seulement si le prix est calculé par le serveur,
+  /* Paiement en ligne automatique (Stripe) : seulement si le prix est calculé par le serveur,
      sans demande particulière et avec un délai suffisant. Sinon : validation manuelle dans /documents. */
   const origine = new URL(req.url).origin;
   let paiement = null, dossier = null, D = null;
@@ -436,7 +436,7 @@ export default async (req, context) => {
   // Lien de paiement envoyé au client APRÈS la notification d'ELEV8 (jamais de lien pour une demande non enregistrée)
   let lienPaiement = null;
   if (dossier) {
-    lienPaiement = { url: "/payer/" + dossier.jeton, montant: dossier.montantCents / 100, valableJusqu: dossier.valableJusqu, email: false, mode: "test" };
+    lienPaiement = { url: "/payer/" + dossier.jeton, montant: dossier.montantCents / 100, valableJusqu: dossier.valableJusqu, email: false, mode: stripeActif()?.mode === "live" ? "live" : "test" };
     // Devis PDF + bouton « Accepter le devis et payer en ligne », copie à ELEV8 (sans e-mail client : envoyé à ELEV8)
     if (D) { const r = await envoyerDevis(magasinPaiements(), D, dossier, { origine }); lienPaiement.email = !!(D.client.email && r.envoye); lienPaiement.devis = r.devis; }
     if (idem && store) { try { await store.setJSON(idem, { etat: "envoye", ref, t: Date.now(), estimation: estPublic, paiement: lienPaiement }); } catch { /* ignoré */ } }

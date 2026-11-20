@@ -202,6 +202,6 @@ export function mailAnnulation(D, p, { rembourse, motif }) {
 /* 5. Alertes pour ELEV8 */
 export function alerteElev8(D, p, sujet, lignes, lienDocs) {
   const t = [sujet, "", ...lignes, "", "Référence : " + (D ? D.ref : p.ref), "Montant : " + euros(p.montantCents) + " TTC", "Prise en charge : " + instantFr(p.priseEnCharge),
-    lienDocs ? "Ouvrir la réservation : " + lienDocs : "", "", "Mode test Stripe : aucun paiement réel."].join("\n");
+    lienDocs ? "Ouvrir la réservation : " + lienDocs : "", ...(estSiteDeTest() ? ["", "Mode test Stripe : aucun paiement réel."] : [])].join("\n");
   return { subject: `[ELEV8] ${sujet} | ${D ? D.ref : p.ref}`, text: t, html: `<pre style="font:14px/1.5 Helvetica,Arial,sans-serif;white-space:pre-wrap">${esc(t)}</pre>` };
 }

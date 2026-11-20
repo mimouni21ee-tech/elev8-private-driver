@@ -28,7 +28,16 @@ import { demandeDe, envoyerUneFois } from "./notifications.mjs";
 import { mailFactureAcompte, mailFactureFinale, mailAvoir } from "./courriels.mjs";
 
 const env = (k) => (process.env[k] || "").trim();
-export const facturationAutomatique = () => env("FACTURATION_AUTOMATIQUE").toLowerCase() !== "non";
+/* Facturation automatique (acompte, finale, avoirs) :
+     FACTURATION_AUTOMATIQUE=oui → activée ; =non → désactivée ;
+     variable absente → activée sur le site de test, DÉSACTIVÉE sur le site officiel (choix sûr :
+     aucune facture réelle n'est numérotée sans activation explicite, après accord du comptable). */
+export const facturationAutomatique = () => {
+  const v = env("FACTURATION_AUTOMATIQUE").toLowerCase();
+  if (v === "non") return false;
+  if (v === "oui") return true;
+  return estSiteDeTest();
+};
 export const MODE_STRIPE_CARTE = "carte bancaire via Stripe";
 const cleDoc = (numero) => (/(^|-)AV-/.test(numero) ? "avoir/" : "facture/") + numero;
 const histo = (x, quoi, now) => (x.historique || []).concat([{ le: new Date(now).toISOString(), quoi }]).slice(-40);

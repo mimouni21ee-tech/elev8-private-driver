@@ -67,6 +67,7 @@ export function creerSession(o) {
     metadata: { ref: o.ref, paiement: o.jeton, version: o.version },
     payment_intent_data: { description: o.libelle, metadata: { ref: o.ref, paiement: o.jeton, version: o.version } },
     expires_at: Math.floor(o.expireA / 1000),
+    custom_text: o.cgv ? { submit: { message: "En procédant au paiement, vous acceptez le devis et nos conditions générales de vente : " + o.cgv } } : undefined,
     success_url: o.origine + "/paiement/?etat=merci&ref=" + encodeURIComponent(o.ref),
     cancel_url: o.origine + "/paiement/?etat=annule&j=" + encodeURIComponent(o.jeton)
   }, `elev8-session-${o.jeton}-${o.version}-${o.tentative}`);

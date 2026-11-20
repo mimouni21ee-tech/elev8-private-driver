@@ -55,6 +55,7 @@
             <option value="payees">Payées</option>
             <option value="a_attribuer">À attribuer</option>
             <option value="realisees">Réalisées</option>
+            <option value="a_facturer">Facture à établir</option>
             <option value="annulees">Annulées</option>
             <option value="remboursees">Remboursées</option>
             <option value="attente_paiement">En attente de paiement</option>
@@ -73,13 +74,17 @@
         <button class="btn btn--quiet" type="button" id="tSuiv"><span>Suivant</span></button>
       </div>
       <details class="docs__export" id="export">
-        <summary>Exporter la comptabilité</summary>
+        <summary>Exports comptables et sauvegarde</summary>
         <div class="docs__filtres">
           <div class="field"><label for="x-du">Documents émis du</label><input id="x-du" type="date"></div>
           <div class="field"><label for="x-au">au</label><input id="x-au" type="date"></div>
           <button class="btn btn--gold" type="button" id="btnExport"><span>Exporter la comptabilité</span></button>
+          <button class="btn btn--quiet" type="button" id="btnExportEnc"><span>Exporter les encaissements Stripe</span></button>
+          <button class="btn btn--quiet" type="button" id="btnArchive"><span>Télécharger l'archive (ZIP)</span></button>
         </div>
         <p class="field__help">Fichier CSV (séparateur « ; », compatible Excel) : factures d'acompte, factures finales, factures manuelles et avoirs émis sur la période. Les colonnes « CA HT », « TVA collectée » et « Avance client HT » évitent de compter deux fois l'acompte et la facture finale. Format d'import Indy à vérifier avant usage.</p>
+        <p class="field__help">Encaissements Stripe : chaque paiement reçu et chaque remboursement, à sa date, avec la TVA incluse et la facture correspondante (« aucune (à établir) » sinon). À transmettre au comptable chaque mois, en particulier tant que la facturation automatique est désactivée (TVA due à l'encaissement).</p>
+        <p class="field__help">Archive de sauvegarde (un mois au plus) : PDF de tous les devis, factures et avoirs émis sur la période, les deux fichiers CSV et les données d'origine. Téléchargez-la chaque début de mois et conservez-la hors du site (disque, cloud) : les pièces comptables se conservent 10 ans.</p>
         <p class="docs__msg" id="xMsg" role="status"></p>
       </details>
     </section>
@@ -96,7 +101,7 @@
 
     <!-- Récapitulatif de la demande chargée (rempli par documents.js) -->
     <section class="docs__recap" id="recapDemande" aria-label="Récapitulatif de la demande" hidden></section>
-    <!-- Paiement en ligne (Stripe, mode test) : état réel, confirmé uniquement par Stripe -->
+    <!-- Paiement en ligne (Stripe) : état réel, confirmé uniquement par Stripe -->
     <section class="docs__paiement" id="paiementBloc" aria-label="Paiement en ligne" hidden>
       <h3>Paiement en ligne <span class="opt" id="pModeTest">mode test</span></h3>
       <p class="statut" id="pStatut"></p>
@@ -120,7 +125,7 @@
       <div id="pRealisation" hidden>
         <div class="field"><label for="r-le">Date et heure réelles de réalisation</label><input id="r-le" type="datetime-local"></div>
         <div class="docs__row"><button class="btn btn--gold" type="button" id="btnRealisee"><span>COURSE RÉALISÉE</span></button></div>
-        <p class="field__help">Validation par ELEV8 uniquement (jamais automatique à l'heure prévue). Elle déclenche la facture finale, acompte déduit, envoyée au client avec copie à ELEV8.</p>
+        <p class="field__help" id="rAide">Validation par ELEV8 uniquement (jamais automatique à l'heure prévue). Elle déclenche la facture finale, acompte déduit, envoyée au client avec copie à ELEV8.</p>
       </div>
       <div class="docs__row" id="pAnnuler" hidden>
         <button class="btn btn--quiet" type="button" id="btnIndispo"><span>Indisponible — annuler</span></button>
@@ -406,6 +411,6 @@
 
 <script src="/config.js?v=20261118b"></script>
 <script src="/assets/js/messages-client.js?v=20261119d"></script>
-<script src="/assets/js/documents.js?v=20261120h"></script>
+<script src="/assets/js/documents.js?v=20261120i"></script>
 </body>
 </html>
