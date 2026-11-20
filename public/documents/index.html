@@ -66,6 +66,11 @@
         <div class="field"><label for="c-plaque">Immatriculation <span class="opt">facultatif</span></label><input id="c-plaque" type="text" maxlength="20" autocomplete="off"></div>
         <div class="docs__row"><button class="btn btn--gold" type="button" id="btnChauffeur"><span>Chauffeur confirmé — prévenir le client</span></button></div>
       </div>
+      <div id="pRealisation" hidden>
+        <div class="field"><label for="r-le">Date et heure réelles de réalisation</label><input id="r-le" type="datetime-local"></div>
+        <div class="docs__row"><button class="btn btn--gold" type="button" id="btnRealisee"><span>COURSE RÉALISÉE</span></button></div>
+        <p class="field__help">Validation par ELEV8 uniquement (jamais automatique à l'heure prévue). Elle déclenche la facture finale, acompte déduit, envoyée au client avec copie à ELEV8.</p>
+      </div>
       <div class="docs__row" id="pAnnuler" hidden>
         <button class="btn btn--quiet" type="button" id="btnIndispo"><span>Indisponible — annuler</span></button>
         <button class="btn btn--quiet" type="button" id="btnSansChauffeur"><span>Aucun chauffeur — rembourser</span></button>
@@ -74,6 +79,7 @@
         <button class="btn btn--quiet" type="button" id="btnDevisEnvoye" hidden><span>Télécharger le devis envoyé</span></button>
         <button class="btn btn--quiet" type="button" id="btnFactureAcompte" hidden><span>Télécharger la facture d'acompte</span></button>
       </div>
+      <div class="docs__row" id="pDocs"></div>
       <p class="docs__msg" id="pMsg" role="status"></p>
       <ul id="pHisto"></ul>
     </section>
@@ -346,6 +352,6 @@
 
 <script src="/config.js?v=20261118b"></script>
 <script src="/assets/js/messages-client.js?v=20261119d"></script>
-<script src="/assets/js/documents.js?v=20261120e"></script>
+<script src="/assets/js/documents.js?v=20261120f"></script>
 </body>
 </html>

@@ -830,4 +830,169 @@ await t("réglages : FACTURATION_AUTOMATIQUE=non ou facturation « indy » → a
   process.env.FACTURATION_AUTOMATIQUE = "non";
 });
 
+/* ---------- Étape 3 : « Course réalisée », facture finale, avoirs ---------- */
+const docsDe = (ref, type) => [...docDeps.store.m.entries()].filter(([k, v]) => (k.startsWith("facture/") || k.startsWith("avoir/")) && v.d.ref === ref && v.d.type === type).map(([, v]) => v.d);
+async function payeeConfirmee(heure) {
+  const r = await reserverEtPayer({ date: "2026-12-05", heure });
+  await admin({ action: "chauffeur-confirme", ref: r.j.ref, chauffeur: { prenom: "Karim", vehicule: "Tesla Model Y" } });
+  return r;
+}
+async function rembourserChezStripe(ref, cumulCents) {
+  const P = await dossier(ref);
+  const ch = [...S.charges.values()].find((c) => c.payment_intent === P.paymentIntent);
+  ch.amount_refunded = cumulCents;
+  return evenement("charge.refunded", { id: ch.id, object: "charge" });
+}
+await t("paiement → chauffeur confirmé → COURSE RÉALISÉE → facture finale (acompte déduit, solde 0,00 €), PDF au client + copie ELEV8", async () => {
+  process.env.FACTURATION_AUTOMATIQUE = "";
+  const { j } = await payeeConfirmee("09:00");
+  const acompte = docsDe(j.ref, "acompte")[0];
+  envoyes.length = 0;
+  // Contrôles d'accès et de cohérence
+  const sans = await documents(post("/documents-api", { action: "course-realisee", ref: j.ref }), { ip: "6.6.6.6" });
+  assert.equal(sans.status, 401);
+  assert.equal((await admin({ action: "course-realisee", ref: j.ref, realiseeLe: "2026-12-31T10:00" })).status, 422);     // dans le futur
+  assert.match((await admin({ action: "course-realisee", ref: j.ref, realiseeLe: "2026-11-01T12:30" })).j.message, /très antérieure/);
+  const debut = NOW; NOW = Date.parse("2026-12-05T11:00:00Z");                         // le jour de la course, après la prise en charge
+  const r = await admin({ action: "course-realisee", ref: j.ref, realiseeLe: "2026-12-05T09:40" });
+  NOW = debut;
+  assert.equal(r.status, 200, JSON.stringify(r.j));
+  assert.equal(r.j.paiement.etape, "realisee"); assert.equal(r.j.paiement.etapeLibelle, "Course réalisée");
+  const P = await dossier(j.ref);
+  assert.equal(P.realisation.le, new Date(PAI.instantParis("2026-12-05", "09:40")).toISOString()); assert.equal(P.realisation.par, "elev8");
+  const F = docsDe(j.ref, "finale");
+  assert.equal(F.length, 1);
+  const f = F[0];
+  assert.match(f.numero, /^TEST-F-2026-\d{4}$/); assert.ok(f.numero > acompte.numero, "numéro postérieur à l'acompte (série continue)");
+  assert.equal(P.factures.finale, f.numero); assert.equal(r.j.facture.numero, f.numero);
+  assert.equal(f.finale.acompte.numero, acompte.numero); assert.equal(f.finale.deductionCents, 2000); assert.equal(f.finale.soldeCents, 0);
+  assert.deepEqual([f.montants.ht, f.montants.tva, f.montants.ttc], [18.18, 1.82, 20]);
+  assert.equal(f.doc.facture.datePrestation, "2026-12-05");
+  const m = envoyes.find((x) => /Votre facture TEST-F/.test(x.subject));
+  assert.equal(m.to, "claire@example.test"); assert.equal(m.copie, "contact@elev8privatedriver.com"); assert.equal(m.pieces[0].nom, f.numero + ".pdf");
+  assert.ok(m.text.includes("solde à payer 0,00 €") && m.text.includes(acompte.numero));
+  const txt = textePdf(m.pieces[0].contenu);
+  for (const x of ["Facture", f.numero, j.ref, "Date de réalisation", "samedi 5 décembre 2026 à 09h40", "Transport de personnes avec chauffeur", "Total HT", "18,18", "1,82", "Total TTC", "20,00",
+    "Acompte vers", acompte.numero, "Solde à payer", "0,00", "Facture réglée par l'acompte", "SASU au capital de 1 000", "DOCUMENT DE TEST"]) assert.ok(txt.includes(x), x);
+  // Téléchargement réservé, document rattaché à la réservation
+  const tel = await admin({ action: "document-pdf", ref: j.ref, numero: f.numero });
+  assert.equal(tel.status, 200); assert.equal(Buffer.from(tel.j.pdf, "base64").compare(Buffer.from(m.pieces[0].contenu)), 0);
+  assert.equal((await admin({ action: "document-pdf", ref: A.acompte.ref, numero: f.numero })).status, 404);
+  assert.equal((await documents(post("/documents-api", { action: "document-pdf", ref: j.ref, numero: f.numero }), { ip: "6.6.6.7" })).status, 401);
+  A.finale = { ref: j.ref, numero: f.numero, acompte: acompte.numero };
+});
+await t("double clic / validations simultanées sur « Course réalisée » : une seule validation, une seule facture finale", async () => {
+  const { j } = await payeeConfirmee("10:00");
+  envoyes.length = 0;
+  const [a, b] = await Promise.all([admin({ action: "course-realisee", ref: j.ref }), admin({ action: "course-realisee", ref: j.ref })]);
+  assert.deepEqual([a.status, b.status].sort(), [200, 409]);
+  assert.equal((await admin({ action: "course-realisee", ref: j.ref })).status, 409);
+  await suivre(NOW); await suivre(NOW);
+  assert.equal(docsDe(j.ref, "finale").length, 1);
+  assert.equal(envoyes.filter((x) => /Votre facture TEST-F/.test(x.subject) && x.subject.includes(j.ref)).length, 1);
+});
+await t("« Course réalisée » refusée : chauffeur non confirmé, paiement non confirmé, course annulée ou remboursée", async () => {
+  const { j } = await reserverEtPayer({ date: "2026-12-06", heure: "09:00" });
+  assert.match((await admin({ action: "course-realisee", ref: j.ref })).j.message, /Confirmez d'abord le chauffeur/);
+  const { j: j2 } = await envoyer({ date: "2026-12-06", heure: "10:00" });
+  assert.equal((await admin({ action: "course-realisee", ref: j2.ref })).status, 409);         // lien envoyé, non payé
+  assert.equal((await admin({ action: "course-realisee", ref: "E8-261120-SANSLIEN" })).status, 404);
+  A.nonRealisee = j.ref;
+});
+await t("remboursement total AVANT la prestation : avoir TEST-AV sur la facture d'acompte, envoyé ; course non réalisable ; pas de double avoir", async () => {
+  const ref = A.nonRealisee, acompte = docsDe(ref, "acompte")[0];
+  envoyes.length = 0;
+  await admin({ action: "annuler-course", ref, motif: "sans_chauffeur" });       // remboursement intégral demandé à Stripe
+  const P0 = await dossier(ref);
+  const e = await rembourserChezStripe(ref, P0.montantCents);                     // Stripe confirme
+  assert.equal(e.j.resultat, "rembourse");
+  const AV = docsDe(ref, "avoir");
+  assert.equal(AV.length, 1);
+  const av = AV[0];
+  assert.match(av.numero, /^TEST-AV-2026-\d{4}$/);
+  assert.equal(av.avoir.facture.numero, acompte.numero); assert.equal(av.avoir.facture.type, "acompte");
+  assert.equal(av.avoir.montantCents, P0.montantCents); assert.equal(av.avoir.total, true); assert.equal(av.avoir.reference, P0.paymentIntent);
+  assert.equal(Math.round(av.montants.ttc * 100), P0.montantCents); assert.equal(Math.round((av.montants.ht + av.montants.tva) * 100), P0.montantCents);
+  assert.equal(av.montants.ht, Math.round(P0.montantCents / 1.1) / 100);
+  const m = envoyes.find((x) => /Votre avoir/.test(x.subject));
+  assert.equal(m.to, "claire@example.test"); assert.equal(m.copie, "contact@elev8privatedriver.com");
+  const txt = textePdf(m.pieces[0].contenu);
+  for (const x of ["Avoir", av.numero, "Avoir sur la facture d'acompte " + acompte.numero, "Remboursement intégral de " + (P0.montantCents / 100).toFixed(2).replace(".", ","), "Montant remboursé", "Total TTC de l'avoir", "DOCUMENT DE TEST"]) assert.ok(txt.includes(x), x);
+  // Notification répétée et relance : aucun second avoir
+  await rembourserChezStripe(ref, P0.montantCents); await suivre(NOW);
+  assert.equal(docsDe(ref, "avoir").length, 1);
+  assert.equal(envoyes.filter((x) => /Votre avoir/.test(x.subject)).length, 1);
+  assert.equal((await admin({ action: "course-realisee", ref })).status, 409);
+  assert.equal(docsDe(ref, "finale").length, 0);
+  assert.deepEqual(docsDe(ref, "acompte")[0], acompte, "facture d'acompte inchangée");
+});
+await t("remboursements partiels progressifs avant la course : un avoir par tranche, puis facture finale au montant réellement dû", async () => {
+  const { j } = await payeeConfirmee("11:00");
+  const acompte = docsDe(j.ref, "acompte")[0];
+  await rembourserChezStripe(j.ref, 500);                                         // 5,00 € (geste commercial)
+  await rembourserChezStripe(j.ref, 500);                                         // notification répétée
+  await rembourserChezStripe(j.ref, 800);                                         // 3,00 € de plus (cumul 8,00 €)
+  const AV = docsDe(j.ref, "avoir").sort((a, b) => a.numero.localeCompare(b.numero));
+  assert.deepEqual(AV.map((x) => x.avoir.montantCents), [500, 300]);
+  assert.deepEqual(AV.map((x) => x.avoir.cumulCents), [500, 800]);
+  assert.ok(AV.every((x) => x.avoir.facture.numero === acompte.numero && !x.avoir.total));
+  assert.equal((await dossier(j.ref)).statut, "rembourse_partiel");
+  const r = await admin({ action: "course-realisee", ref: j.ref });
+  assert.equal(r.status, 200, JSON.stringify(r.j));
+  const f = docsDe(j.ref, "finale")[0];
+  assert.equal(f.montants.ttc, 12); assert.equal(f.finale.deductionCents, 1200); assert.equal(f.finale.soldeCents, 0);
+  assert.deepEqual(f.finale.avoirs.map((a) => a.numero), AV.map((x) => x.numero));
+  assert.ok(f.doc.supplements.some((x) => x.montant === -5 && x.libelle.includes(AV[0].numero)));
+  assert.equal(Math.round((f.montants.ht + f.montants.tva) * 100), 1200);
+});
+await t("remboursement APRÈS la facture finale : avoir rattaché à la facture finale (partiel puis solde), factures inchangées", async () => {
+  const ref = A.finale.ref;
+  const finale = docsDe(ref, "finale")[0], acompte = docsDe(ref, "acompte")[0];
+  envoyes.length = 0;
+  await rembourserChezStripe(ref, 700);
+  await rembourserChezStripe(ref, 2000);
+  const AV = docsDe(ref, "avoir").sort((a, b) => a.numero.localeCompare(b.numero));
+  assert.deepEqual(AV.map((x) => [x.avoir.montantCents, x.avoir.facture.numero, x.avoir.total]), [[700, finale.numero, false], [1300, finale.numero, true]]);
+  assert.equal(envoyes.filter((x) => /Votre avoir/.test(x.subject)).length, 2);
+  assert.deepEqual(docsDe(ref, "finale")[0], finale); assert.deepEqual(docsDe(ref, "acompte")[0], acompte);
+  const P = await dossier(ref);
+  assert.equal(P.statut, "rembourse"); assert.equal(P.etape, "realisee");
+  for (const a of P.factures.avoirs) assert.equal((await admin({ action: "document-pdf", ref, numero: a.numero })).status, 200);
+});
+await t("échec d'e-mail de la facture finale : facture conservée, renvoyée une seule fois par la tâche horaire", async () => {
+  const { j } = await payeeConfirmee("12:00");
+  const normal = MAIL.deps.send; let panne = true;
+  MAIL.deps.send = async (m) => { if (panne && /Votre facture TEST-F/.test(m.subject)) throw new Error("provider:503"); envoyes.push(m); };
+  envoyes.length = 0;
+  const r = await admin({ action: "course-realisee", ref: j.ref });
+  assert.equal(r.status, 200); assert.equal(r.j.facture.envoye, false);
+  assert.equal(docsDe(j.ref, "finale").length, 1);
+  panne = false; await suivre(NOW); await suivre(NOW);
+  assert.equal(envoyes.filter((x) => /Votre facture TEST-F/.test(x.subject) && x.subject.includes(j.ref)).length, 1);
+  assert.equal(docsDe(j.ref, "finale").length, 1);
+  MAIL.deps.send = normal;
+});
+await t("émission interrompue : la reprise réutilise le numéro déjà attribué (pas de trou), sans doublon", async () => {
+  const { j } = await payeeConfirmee("13:00");
+  const st = docDeps.store;
+  // Simulation : une émission a pris le numéro suivant puis s'est arrêtée avant d'enregistrer la facture
+  const cle = "finale-ref/" + j.ref;
+  const cpt = st.m.get("compteur/2026").d.n + 1;
+  await st.setJSON("compteur/2026", { n: cpt, par: cle });
+  await st.setJSON(cle, { numero: null, t: NOW - 10 * 60_000 });
+  await PAI.modifier(PAI.magasin(), (await dossier(j.ref)).jeton, (x) => ({ ...x, etape: "realisee", realisation: { le: new Date(NOW).toISOString(), par: "elev8" } }));
+  await suivre(NOW);
+  const f = docsDe(j.ref, "finale");
+  assert.equal(f.length, 1); assert.equal(f[0].numero, "TEST-F-2026-" + String(cpt).padStart(4, "0"), "numéro repris");
+  assert.equal(st.m.get("compteur/2026").d.n, cpt, "aucun numéro supplémentaire consommé");
+});
+await t("séries distinctes : factures F (acompte + finale, compteur commun) et avoirs AV (compteur propre)", async () => {
+  const F = [...docDeps.store.m.values()].map((v) => v.d).filter((d) => d && d.numero && d.test && (d.type === "acompte" || d.type === "finale")).map((d) => d.numero);
+  const AV = [...docDeps.store.m.values()].map((v) => v.d).filter((d) => d && d.type === "avoir").map((d) => d.numero);
+  assert.equal(new Set(F).size, F.length, "aucun numéro F en double"); assert.equal(new Set(AV).size, AV.length, "aucun numéro AV en double");
+  assert.ok(AV.every((n) => /^TEST-AV-2026-\d{4}$/.test(n)));
+  assert.equal(docDeps.store.m.get("compteur-AV/2026").d.n, AV.length);
+  process.env.FACTURATION_AUTOMATIQUE = "non";
+});
+
 console.log(`\n${ok} test(s) réussi(s)` + (process.exitCode ? " — ÉCHECS ci-dessus" : ""));

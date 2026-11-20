@@ -206,8 +206,10 @@ const NOIR = rgb(0.043, 0.039, 0.035), OR = rgb(0.737, 0.655, 0.514), OR_FONCE =
 
 export async function pdf(type, doc, e, meta = {}) {
   const P = await PDFDocument.create();
-  const estFacture = type === "facture" || type === "acompte";       // « acompte » : facture d'acompte (paiement anticipé)
-  P.setTitle((type === "facture" ? "Facture " : type === "acompte" ? "Facture d'acompte " : "Devis ") + meta.numero + " — ELEV8 Private Driver");
+  // « acompte » : facture d'acompte ; « finale » : facture après la course (acompte déduit) ; « avoir » : avoir après remboursement
+  const estFacture = type === "facture" || type === "acompte" || type === "finale" || type === "avoir";
+  const NOMS = { facture: "Facture", finale: "Facture", acompte: "Facture d'acompte", avoir: "Avoir", devis: "Devis" };
+  P.setTitle((NOMS[type] || "Devis") + " " + meta.numero + " — ELEV8 Private Driver");
   P.setAuthor(e.nom || "ELEV8 Private Driver"); P.setCreator("ELEV8 Private Driver"); P.setProducer("ELEV8 Private Driver");
   const horodatage = new Date(meta.horodatage || Date.now());
   P.setCreationDate(horodatage); P.setModificationDate(horodatage);   // facture redemandée : fichier identique à l'octet près
@@ -249,7 +251,7 @@ export async function pdf(type, doc, e, meta = {}) {
   /* En-tête noir et or */
   // Un devis lié à un paiement en ligne (lien envoyé, payé ou remboursé) n'est jamais « provisoire » : le montant est fixé
   const provisoire = type === "devis" && !doc.devis.valide && !(meta.reglement && meta.reglement.etat);
-  const titre = type === "facture" ? "Facture" : type === "acompte" ? "Facture d'acompte" : provisoire ? "Devis provisoire" : "Devis";
+  const titre = type === "devis" ? (provisoire ? "Devis provisoire" : "Devis") : NOMS[type];
   page.drawRectangle({ x: 0, y: H - 118, width: W, height: 118, color: NOIR });
   page.drawRectangle({ x: 0, y: H - 120, width: W, height: 2, color: OR });
   txt("ELEV8", M, H - 64, { font: F.t, size: 30, color: OR, cs: 5 });
@@ -289,7 +291,7 @@ export async function pdf(type, doc, e, meta = {}) {
 
   /* Bandeau d'état */
   const TD = type === "devis" ? textesDevis(doc, e, meta, montants(doc.montant, e, doc.supplements).ttc) : null;
-  const AC = type === "acompte" ? meta.acompte : null;
+  const AC = type === "acompte" ? meta.acompte : null, FI = type === "finale" ? meta.finale : null, AV = type === "avoir" ? meta.avoir : null;
   if (provisoire || type === "devis") {               // facture d'acompte : « Acompte de 100 % reçu » figure dans les totaux et la rubrique Paiement
     const msg = provisoire
       ? "DEVIS PROVISOIRE — Tarif indicatif, sous réserve de validation de la disponibilité et des conditions du trajet par ELEV8 Private Driver. Aucun paiement n'est demandé à cette étape."
@@ -306,6 +308,9 @@ export async function pdf(type, doc, e, meta = {}) {
   etiquette("Prestation", M, y); y -= 6; filet(y); y -= 15;
   const quand = (d, h) => [dateFr(d, true), h ? "à " + h.replace(":", "h") : ""].filter(Boolean).join(" ");
   const lignesP = [
+    ...((AC || FI || AV) && doc.ref ? [["Réservation", doc.ref]] : []),       // factures automatiques : référence de la réservation
+    FI ? ["Date de réalisation", dateFr(doc.facture.datePrestation, true) + (FI.heureRealisation ? " à " + FI.heureRealisation : "")] :
+    AV ? ["Prestation du", quand(p.date, p.heure)] :
     type === "acompte" ? ["Date prévue", quand(p.date, p.heure)] : ["Date", type === "facture" ? dateFr(doc.facture.datePrestation, true) + (p.heure && doc.facture.datePrestation === p.date ? " à " + p.heure.replace(":", "h") : "") : quand(p.date, p.heure)],
     ["Départ", p.depart], ["Destination", p.destination],
     ...(p.allerRetour ? [["Retour", quand(p.dateRetour, p.heureRetour) || "Aller-retour"]] : []),
@@ -344,7 +349,7 @@ export async function pdf(type, doc, e, meta = {}) {
   txt(euros(base), cols[3] - largeur(euros(base)), yLigne);
   sup.forEach((x, i) => {
     y -= 6; besoin(16);
-    const l = couper("Supplément : " + x.libelle, cols[1] - cols[0] - 16, F.r, 9.5), y0 = y, v = mt.lignesHt[i + 1];
+    const l = couper((x.montant < 0 ? "" : "Supplément : ") + x.libelle, cols[1] - cols[0] - 16, F.r, 9.5), y0 = y, v = mt.lignesHt[i + 1];
     for (const t of l) { txt(t, cols[0], y); y -= 13; }
     txt("1", cols[1], y0); txt(euros(v), cols[2], y0); txt(euros(v), cols[3] - largeur(euros(v)), y0);
   });
@@ -361,8 +366,13 @@ export async function pdf(type, doc, e, meta = {}) {
     total("Total HT", euros(mt.ht)); total("TVA " + String(mt.taux).replace(".", ",") + " %", euros(mt.tva));
     y -= 6;
     page.drawRectangle({ x: W - M - 240, y: y - 6, width: 240, height: 20, color: FOND_DOUX });
-    total("Total TTC", euros(mt.ttc), true);
+    total(AV ? "Total TTC de l'avoir" : "Total TTC", euros(mt.ttc), true);
   }
+  if (FI) {                                                                // facture finale : acompte déduit, solde 0
+    total("Acompte versé (" + FI.acompte.numero + ")" + (FI.avoirs.length ? ", net des avoirs" : ""), "- " + euros(FI.deductionCents / 100));
+    total("Solde à payer", euros(FI.soldeCents / 100), true);
+  }
+  if (AV) total("Montant remboursé", euros(AV.montantCents / 100), true);
   if (AC) {                                                                // acompte de 100 % : déjà réglé, reste 0
     total("Acompte reçu (100 %)", "- " + euros(AC.montantCents / 100));
     total("Reste à payer", euros(0), true);
@@ -371,7 +381,19 @@ export async function pdf(type, doc, e, meta = {}) {
   y -= 10;
 
   /* Paiement / validation */
-  if (AC) {
+  if (FI) {
+    besoin(60); etiquette("Paiement", M, y); y -= 6; filet(y); y -= 15;
+    bloc("Facture réglée par l'acompte de " + euros(FI.acompte.montantCents / 100) + " TTC reçu le " + dateFr(doc.facture.datePaiement) + " (facture d'acompte " + FI.acompte.numero + " du " + dateFr(FI.acompte.date) + ") — " + FI.mode + ", référence " + FI.reference + ".", M, W - 2 * M, { font: F.b });
+    if (FI.avoirs.length) bloc("Remboursement" + (FI.avoirs.length > 1 ? "s" : "") + " déjà effectué" + (FI.avoirs.length > 1 ? "s" : "") + " : " + FI.avoirs.map((a) => "avoir " + a.numero + " du " + dateFr(a.date) + " (" + euros(a.montantCents / 100) + ")").join(", ") + ".", M, W - 2 * M);
+    bloc("Solde à payer : " + euros(FI.soldeCents / 100) + ".", M, W - 2 * M);
+    y -= 4;
+    bloc("Prestation de services réalisée le " + dateFr(doc.facture.datePrestation) + (FI.heureRealisation ? " à " + FI.heureRealisation : "") + ". Pas d'escompte pour paiement anticipé.", M, W - 2 * M, { size: 7.8, color: GRIS, lh: 11 });
+  } else if (AV) {
+    besoin(60); etiquette("Remboursement", M, y); y -= 6; filet(y); y -= 15;
+    bloc("Avoir sur la facture " + (AV.facture.type === "acompte" ? "d'acompte " : "") + AV.facture.numero + " du " + dateFr(AV.facture.date) + ".", M, W - 2 * M, { font: F.b });
+    bloc((AV.total ? "Remboursement intégral" : "Remboursement") + " de " + euros(AV.montantCents / 100) + " TTC effectué le " + dateFr(AV.dateRemboursement) + " — " + AV.mode + ", sur le paiement " + AV.reference + (AV.charge ? " (opération " + AV.charge + ")" : "") + ".", M, W - 2 * M);
+    bloc("Total remboursé à ce jour : " + euros(AV.cumulCents / 100) + " TTC. Reste dû : 0,00 €.", M, W - 2 * M);
+  } else if (AC) {
     besoin(60); etiquette("Paiement", M, y); y -= 6; filet(y); y -= 15;
     bloc("Acompte de 100 % reçu le " + dateFr(AC.dateEncaissement) + " — règlement par " + AC.mode + " (référence du paiement : " + AC.reference + ").", M, W - 2 * M, { font: F.b });
     bloc("Montant déjà réglé : " + euros(AC.montantCents / 100) + " TTC. Reste à payer : 0,00 €.", M, W - 2 * M);

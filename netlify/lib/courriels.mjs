@@ -135,6 +135,29 @@ export function mailFactureAcompte(D, rec) {
     html: gabarit({ titre: "Votre facture d'acompte", intro: [bonjourDe(D), ...blocs], lignes: L, encadre: "Acompte de 100 % reçu : " + montant + " — reste à payer : 0,00 €" }) };
 }
 
+const dateLongueIso = (iso) => new Date(iso + "T12:00:00Z").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+
+/* 2 ter. Facture finale après « Course réalisée » (acompte déduit, solde 0,00 €) */
+export function mailFactureFinale(D, rec) {
+  const f = rec.finale;
+  const blocs = ["Merci d'avoir voyagé avec " + MARQUE + ".",
+    "Vous trouverez ci-joint la facture finale n° " + rec.numero + " de votre course du " + dateLongueIso(rec.doc.facture.datePrestation) + " (" + euros(Math.round(rec.montants.ttc * 100)) + " TTC).",
+    "Elle déduit l'acompte déjà réglé (facture " + f.acompte.numero + (f.avoirs.length ? ", avoir" + (f.avoirs.length > 1 ? "s " : " ") + f.avoirs.map((a) => a.numero).join(", ") : "") + ") : solde à payer 0,00 €. Aucun autre paiement n'est demandé."];
+  return { subject: `${MARQUE} — Votre facture ${rec.numero} | ${rec.ref}`,
+    text: texte(bonjourDe(D), [blocs.join("\n\n")]),
+    html: gabarit({ titre: "Votre facture", intro: [bonjourDe(D), ...blocs], encadre: "Total " + euros(Math.round(rec.montants.ttc * 100)) + " TTC — déjà réglé — solde : 0,00 €" }) };
+}
+/* 2 quater. Avoir après un remboursement Stripe */
+export function mailAvoir(D, rec) {
+  const a = rec.avoir;
+  const blocs = [(a.total ? "Le remboursement intégral" : "Un remboursement") + " de " + euros(a.montantCents) + " TTC a été effectué le " + dateLongueIso(a.dateRemboursement) + " sur le moyen de paiement utilisé (" + a.mode + ").",
+    "Vous trouverez ci-joint l'avoir n° " + rec.numero + ", rattaché à la facture " + a.facture.numero + ".",
+    "Le remboursement apparaît sur votre compte sous quelques jours ouvrés, selon votre banque."];
+  return { subject: `${MARQUE} — Votre avoir ${rec.numero} | ${rec.ref}`,
+    text: texte(bonjourDe(D), [blocs.join("\n\n")]),
+    html: gabarit({ titre: "Votre avoir", intro: [bonjourDe(D), ...blocs], encadre: "Montant remboursé : " + euros(a.montantCents) + " TTC" }) };
+}
+
 /* 2. Paiement confirmé par Stripe : la course est EN ATTENTE d'attribution (pas encore confirmée) */
 export function mailPaiementRecu(D, p) {
   const blocs = ["Nous avons bien reçu votre règlement de " + euros(p.montantCents) + " TTC pour la réservation " + D.ref + ". Merci.",

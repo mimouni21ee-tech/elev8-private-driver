@@ -20,7 +20,7 @@ import { retenirContexte } from "../lib/environnement.mjs";
 import { magasin, parCle, lire, modifier, appliquerSession, appliquerEchecDiffere, appliquerCharge, deps as P } from "../lib/paiements.mjs";
 import { mailPaiementRecu, alerteElev8 } from "../lib/courriels.mjs";
 import { envoyerUneFois, demandeDe, lienDocuments } from "../lib/notifications.mjs";
-import { facturerPaiement } from "../lib/facturation.mjs";
+import { facturerPaiement, facturerRemboursement } from "../lib/facturation.mjs";
 
 export const config = { path: "/stripe-webhook" };
 const rep = (status, body) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -96,10 +96,13 @@ async function traiter(st, ev, now) {
     if (!p) return "inconnu";
     const r = await modifier(st, p.jeton, (x) => {
       const y = appliquerCharge(x, ch, now);
-      if (y.statut === "rembourse" && ["attente_paiement", "payee_attente_attribution"].includes(y.etape)) y.etape = y.etapeAnnulation || "annulee";
+      if (y.statut === "rembourse" && ["attente_paiement", "payee_attente_attribution", "chauffeur_confirme"].includes(y.etape)) y.etape = y.etapeAnnulation || "annulee";
       return y;
     });
     if (r.change) await envoyerUneFois(st, r.p, "elev8_rembourse_" + ch.amount_refunded, alerteElev8(await demandeDe(r.p, now), r.p, "Remboursement enregistré", [r.p.statut === "rembourse" ? "Remboursement intégral." : "Remboursement partiel : " + (ch.amount_refunded / 100).toFixed(2) + " €."], lienDocuments(r.p)), "elev8", now);
+    // Avoir rattaché à la facture émise : isolé, il ne peut pas faire échouer l'enregistrement du remboursement ; reprise horaire
+    try { await facturerRemboursement(st, r.p, { charge: ch.id, now }); }
+    catch (e) { console.error("Avoir différé :", String(e && e.message).slice(0, 60)); }
     return r.p.statut;
   }
   if (ev.type === "charge.dispute.created") {

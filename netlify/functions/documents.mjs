@@ -30,7 +30,7 @@ import { magasin as magasinDemandes, chargerParId, chargerParRef } from "../lib/
 import { stripeActif } from "../lib/stripe.mjs";
 import { retenirContexte, estSiteDeTest, nomMagasin, destinataireTest, marquerTest } from "../lib/environnement.mjs";
 import { magasin as magasinPaiements, parRef as paiementParRef, resume as resumePaiement } from "../lib/paiements.mjs";
-import { creerLienManuel, confirmerChauffeur, annulerEtRembourser } from "../lib/actions-paiement.mjs";
+import { creerLienManuel, confirmerChauffeur, annulerEtRembourser, confirmerRealisation } from "../lib/actions-paiement.mjs";
 import { magasinDevis, pdfDevis } from "../lib/devis-auto.mjs";
 import { pdfFacture } from "../lib/facturation.mjs";
 import { numeroSuivant } from "../lib/numerotation.mjs";
@@ -284,7 +284,25 @@ export default async (req, context) => {
     }
   }
 
-  if (["paiement-etat", "paiement-lien", "chauffeur-confirme", "annuler-course"].includes(b.action)) {
+  /* Facture finale ou avoir enregistré (numéro rattaché à la réservation ; accès réservé à ELEV8) */
+  if (b.action === "document-pdf") {
+    const ref = String(b.ref || "").trim().toUpperCase(), numero = String(b.numero || "").trim().toUpperCase();
+    try {
+      const P = /^E8-[A-Z0-9-]{3,30}$/.test(ref) ? await paiementParRef(magasinPaiements(), ref) : null;
+      const F = (P && P.factures) || {};
+      const autorise = [F.acompte, F.finale, ...((F.avoirs || []).map((a) => a.numero))].filter(Boolean);
+      if (!autorise.includes(numero)) return json(404, { ok: false, code: "document", message: "Document introuvable pour cette référence." });
+      const rec = await magasinDevis().get((/(^|-)AV-/.test(numero) ? "avoir/" : "facture/") + numero, { type: "json" });
+      if (!rec || rec.ref !== ref) return json(404, { ok: false, code: "document", message: "Document introuvable pour cette référence." });
+      const bytes = await pdfFacture(rec);
+      return json(200, { ok: true, numero: rec.numero, fichier: rec.numero + ".pdf", pdf: Buffer.from(bytes).toString("base64") });
+    } catch (e) {
+      console.error("Document :", String(e && e.message).slice(0, 60));
+      return json(502, { ok: false, code: "document", message: "Lecture du document impossible pour le moment." });
+    }
+  }
+
+  if (["paiement-etat", "paiement-lien", "chauffeur-confirme", "annuler-course", "course-realisee"].includes(b.action)) {
     const ref = String(b.ref || "").trim().toUpperCase();
     if (!/^E8-[A-Z0-9-]{3,30}$/.test(ref)) return json(400, { ok: false, code: "ref", message: "Référence invalide." });
     if (!stripeActif()) return json(503, { ok: false, code: "stripe", message: "Paiement en ligne non activé (variables Stripe de test absentes)." });
@@ -297,6 +315,7 @@ export default async (req, context) => {
         r = await creerLienManuel({ ref, montant: Number(String(b.montant).replace(",", ".")), detail, origine: url.origin, envoyerMail: b.envoyerMail !== false, now });
       }
       else if (b.action === "chauffeur-confirme") r = await confirmerChauffeur({ ref, chauffeur: b.chauffeur, now });
+      else if (b.action === "course-realisee") r = await confirmerRealisation({ ref, realiseeLe: String(b.realiseeLe || ""), now });
       else r = await annulerEtRembourser({ ref, motif: b.motif, now });
       if (r.erreur) return json(r.erreur[0], { ok: false, code: "paiement", message: r.erreur[1] });
       return json(200, { ok: true, ...r });

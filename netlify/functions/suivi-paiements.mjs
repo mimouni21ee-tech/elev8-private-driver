@@ -13,7 +13,7 @@ import { magasin, modifier, REGLES, deps as P } from "../lib/paiements.mjs";
 import { alerteElev8 } from "../lib/courriels.mjs";
 import { envoyerUneFois, demandeDe, lienDocuments } from "../lib/notifications.mjs";
 import { annulerEtRembourser } from "../lib/actions-paiement.mjs";
-import { acompteEnAttente, facturerPaiement } from "../lib/facturation.mjs";
+import { acompteEnAttente, facturerPaiement, finaleEnAttente, facturerRealisation, avoirEnAttente, facturerRemboursement, relancerAvoirs } from "../lib/facturation.mjs";
 
 export async function suivre(now = P.now()) {
   const st = magasin(), bilan = { expires: 0, alertes: 0, rembourses: 0, factures: 0 };
@@ -32,6 +32,18 @@ export async function suivre(now = P.now()) {
     if (acompteEnAttente(p)) {
       try { const f = await facturerPaiement(st, p, { now }); if (f && f.numero) bilan.factures++; }
       catch (e) { console.error("Facture d'acompte (relance) :", String(e && e.message).slice(0, 60)); }
+    }
+    // Facture finale et avoirs non émis ou non envoyés : nouvelle tentative, sans doublon
+    if (finaleEnAttente(p)) {
+      try { const f = await facturerRealisation(st, (await st.get(b.key, { type: "json" })) || p, { now }); if (f && f.numero) bilan.factures++; }
+      catch (e) { console.error("Facture finale (relance) :", String(e && e.message).slice(0, 60)); }
+    }
+    if (avoirEnAttente(p)) {
+      try {
+        const q = (await st.get(b.key, { type: "json" })) || p;
+        const f = await facturerRemboursement(st, q, { now }); if (f && f.numero) bilan.factures++;
+        await relancerAvoirs(st, (await st.get(b.key, { type: "json" })) || q, { now });
+      } catch (e) { console.error("Avoir (relance) :", String(e && e.message).slice(0, 60)); }
     }
     if (p.statut === "paye" && p.etape === "payee_attente_attribution" && avant > -1) {
       for (const seuil of REGLES.alertesH) {

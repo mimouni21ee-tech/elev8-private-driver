@@ -383,14 +383,26 @@
     if (P.devis) d.push("Devis " + P.devis.numero + " envoyé le " + dateHeure(P.devis.le));
     if (P.payeLe) d.push("Payé le " + dateHeure(P.payeLe));
     if (P.factures && P.factures.acompte) d.push("Facture d'acompte " + P.factures.acompte + " émise (100 %, reste à payer 0,00 €)");
+    if (P.realisation) d.push("Course réalisée le " + dateHeure(P.realisation.le));
+    if (P.factures && P.factures.finale) d.push("Facture finale " + P.factures.finale + " émise (solde 0,00 €)");
+    if (P.factures && P.factures.avoirs && P.factures.avoirs.length) d.push("Avoir(s) : " + P.factures.avoirs.map(function (a) { return a.numero; }).join(", "));
     if (P.rembourse > 0) d.push("Remboursé : " + fmt(P.rembourse));
     if (P.motifVerification) d.push("À vérifier : " + P.motifVerification);
     if (P.chauffeur) d.push("Chauffeur : " + P.chauffeur.prenom + " · " + P.chauffeur.vehicule + (P.chauffeur.plaque ? " · " + P.chauffeur.plaque : ""));
     if (P.statut === "paye") d.push("HUBER : " + (P.huber && P.huber.etat === "en_attente_api" ? "transmission automatique dès que son API sera disponible (aucune publication pour l'instant)" : (P.huber && P.huber.etat) || "—"));
     $("#pDetail").textContent = d.join(" · ");
-    $("#pChauffeur").hidden = !(P.statut === "paye" && P.etape === "payee_attente_attribution");
+    $("#pChauffeur").hidden = !(["paye", "rembourse_partiel"].indexOf(P.statut) >= 0 && P.etape === "payee_attente_attribution");
     $("#btnDevisEnvoye").hidden = !P.devis;
     $("#btnFactureAcompte").hidden = !(P.factures && P.factures.acompte);
+    // « Course réalisée » : paiement confirmé, chauffeur confirmé, ni annulée ni remboursée intégralement
+    var realisable = P.etape === "chauffeur_confirme" && ["paye", "rembourse_partiel"].indexOf(P.statut) >= 0;
+    $("#pRealisation").hidden = !realisable;
+    if (realisable && !v("#r-le")) { var n = new Date(); n.setMinutes(n.getMinutes() - n.getTimezoneOffset()); $("#r-le").value = n.toISOString().slice(0, 16); }
+    // Facture finale et avoirs : un bouton de téléchargement par document
+    var docs = [];
+    if (P.factures && P.factures.finale) docs.push([P.factures.finale, "Télécharger la facture finale"]);
+    ((P.factures && P.factures.avoirs) || []).forEach(function (a) { docs.push([a.numero, "Télécharger l'avoir " + a.numero]); });
+    $("#pDocs").innerHTML = docs.map(function (x) { return '<button class="btn btn--quiet" type="button" data-doc="' + esc(x[0]) + '"><span>' + esc(x[1]) + "</span></button>"; }).join("");
     var annulable = ["attente_paiement", "payee_attente_attribution", "chauffeur_confirme"].indexOf(P.etape) >= 0 && ["en_attente", "expire", "paye", "a_verifier", "rembourse_partiel"].indexOf(P.statut) >= 0;
     $("#pAnnuler").hidden = !annulable;
     $("#btnSansChauffeur").hidden = ["paye", "a_verifier", "rembourse_partiel"].indexOf(P.statut) < 0;
@@ -479,10 +491,12 @@
   }
   $("#btnIndispo").addEventListener("click", function () { annuler("indisponible"); });
   /* Devis tel qu'il a été envoyé au client (document figé, relu sur le serveur) */
-  function telechargerEnregistre(action, libelle) {
+  function telechargerEnregistre(action, libelle, extra) {
     if (!demandeChargee || !demandeChargee.ref) return;
     $("#pMsg").textContent = "Préparation : " + libelle + "…";
-    appel({ action: action, ref: demandeChargee.ref }).then(function (j) {
+    var corps = { action: action, ref: demandeChargee.ref };
+    if (extra) for (var k in extra) corps[k] = extra[k];
+    appel(corps).then(function (j) {
       if (!j.ok || !j.pdf) { $("#pMsg").textContent = j.message || "Document introuvable."; return; }
       var bin = atob(j.pdf), bytes = new Uint8Array(bin.length);
       for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -493,6 +507,21 @@
   }
   $("#btnDevisEnvoye").addEventListener("click", function () { telechargerEnregistre("devis-envoye", "devis envoyé"); });
   $("#btnFactureAcompte").addEventListener("click", function () { telechargerEnregistre("facture-acompte", "facture d'acompte"); });
+  $("#pDocs").addEventListener("click", function (ev) {
+    var b = ev.target.closest("[data-doc]");
+    if (b) telechargerEnregistre("document-pdf", b.getAttribute("data-doc"), { numero: b.getAttribute("data-doc") });
+  });
+  var realisationEnCours = false;
+  $("#btnRealisee").addEventListener("click", function () {
+    if (realisationEnCours || !demandeChargee || !demandeChargee.ref) return;          // double clic ignoré (le serveur refuse aussi)
+    var le = v("#r-le");
+    if (!confirm("Confirmer que la course " + demandeChargee.ref + " a été réalisée" + (le ? " le " + le.replace("T", " à ") : "") + " ? La facture finale sera émise et envoyée au client. Cette action est définitive.")) return;
+    realisationEnCours = true; $("#btnRealisee").disabled = true;
+    actionPaiement({ action: "course-realisee", realiseeLe: le }, function (j) {
+      return j.facture && j.facture.numero ? "Course réalisée : facture finale " + j.facture.numero + (j.facture.envoye ? " envoyée au client (copie ELEV8)." : " émise (envoi relancé automatiquement).")
+        : "Course réalisée. Facture finale en cours (relance automatique).";
+    }).then(function () { realisationEnCours = false; $("#btnRealisee").disabled = false; });
+  });
   $("#btnSansChauffeur").addEventListener("click", function () { annuler("sans_chauffeur"); });
 
   function infos() {

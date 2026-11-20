@@ -9,6 +9,7 @@ import { magasin, parRef, creer, modifier, resume, instantParis, deps as P } fro
 import { magasin as magasinDemandes, chargerParRef } from "./demandes.mjs";
 import { mailChauffeurConfirme, mailAnnulation, alerteElev8 } from "./courriels.mjs";
 import { envoyerDevis } from "./devis-auto.mjs";
+import { facturerRealisation } from "./facturation.mjs";
 import { envoyerUneFois, demandeDe, lienDocuments } from "./notifications.mjs";
 
 const note = (x, quoi, now) => { x.historique = (x.historique || []).concat([{ le: new Date(now).toISOString(), quoi }]).slice(-40); return x; };
@@ -51,7 +52,7 @@ export async function confirmerChauffeur({ ref, chauffeur, now = P.now() }) {
   const st = magasin();
   const p = await parRef(st, ref);
   if (!p) return { erreur: [404, "Aucun paiement en ligne pour cette référence."] };
-  if (p.statut !== "paye") return { erreur: [409, "La confirmation du chauffeur n'est possible qu'une fois le paiement confirmé par Stripe (statut actuel : " + p.statut + ")."] };
+  if (!["paye", "rembourse_partiel"].includes(p.statut)) return { erreur: [409, "La confirmation du chauffeur n'est possible qu'une fois le paiement confirmé par Stripe (statut actuel : " + p.statut + ")."] };
   const c = { prenom: String(chauffeur && chauffeur.prenom || "").trim().slice(0, 40), vehicule: String(chauffeur && chauffeur.vehicule || "").trim().slice(0, 80), plaque: String(chauffeur && chauffeur.plaque || "").trim().slice(0, 20) };
   if (!c.prenom || !c.vehicule) return { erreur: [422, "Indiquez au moins le prénom du chauffeur et le véhicule."] };
   const r = await modifier(st, p.jeton, (x) => (x.etape === "payee_attente_attribution" ? note({ ...x, etape: "chauffeur_confirme", chauffeur: { ...c, confirmeLe: new Date(now).toISOString(), par: "elev8" } }, "chauffeur confirmé : " + c.prenom, now) : null));
@@ -60,6 +61,34 @@ export async function confirmerChauffeur({ ref, chauffeur, now = P.now() }) {
   const D = await demandeDe(n, now);
   const mail = D && D.client && D.client.email ? await envoyerUneFois(st, n, "client_chauffeur_confirme", mailChauffeurConfirme(D, n.chauffeur), D.client.email, now) : false;
   return { paiement: resume(n), mail };
+}
+
+/* « Course réalisée » : validation explicite par ELEV8 (jamais déduite de l'heure prévue).
+   Conditions : paiement confirmé (éventuellement remboursé en partie), chauffeur confirmé, aucune
+   annulation. Enregistre la date et l'heure réelles ; une seconde validation est refusée.
+   Déclenche la facture finale (acompte déduit). realiseeLe : « AAAA-MM-JJTHH:MM » (heure de Paris), facultatif. */
+export async function confirmerRealisation({ ref, realiseeLe = "", now = P.now() }) {
+  const st = magasin();
+  const p = await parRef(st, ref);
+  if (!p) return { erreur: [404, "Aucun paiement en ligne pour cette référence."] };
+  if (p.etape === "realisee") return { erreur: [409, "Course déjà déclarée réalisée le " + new Date(p.realisation.le).toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "long", timeStyle: "short" }) + "."] };
+  if (!["paye", "rembourse_partiel"].includes(p.statut)) return { erreur: [409, "Paiement non confirmé ou remboursé intégralement (statut : " + p.statut + ") : la course ne peut pas être déclarée réalisée."] };
+  if (p.etape !== "chauffeur_confirme") return { erreur: [409, p.etape === "payee_attente_attribution" ? "Confirmez d'abord le chauffeur." : "Réservation annulée ou déjà traitée (étape : " + p.etape + ")."] };
+  let le = now;
+  if (realiseeLe) {
+    const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})$/.exec(String(realiseeLe));
+    le = m ? instantParis(m[1], m[2]) : NaN;
+    if (!Number.isFinite(le)) return { erreur: [422, "Date et heure de réalisation invalides."] };
+    if (le > now + 5 * 60_000) return { erreur: [422, "La date de réalisation ne peut pas être dans le futur."] };
+    if (le < Date.parse(p.priseEnCharge) - 24 * 3600_000) return { erreur: [422, "La date de réalisation est très antérieure à la prise en charge prévue : vérifiez-la."] };
+  }
+  const r = await modifier(st, p.jeton, (x) => (x.etape === "chauffeur_confirme" && ["paye", "rembourse_partiel"].includes(x.statut)
+    ? note({ ...x, etape: "realisee", realisation: { le: new Date(le).toISOString(), declareLe: new Date(now).toISOString(), par: "elev8" } }, "course réalisée (" + new Date(le).toLocaleString("fr-FR", { timeZone: "Europe/Paris" }) + ")", now) : null));
+  if (!r.change) return { erreur: [409, "Course déjà déclarée réalisée (validation simultanée)."] };
+  let facture = null;
+  try { facture = await facturerRealisation(st, r.p, { now }); }
+  catch (e) { console.error("Facture finale différée :", String(e && e.message).slice(0, 60)); facture = { differee: true }; }
+  return { paiement: resume(await parRef(st, ref)), facture };
 }
 
 /* Indisponibilité ou aucun chauffeur : lien désactivé (non payé) ou remboursement intégral (payé) */

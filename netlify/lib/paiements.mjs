@@ -156,7 +156,7 @@ export const LIBELLES = {
   a_verifier: "Paiement reçu — à vérifier", rembourse_partiel: "Remboursée partiellement", rembourse: "Remboursée",
   annule: "Lien annulé", expire: "Lien expiré (non payé)", remplace: "Lien remplacé",
   attente_paiement: "En attente de paiement", payee_attente_attribution: "Payée — en attente d'attribution",
-  chauffeur_confirme: "Chauffeur confirmé", annulee_indisponible: "Annulée — indisponibilité", sans_chauffeur: "Annulée — aucun chauffeur", annulee: "Annulée"
+  chauffeur_confirme: "Chauffeur confirmé", realisee: "Course réalisée", annulee_indisponible: "Annulée — indisponibilité", sans_chauffeur: "Annulée — aucun chauffeur", annulee: "Annulée"
 };
 export function resume(p) {
   if (!p) return null;
