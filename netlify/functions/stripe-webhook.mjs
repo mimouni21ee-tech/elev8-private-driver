@@ -5,7 +5,7 @@
    Stripe (/paiement/?etat=merci) n'a aucun effet.
    Contrôles, dans l'ordre :
      1. signature Stripe (STRIPE_WEBHOOK_SECRET, tolérance 5 min) sur le corps brut ;
-     2. objet réel (mode test uniquement dans cette version) ;
+     2. mode de l'événement identique au contexte Stripe (test ou live) ;
      3. anti-rejeu : chaque événement n'est traité qu'une fois (evt/<id>) ;
      4. état RELU auprès de Stripe (session, charge) : montant, devise, référence, jeton ;
      5. statuts qui n'avancent que dans un sens (un événement en retard ne fait pas reculer).
@@ -35,7 +35,7 @@ export default async (req, context) => {
   let ev;
   try { ev = JSON.parse(brut); } catch { return rep(400, { ok: false, erreur: "format" }); }
   if (!ev || typeof ev.id !== "string" || !ev.type) return rep(400, { ok: false, erreur: "format" });
-  if (ev.livemode === true) { console.warn("Événement Stripe réel ignoré (version de test)"); return rep(200, { ok: true, ignore: "livemode" }); }
+  if (ev.livemode !== (c.mode === "live")) return rep(400, { ok: false, erreur: "mode_incorrect" });
 
   const st = magasin(), now = P.now();
   // Anti-rejeu
