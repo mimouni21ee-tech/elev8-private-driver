@@ -1,20 +1,11 @@
 /* ==========================================================================
-   ELEV8 Private Driver — accès à l'API Stripe (serveur uniquement)
-   --------------------------------------------------------------------------
-   Variables Netlify (jamais dans les fichiers, jamais dans les journaux) :
-     PAIEMENT_STRIPE        "test" pour activer le paiement en ligne. Absente → le site
-                            fonctionne exactement comme avant (aucun lien Stripe).
-     STRIPE_SECRET_KEY      clé de TEST : sk_test_… ou, mieux, clé restreinte rk_test_…
-     STRIPE_WEBHOOK_SECRET  secret de signature du webhook (whsec_…)
-
-   ⚠ Version de développement : SEULES les clés de test sont acceptées. Une clé réelle
-     (sk_live_ / rk_live_) désactive le paiement en ligne : aucun encaissement réel possible.
-   Appels directs à l'API REST de Stripe (aucune bibliothèque à installer), avec clé
-   d'idempotence pour toute création, et vérification maison de la signature des webhooks
-   (schéma officiel Stripe : HMAC-SHA256 de « horodatage.corps », tolérance 5 minutes).
+   ELEV8 — Stripe: TEST uniquement hors production, LIVE uniquement en production.
+   Activer explicitement PAIEMENT_STRIPE=test / live dans le contexte Netlify adéquat.
+   Clés secrètes uniquement dans les variables d'environnement Netlify.
+   Jamais de repli implicite d'un mode vers l'autre.
    ========================================================================== */
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { estProduction } from "./environnement.mjs";
+import { estProduction, contexteDeploiement } from "./environnement.mjs";
 
 export const deps = { fetch: (...a) => fetch(...a), now: () => Date.now() };
 const env = (k) => (process.env[k] || "").trim();
@@ -22,12 +13,17 @@ const API = "https://api.stripe.com";
 
 /* Configuration active, ou null (paiement en ligne désactivé) */
 export function stripeActif() {
-  if (estProduction()) return null;                                      // jamais sur le site de production (version de test)
-  if (env("PAIEMENT_STRIPE").toLowerCase() !== "test") return null;
+  const contexte = contexteDeploiement();
+  const mode = env("PAIEMENT_STRIPE").toLowerCase();
   const cle = env("STRIPE_SECRET_KEY"), secret = env("STRIPE_WEBHOOK_SECRET");
-  if (!/^(sk|rk)_test_[A-Za-z0-9]{10,}$/.test(cle)) return null;          // clé réelle ou absente : refusé
+  // Contexte de production explicite obligatoire pour encaisser réellement.
+  // Une prévisualisation ou un déploiement de branche n'accepte jamais de clé live.
+  // Hors Netlify, seul le mode test peut être actif (tests locaux).
+  if (estProduction() ? mode !== "live" : mode !== "test") return null;
+  if (!contexte && mode === "live") return null;
+  if (!new RegExp("^(sk|rk)_" + mode + "_[A-Za-z0-9]{10,}$").test(cle)) return null;
   if (!/^whsec_[A-Za-z0-9+/=]{10,}$/.test(secret)) return null;
-  return { cle, secret, mode: "test" };
+  return { cle, secret, mode };
 }
 
 /* Encodage « application/x-www-form-urlencoded » imbriqué, au format attendu par Stripe */
@@ -55,7 +51,7 @@ async function appel(methode, chemin, params, idempotence) {
   const r = await deps.fetch(url, { method: methode, headers: h, body: corps });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) { const e = j && j.error || {}; throw new ErreurStripe(r.status, e.type, e.code); }   // message d'erreur Stripe non journalisé (peut contenir des données)
-  if (j && j.livemode === true) throw new ErreurStripe(0, "configuration", "livemode");          // garde-fou : jamais d'objet réel
+  if (j && typeof j.livemode === "boolean" && j.livemode !== (c.mode === "live")) throw new ErreurStripe(0, "configuration", "mode_incorrect");
   return j;
 }
 
