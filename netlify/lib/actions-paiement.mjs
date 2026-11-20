@@ -7,7 +7,8 @@
 import { stripeActif, expirerSession, rembourser } from "./stripe.mjs";
 import { magasin, parRef, creer, modifier, resume, instantParis, deps as P } from "./paiements.mjs";
 import { magasin as magasinDemandes, chargerParRef } from "./demandes.mjs";
-import { mailLienPaiement, mailChauffeurConfirme, mailAnnulation, alerteElev8 } from "./courriels.mjs";
+import { mailChauffeurConfirme, mailAnnulation, alerteElev8 } from "./courriels.mjs";
+import { envoyerDevis } from "./devis-auto.mjs";
 import { envoyerUneFois, demandeDe, lienDocuments } from "./notifications.mjs";
 
 const note = (x, quoi, now) => { x.historique = (x.historique || []).concat([{ le: new Date(now).toISOString(), quoi }]).slice(-40); return x; };
@@ -18,22 +19,24 @@ export const descriptionCourse = (D) => {
 };
 
 /* Création du lien (paiement automatique, ou après validation manuelle du montant) + e-mail au client */
-export async function preparerPaiement(D, { idDemande, montant, origine, envoyerMail = true, now = P.now() }) {
+/* envoyerMail : envoie le devis PDF + bouton « Accepter le devis et payer en ligne » (copie à ELEV8).
+   detail : { montant, supplements } du tarif validé, pour détailler le devis (total = montant du lien). */
+export async function preparerPaiement(D, { idDemande, montant, origine, envoyerMail = true, detail = null, now = P.now() }) {
   const st = magasin();
   const p = await creer(st, { ref: D.ref, idDemande, montant, libelle: libelleCourse(D), description: descriptionCourse(D),
     priseEnCharge: instantParis(D.prestation.date, D.prestation.heure), origine, now });
-  let mail = false;
-  if (envoyerMail && D.client && D.client.email) mail = await envoyerUneFois(st, p, "client_lien", mailLienPaiement(D, p, origine + "/payer/" + p.jeton), D.client.email, now);
-  return { p, mail };
+  let mail = false, devis = null;
+  if (envoyerMail) ({ envoye: mail, devis } = await envoyerDevis(st, D, p, { origine, detail, now }));
+  return { p, mail, devis };
 }
 
-export async function creerLienManuel({ ref, montant, origine, envoyerMail, now = P.now() }) {
+export async function creerLienManuel({ ref, montant, detail = null, origine, envoyerMail, now = P.now() }) {
   if (!stripeActif()) return { erreur: [503, "Paiement en ligne non activé (variables Stripe de test absentes)."] };
   const r = await chargerParRef(magasinDemandes(), ref, now);
   if (r.erreur) return { erreur: [404, "Demande introuvable : le lien Stripe ne peut être créé que pour une demande enregistrée."] };
   try {
-    const { p, mail } = await preparerPaiement(r.record, { idDemande: r.record.id, montant, origine, envoyerMail: !!envoyerMail, now });
-    return { paiement: resume(p), mail };
+    const { p, mail, devis } = await preparerPaiement(r.record, { idDemande: r.record.id, montant, origine, envoyerMail: !!envoyerMail, detail, now });
+    return { paiement: resume(await parRef(magasin(), ref) || p), mail, devis, sansEmailClient: !(r.record.client && r.record.client.email) };
   } catch (e) {
     const m = String(e && e.message);
     if (m === "deja_paye") return { erreur: [409, "Cette réservation est déjà payée : aucun nouveau lien n'est créé."] };

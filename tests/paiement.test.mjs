@@ -94,6 +94,10 @@ PAI.deps.store = fauxStore(); DEM.deps.store = fauxStore(); resDeps.store = faux
 const envoyes = [], notifElev8 = [];
 resDeps.send = async (m) => { notifElev8.push(m); };
 MAIL.deps.send = async (m) => { envoyes.push(m); };
+// Devis automatique : configuration officielle (public/config.js) et stockage simulé
+const DEVIS = await import("../netlify/lib/devis-auto.mjs");
+{ const { readFileSync } = await import("node:fs"); const sb = {}; new Function("window", readFileSync(new URL("../public/config.js", import.meta.url), "utf8"))(sb); DEVIS.deps.config = sb.SITE_CONFIG; }
+DEVIS.deps.store = docDeps.store;                                     // même magasin que les factures (clés devis/…)
 // Itinéraire simulé (Google Routes) : 8,3 km dans Dijon
 EST.deps.fetch = async (url) => {
   if (!String(url).startsWith("https://routes.googleapis.com")) throw new Error("URL inattendue " + url);
@@ -144,9 +148,11 @@ await t("trajet standard : montant calculé par le serveur (jamais celui du navi
   assert.equal(j.paiement.montant, 20); assert.match(j.paiement.url, /^\/payer\/[A-Za-z0-9_-]{24}$/); assert.equal(j.paiement.email, true);
   A = { ref: j.ref, lien: j.paiement.url };
   const m = envoyes.find((x) => x.to === "claire@example.test");
-  assert.equal(m.subject, "[TEST] ELEV8 Private Driver — Finalisation de votre réservation | " + j.ref);
-  for (const x of ["Bonjour Claire,", "Votre trajet", "Référence : " + j.ref, "Heure de prise en charge : 10h00", "Adresse de départ : Gare de Dijon-Ville", "Nombre de passagers : 2",
-    "Tarif définitif : 20,00 € TTC", "Finalisez votre réservation", ORIGINE + j.paiement.url, "intégralement remboursé"]) assert.ok(m.text.includes(x), x);
+  assert.equal(m.subject, "[TEST] ELEV8 Private Driver — Votre devis TEST-D-" + j.ref + " | " + j.ref);
+  for (const x of ["Bonjour Claire,", "votre devis n° TEST-D-" + j.ref + " (PDF)", "Votre trajet", "Référence : " + j.ref, "Heure de prise en charge : 10h00", "Adresse de départ : Gare de Dijon-Ville", "Nombre de passagers : 2",
+    "Tarif : 20,00 € TTC (18,18 € HT + TVA 10 % : 1,82 €)", "Le paiement vaut acceptation du devis", "Accepter le devis et payer en ligne : " + ORIGINE + j.paiement.url, "intégralement remboursé"]) assert.ok(m.text.includes(x), x);
+  assert.equal(m.pieces.length, 1); assert.equal(m.pieces[0].nom, "TEST-D-" + j.ref + ".pdf"); assert.equal(m.copie, "contact@elev8privatedriver.com");
+  assert.ok(m.html.includes(">Accepter le devis et payer en ligne<"));
   assert.ok(!/J'accepte|chauffeur est disponible|réservation (est )?confirmée/i.test(m.text), "aucune confirmation ni « J'accepte » avant paiement et chauffeur");
   assert.ok(!m.text.includes("claire@example.test") || true);
   assert.match(notifElev8[0].subject, /^\[TEST\] \[Paiement en ligne envoyé\]/);
@@ -386,7 +392,8 @@ await t("site de test : e-mails marqués [TEST] ; un client non autorisé n'est 
   const autorises = process.env.EMAILS_TEST_AUTORISES; process.env.EMAILS_TEST_AUTORISES = "";
   envoyes.length = 0; notifElev8.length = 0;
   const { j } = await envoyer({ email: "vrai.client@exemple.fr" });
-  const m = envoyes.find((x) => /Finalisation/.test(x.subject));
+  const m = envoyes.find((x) => /Votre devis/.test(x.subject));
+  assert.equal(m.copie, "", "client redirigé vers ELEV8 : pas de copie en double");
   assert.equal(m.to, "", "redirigé vers MAIL_TO (ELEV8)");
   assert.match(m.subject, /^\[TEST\] /); assert.ok(m.text.startsWith("MESSAGE DE TEST") && m.text.includes("Destinataire prévu : vrai.client@exemple.fr"));
   assert.ok(m.html.includes("MESSAGE DE TEST"));
@@ -477,7 +484,7 @@ await t("devis : textes adaptés au règlement (en ligne avant attribution, apr�
   assert.ok(t1.includes("lien de paiement sécurisé") && t1.includes("avant l'attribution du chauffeur") && t1.includes("intégralement remboursé") && !t1.includes("après la prestation"));
   // Payé, sans chauffeur / avec chauffeur / remboursé
   t1 = tout(textesDevis(d(true), E, meta({ mode: "en_ligne", etat: "paye", montant: 20, payeLe: "2026-11-17", reference: "pi_123" }), 20));
-  assert.ok(t1.includes("20,00 € reçus en ligne le 17 novembre 2026 (référence : pi_123), valant acceptation du présent devis") && t1.includes("en cours d'attribution") && t1.includes("intégralement remboursé"));
+  assert.ok(t1.includes("20,00 € TTC reçus en ligne le 17 novembre 2026 (référence Stripe : pi_123), valant acceptation du présent devis") && t1.includes("en cours d'attribution") && t1.includes("intégralement remboursé"));
   assert.ok(!/Réservation confirmée/.test(t1), "jamais « confirmée » sans chauffeur");
   x = textesDevis(d(true), E, meta({ mode: "en_ligne", etat: "paye", montant: 20, payeLe: "2026-11-17", chauffeur: true }), 20);
   assert.equal(x.titre, "Réservation confirmée"); assert.ok(tout(x).includes("un chauffeur a accepté votre course"));
@@ -511,6 +518,164 @@ await t("devis : règlement déterminé par le serveur depuis le paiement réel 
   assert.deepEqual(await dossier(A.ref), avant, "le paiement n'est pas modifié");
   assert.equal([...docDeps.store.m.keys()].filter((k) => k.startsWith("facture/") && docDeps.store.m.get(k).d.doc.ref === "E8-261120-SANSLIEN").length, 0);
   docDeps.config = null;
+});
+
+/* ---------- Devis d'une réservation déjà payée (cas E8-261119-QQC : 75,35 €, chauffeur confirmé) ---------- */
+await t("devis d'une réservation payée et confirmée : jamais « provisoire », montant, date et référence Stripe, réservation confirmée", async () => {
+  const { readFileSync } = await import("node:fs");
+  const L = await import("../netlify/lib/documents.mjs");
+  const C = (await import("../netlify/functions/documents.mjs")).parseConfig(readFileSync(new URL("../public/config.js", import.meta.url), "utf8"));
+  docDeps.config = C;
+  // Réservation payée 75,35 € puis chauffeur confirmé, par le parcours réel (lien → Stripe → webhook → /documents)
+  const { j } = await envoyer({ date: "2026-11-25", heure: "08:00" });
+  const montant = j.paiement.montant;
+  const sid = (await ouvrir(j.paiement.url)).loc.split("/").pop();
+  payerChezStripe(sid); await evenement("checkout.session.completed", { id: sid });
+  await admin({ action: "chauffeur-confirme", ref: j.ref, chauffeur: { prenom: "Karim", vehicule: "Tesla Model Y" } });
+  const P = await dossier(j.ref);
+  assert.equal(P.statut, "paye"); assert.equal(P.etape, "chauffeur_confirme");
+  const doc = (valide, reglement = "auto") => ({ ref: j.ref, client: { prenom: "Claire", nom: "Martin" }, prestation: { date: "2026-11-25", depart: "Gare de Dijon-Ville", destination: "12 rue de Longvic" },
+    montant: String(montant), devis: { valide, validiteJours: 15, reglement } });
+  // La case « Tarif validé » décochée (valeur par défaut du navigateur) ne rend PAS le devis provisoire
+  for (const valide of [false, true]) {
+    const r = await admin({ action: "devis", doc: doc(valide) });
+    assert.equal(r.status, 200, JSON.stringify(r.j));
+    assert.equal(r.j.provisoire, false); assert.deepEqual(r.j.reglement, { mode: "en_ligne", etat: "paye", chauffeur: true });
+  }
+  // Textes : montant encaissé, date, référence ; réservation confirmée ; ni « Aucun paiement », ni lien futur, ni attribution future
+  const r = { mode: "en_ligne", etat: "paye", montant: 75.35, payeLe: "2026-11-19", reference: "pi_3QQC", chauffeur: true };
+  const meta = { dateEmission: "2026-11-20", reglement: r };
+  for (const valide of [false, true]) {
+    const x = L.textesDevis({ devis: { valide, validiteJours: 15 } }, {}, meta, 75.35), tout = [x.bandeau, x.titre, ...x.paragraphes].join(" ");
+    assert.ok(tout.includes("Règlement de 75,35 € TTC reçu en ligne le 19 novembre 2026 (référence Stripe : pi_3QQC)"), tout);
+    assert.equal(x.titre, "Réservation confirmée"); assert.ok(tout.includes("votre réservation est définitivement confirmée"));
+    assert.ok(!/Aucun paiement n'est demandé|recevrez alors un lien|lien de paiement sécurisé|en cours d'attribution|sera proposée|est ensuite proposée/.test(tout), tout);
+  }
+  // PDF : titre « Devis » (pas « Devis provisoire »), désignation sans « (VTC) »
+  const E = L.emetteur(C);
+  const pdfTexte = async (valide) => {
+    const octets = await L.pdf("devis", L.nettoyer(doc(valide)), E, { numero: "D-" + j.ref, dateEmission: "2026-11-20", horodatage: NOW, reglement: r });
+    const { PDFDocument } = await import("pdf-lib");
+    return { titre: (await PDFDocument.load(octets)).getTitle() };
+  };
+  assert.equal((await pdfTexte(false)).titre, "Devis D-" + j.ref + " — ELEV8 Private Driver");
+  docDeps.config = null;
+});
+await t("devis : la désignation par défaut ne contient plus « (VTC) » ; une facture déjà émise garde son libellé", async () => {
+  const L = await import("../netlify/lib/documents.mjs");
+  assert.equal(L.designationAuto({}), "Transport de personnes avec chauffeur");
+  assert.equal(L.designationAuto({ allerRetour: true }), "Transport de personnes avec chauffeur — aller-retour");
+  assert.equal(L.designationAuto({}, true), "Transport de personnes avec chauffeur (VTC)");          // anciennes factures sans libellé enregistré
+  assert.equal(L.designationAuto({ designation: "Mise à disposition 3 h" }), "Mise à disposition 3 h");
+  // Nouvelle facture : libellé figé au moment de l'émission (la facture émise plus haut dans ces tests)
+  const f = [...docDeps.store.m.entries()].find(([k, v]) => k.startsWith("facture/") && v.d.doc.ref === A.ref);
+  assert.equal(f[1].d.doc.prestation.designation, "Transport de personnes avec chauffeur");
+});
+await t("devis : réservations non payées, remboursées et sans paiement en ligne inchangées ; devis provisoire possible sans lien Stripe", async () => {
+  const { readFileSync } = await import("node:fs");
+  const C = (await import("../netlify/functions/documents.mjs")).parseConfig(readFileSync(new URL("../public/config.js", import.meta.url), "utf8"));
+  docDeps.config = C;
+  const doc = (ref, valide, montant = "20", reglement = "auto") => ({ ref, client: { nom: "Martin" }, prestation: { depart: "A", destination: "B" }, montant, devis: { valide, validiteJours: 15, reglement } });
+  // Sans paiement en ligne : la case « Tarif validé » est respectée (provisoire possible)
+  let r = await admin({ action: "devis", doc: doc("E8-261120-SANSLIEN", false, "35") });
+  assert.equal(r.j.provisoire, true); assert.deepEqual(r.j.reglement, { mode: "apres", etat: null, chauffeur: false });
+  r = await admin({ action: "devis", doc: doc("E8-261120-SANSLIEN", true, "35", "virement_avant") });
+  assert.equal(r.j.provisoire, false); assert.equal(r.j.reglement.mode, "virement_avant");
+  // Lien envoyé, pas encore payé : montant fixé → non provisoire, « à payer »
+  const { j } = await envoyer({ date: "2026-11-26", heure: "08:00" });
+  r = await admin({ action: "devis", doc: doc(j.ref, false, String(j.paiement.montant)) });
+  assert.equal(r.j.provisoire, false); assert.equal(r.j.reglement.etat, "a_payer");
+  // Remboursée
+  r = await admin({ action: "devis", doc: doc(A.sansChauffeur.ref, false) });
+  assert.equal(r.j.provisoire, false); assert.equal(r.j.reglement.etat, "rembourse");
+  docDeps.config = null;
+});
+
+/* ---------- Étape 1 : devis PDF envoyé automatiquement avec « Accepter le devis et payer en ligne » ---------- */
+const { inflateSync } = await import("node:zlib");
+function textePdf(octets) {                                   // contenu des pages (flux décompressés), texte en hexadécimal WinAnsi
+  const b = Buffer.from(octets), out = [];
+  let i = 0;
+  while ((i = b.indexOf("stream", i)) >= 0) {
+    let d = i + 6; if (b[d] === 0x0d) d++; if (b[d] === 0x0a) d++;
+    const f = b.indexOf("endstream", d); if (f < 0) break;
+    try { out.push(inflateSync(b.subarray(d, f)).toString("latin1")); } catch { out.push(b.subarray(d, f).toString("latin1")); }
+    i = f + 9;
+  }
+  const brut = out.join("\n");
+  return brut + "\n" + brut.replace(/<([0-9A-Fa-f]+)>/g, (_, h) => Buffer.from(h, "hex").toString("latin1"));
+}
+await t("devis automatique (trajet standard) : PDF joint, numéro unique, montant = lien de paiement, devis figé, aucun doublon", async () => {
+  envoyes.length = 0;
+  const { j } = await envoyer({ date: "2026-11-27", heure: "09:00", societe: "Hôtel Exemple" });
+  const m = envoyes.find((x) => x.to === "claire@example.test" && /Votre devis/.test(x.subject));
+  const numero = "TEST-D-" + j.ref;
+  assert.equal(j.paiement.devis, numero);
+  const txt = textePdf(m.pieces[0].contenu);
+  for (const x of [numero, "DOCUMENT DE TEST", "Transport de personnes avec chauffeur", "Total TTC", "20,00", "Étapes suivantes".toUpperCase(), "lien de paiement s"]) assert.ok(txt.includes(x), x);
+  assert.ok(!txt.includes("(VTC)") && !txt.includes("Aucun paiement n'est demand") && !txt.includes("Devis provisoire"));
+  // Devis figé et rattaché au dossier de paiement
+  const rec = docDeps.store.m.get("devis/" + numero).d;
+  assert.equal(rec.montantCents, 2000); assert.equal(rec.test, true); assert.equal(rec.doc.client.societe, "Hôtel Exemple");
+  const P = await dossier(j.ref);
+  assert.equal(P.devis.numero, numero); assert.equal(P.montantCents, rec.montantCents, "montant payé = montant du devis");
+  // Un deuxième envoi pour le même lien ne produit ni nouveau devis ni nouvel e-mail
+  const n = envoyes.length;
+  const r2 = await DEVIS.envoyerDevis(PAI.magasin(), (await DEM.chargerParRef(DEM.magasin(), j.ref, NOW)).record, P, { origine: ORIGINE, now: NOW });
+  assert.equal(r2.envoye, false); assert.equal(r2.devis, numero); assert.equal(envoyes.length, n);
+  assert.equal([...docDeps.store.m.keys()].filter((k) => k.startsWith("devis/" + numero)).length, 1);
+  // Le devis téléchargé dans /documents est exactement celui envoyé
+  const tel = await admin({ action: "devis-envoye", ref: j.ref });
+  assert.equal(tel.status, 200); assert.equal(tel.j.numero, numero);
+  assert.equal(Buffer.from(tel.j.pdf, "base64").compare(Buffer.from(m.pieces[0].contenu)), 0);
+  assert.equal((await admin({ action: "devis-envoye", ref: "E8-261120-SANSLIEN" })).status, 404);
+  // Le bouton du devis ouvre le Checkout existant, au montant du devis
+  const o = await ouvrir(j.paiement.url);
+  assert.equal(S.sessions.get(o.loc.split("/").pop()).amount_total, rec.montantCents);
+});
+await t("cas particulier : « Valider le tarif et envoyer le devis » → devis détaillé (suppléments) envoyé ; nouveau montant = devis -2 et ancien lien désactivé", async () => {
+  const { j } = await envoyer({ date: "2026-11-28", heure: "09:00", precisions: "Siège enfant" });
+  assert.equal(j.paiement, null);
+  envoyes.length = 0;
+  const r1 = await admin({ action: "paiement-lien", ref: j.ref, montant: 45.5, detail: { montant: "40", supplements: [{ libelle: "Siège enfant", montant: "5,50" }] } });
+  assert.equal(r1.status, 200, JSON.stringify(r1.j)); assert.equal(r1.j.devis, "TEST-D-" + j.ref); assert.equal(r1.j.mail, true);
+  const m1 = envoyes.find((x) => x.to === "claire@example.test");
+  const t1 = textePdf(m1.pieces[0].contenu);
+  assert.ok(t1.includes("Siège enfant") && t1.includes("45,50"));
+  assert.ok(m1.text.includes("Tarif : 45,50 € TTC"));
+  const r2 = await admin({ action: "paiement-lien", ref: j.ref, montant: 50, detail: { montant: "50", supplements: [] } });
+  assert.equal(r2.j.devis, "TEST-D-" + j.ref + "-2");
+  assert.equal((await ouvrir(r1.j.paiement.lien)).loc, "/paiement/?etat=annule-lien");
+  assert.equal(S.sessions.get((await ouvrir(r2.j.paiement.lien)).loc.split("/").pop()).amount_total, 5000);
+  // Détail incohérent (40 + 10 ≠ 45) : devis sur une seule ligne, au montant du lien
+  const r3 = await admin({ action: "paiement-lien", ref: j.ref, montant: 45, detail: { montant: "40", supplements: [{ libelle: "Attente", montant: "10" }] } });
+  const rec = docDeps.store.m.get("devis/" + r3.j.devis).d;
+  assert.equal(rec.doc.montant, 45); assert.equal(rec.doc.supplements.length, 0);
+});
+await t("client sans e-mail : le devis est envoyé à ELEV8 pour transmission ; informations légales incomplètes : lien envoyé sans PDF", async () => {
+  envoyes.length = 0;
+  const { j } = await envoyer({ date: "2026-11-29", heure: "09:00", email: "" });
+  assert.equal(j.paiement.email, false);
+  const m = envoyes.find((x) => /Client sans e-mail/.test(x.subject));
+  assert.equal(m.to, ""); assert.equal(m.pieces.length, 1);
+  const cfg = DEVIS.deps.config; DEVIS.deps.config = { ...cfg, legal: { ...cfg.legal, capital: "" } };
+  envoyes.length = 0;
+  const { j: j2 } = await envoyer({ date: "2026-11-29", heure: "10:00" });
+  const m2 = envoyes.find((x) => x.to === "claire@example.test");
+  assert.equal(m2.pieces.length, 0); assert.match(m2.subject, /Finalisation de votre réservation/); assert.ok(m2.text.includes("Accepter le tarif") || m2.text.includes("Accepter le devis et payer en ligne"));
+  assert.equal(j2.paiement.devis, null);
+  DEVIS.deps.config = cfg;
+});
+await t("site officiel : devis « D-… » sans mention de test ; site de test : « TEST-D-… » avec la mention", async () => {
+  const L = await import("../netlify/lib/documents.mjs");
+  const E = L.emetteur(DEVIS.deps.config);
+  const doc = L.nettoyer({ ref: "E8-261120-PROD", client: { nom: "Martin" }, prestation: { depart: "A", destination: "B" }, montant: "20", devis: { valide: true } });
+  const prod = textePdf(await L.pdf("devis", doc, E, { numero: "D-E8-261120-PROD", dateEmission: "2026-11-20" }));
+  const test = textePdf(await L.pdf("devis", doc, E, { numero: "TEST-D-E8-261120-PROD", dateEmission: "2026-11-20", test: true }));
+  assert.ok(!prod.includes("DOCUMENT DE TEST")); assert.ok(test.includes("DOCUMENT DE TEST") && test.includes("SANS VALEUR COMPTABLE"));
+  ENV.retenirContexte({ deploy: { context: "production" } });
+  assert.equal(ENV.estSiteDeTest(), false);                    // en production : numéros « D-… », sans mention
+  ENV._reinitialiser();
 });
 
 console.log(`\n${ok} test(s) réussi(s)` + (process.exitCode ? " — ÉCHECS ci-dessus" : ""));

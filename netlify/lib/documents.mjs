@@ -17,7 +17,7 @@
    assujetti à la TVA, le PDF détaille HT, TVA et TTC ; en franchise en base, il
    porte la mention « TVA non applicable, art. 293 B du CGI ».
    ========================================================================== */
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDFDocument, StandardFonts, rgb, degrees } from "pdf-lib";
 
 /* ---------- Émetteur ---------- */
 const vide = (v) => v == null || String(v).trim() === "" || /^\s*\[/.test(String(v));
@@ -113,16 +113,25 @@ export function textesDevis(doc, e, meta, totalTtc) {
   const Rembourse = "S" + rembourse.slice(1);
   const lienJusqu = r.valableJusqu ? " (lien valable jusqu'au " + dateFr(r.valableJusqu) + ")" : "";
   if (r.mode === "en_ligne") {
-    if (provisoire) return { titre: "Étapes suivantes", signature: false, paragraphes: [verif + " Vous recevrez alors un lien de paiement sécurisé : le règlement s'effectue en ligne, par carte bancaire, avant l'attribution du chauffeur. " + attribution + " " + Rembourse] };
-    if (r.etat === "rembourse") return { bandeau: "Réservation annulée : le montant réglé de " + euros(r.montant) + " vous a été intégralement remboursé.", titre: "Règlement", signature: false,
-      paragraphes: ["Le règlement effectué en ligne a été intégralement remboursé sur le moyen de paiement utilisé. Aucun montant ne reste dû."] };
+    // Lien envoyé, payé ou remboursé : jamais traité comme un devis provisoire (le montant est fixé par le paiement)
+    if (provisoire && !r.etat) return { titre: "Étapes suivantes", signature: false, paragraphes: [verif + " Vous recevrez alors un lien de paiement sécurisé : le règlement s'effectue en ligne, par carte bancaire, avant l'attribution du chauffeur. " + attribution + " " + Rembourse] };
+    if (r.etat === "rembourse") return r.remboursementEnCours
+      ? { bandeau: "Réservation annulée : le remboursement intégral de " + euros(r.montant) + " est en cours.", titre: "Règlement", signature: false,
+          paragraphes: ["Le montant réglé en ligne (" + euros(r.montant) + ") vous est intégralement remboursé sur le moyen de paiement utilisé. Aucun montant ne reste dû."] }
+      : { bandeau: "Réservation annulée : le montant réglé de " + euros(r.montant) + " vous a été intégralement remboursé.", titre: "Règlement", signature: false,
+          paragraphes: ["Le règlement effectué en ligne a été intégralement remboursé sur le moyen de paiement utilisé. Aucun montant ne reste dû."] };
+    if (r.etat === "en_cours") return { bandeau: "Règlement en ligne de " + euros(r.montant) + " en cours de validation par votre banque.", titre: "Étapes suivantes", signature: false,
+      paragraphes: ["1. Règlement : votre paiement en ligne de " + euros(r.montant) + " est en cours de validation ; vous recevrez un e-mail dès sa confirmation.",
+        "2. Attribution : votre course est ensuite proposée à nos chauffeurs. " + attribution, "3. Indisponibilité : " + rembourse] };
     if (r.etat === "paye") {
-      const recu = "Règlement de " + euros(r.montant) + " reçu en ligne le " + dateFr(r.payeLe) + (r.reference ? " (référence : " + r.reference + ")" : "") + ".";
+      const recu = "Règlement de " + euros(r.montant) + " TTC reçu en ligne le " + dateFr(r.payeLe) + (r.reference ? " (référence Stripe : " + r.reference + ")" : "") + "." +
+        (r.rembourse > 0 ? " Remboursement partiel de " + euros(r.rembourse) + " ; montant encaissé : " + euros(r.montant - r.rembourse) + "." : "");
       return r.chauffeur
         ? { bandeau: recu + " Réservation confirmée : un chauffeur a accepté votre course.", titre: "Réservation confirmée", signature: false,
-            paragraphes: [recu + " Un chauffeur a accepté votre course : votre réservation est définitivement confirmée.", "En cas d'empêchement de dernière minute et sans chauffeur de remplacement, le montant réglé vous serait intégralement remboursé."] }
+            paragraphes: [recu, "Un chauffeur a accepté votre course : votre réservation est définitivement confirmée. Aucun autre paiement n'est demandé.",
+              "En cas d'empêchement de dernière minute et sans chauffeur de remplacement, le montant réglé vous serait intégralement remboursé."] }
         : { bandeau: recu + " Votre course est en cours d'attribution à un chauffeur.", titre: "Étapes suivantes", signature: false,
-            paragraphes: ["1. Règlement : " + euros(r.montant) + " reçus en ligne le " + dateFr(r.payeLe) + (r.reference ? " (référence : " + r.reference + ")" : "") + ", valant acceptation du présent devis.",
+            paragraphes: ["1. Règlement : " + euros(r.montant) + " TTC reçus en ligne le " + dateFr(r.payeLe) + (r.reference ? " (référence Stripe : " + r.reference + ")" : "") + ", valant acceptation du présent devis. Aucun autre paiement n'est demandé.",
               "2. Attribution : votre course est proposée à nos chauffeurs. " + attribution, "3. Indisponibilité : " + rembourse] };
     }
     return { bandeau: validite + " Le règlement s'effectue en ligne, avant l'attribution du chauffeur, avec le lien de paiement sécurisé transmis par ELEV8.", titre: "Étapes suivantes", signature: false,
@@ -182,9 +191,12 @@ export function aCompleter(doc, type) {
   }
   return m;
 }
-export function designationAuto(p) {
+/* Désignation par défaut. Les factures émises avant le 20/11/2026 sans désignation enregistrée gardent
+   l'ancien libellé « (VTC) » (une facture émise ne change jamais) ; les nouvelles enregistrent leur libellé. */
+export const DESIGNATION = "Transport de personnes avec chauffeur";
+export function designationAuto(p, ancienne = false) {
   if (p.designation) return p.designation;
-  return "Transport de personnes avec chauffeur (VTC)" + (p.allerRetour ? " — aller-retour" : "");
+  return DESIGNATION + (ancienne ? " (VTC)" : "") + (p.allerRetour ? " — aller-retour" : "");
 }
 
 /* ---------- PDF ---------- */
@@ -234,7 +246,8 @@ export async function pdf(type, doc, e, meta = {}) {
   const etiquette = (t, x, yy) => txt(t.toUpperCase(), x, yy, { size: 6.8, font: F.b, color: OR_FONCE, cs: 1.4 });
 
   /* En-tête noir et or */
-  const provisoire = type === "devis" && !doc.devis.valide;
+  // Un devis lié à un paiement en ligne (lien envoyé, payé ou remboursé) n'est jamais « provisoire » : le montant est fixé
+  const provisoire = type === "devis" && !doc.devis.valide && !(meta.reglement && meta.reglement.etat);
   const titre = type === "facture" ? "Facture" : provisoire ? "Devis provisoire" : "Devis";
   page.drawRectangle({ x: 0, y: H - 118, width: W, height: 118, color: NOIR });
   page.drawRectangle({ x: 0, y: H - 120, width: W, height: 2, color: OR });
@@ -321,7 +334,7 @@ export async function pdf(type, doc, e, meta = {}) {
   const th = mt.franchise ? "MONTANT" : "TOTAL HT";
   txt(th, cols[3] - largeur(th, F.b, 7, 1.2), y - 10, { size: 7, font: F.b, color: OR, cs: 1.2 });
   y -= 36;
-  const des = couper(designationAuto(p) + (p.depart && p.destination ? ", de " + p.depart + " à " + p.destination : ""), cols[1] - cols[0] - 16, F.r, 9.5);
+  const des = couper(designationAuto(p, type === "facture") + (p.depart && p.destination ? ", de " + p.depart + " à " + p.destination : ""), cols[1] - cols[0] - 16, F.r, 9.5);
   const yLigne = y;
   for (const x of des) { besoin(14); txt(x, cols[0], y); y -= 13; }
   const base = mt.lignesHt[0];
@@ -393,5 +406,15 @@ export async function pdf(type, doc, e, meta = {}) {
     }
     if (pages.length > 1) { const n = (i + 1) + " / " + pages.length; txt(n, W - M - largeur(n, F.r, 7), M + 8, { size: 7, color: GRIS }); }
   });
+  /* Site de test : chaque page porte « DOCUMENT DE TEST — SANS VALEUR COMPTABLE » (bandeau + filigrane) */
+  if (meta.test) {
+    const ROUGE = rgb(0.70, 0.15, 0.12), mention = "DOCUMENT DE TEST — SANS VALEUR COMPTABLE";
+    for (const pg of P.getPages()) {
+      const lw = F.b.widthOfTextAtSize(w(mention), 9);
+      pg.drawRectangle({ x: 0, y: H - 138, width: W, height: 18, color: ROUGE });
+      pg.drawText(w(mention), { x: (W - lw) / 2, y: H - 132, size: 9, font: F.b, color: rgb(1, 1, 1), characterSpacing: 0.6 });
+      pg.drawText(w(mention), { x: 62, y: 170, size: 23, font: F.b, color: ROUGE, opacity: 0.12, rotate: degrees(38) });
+    }
+  }
   return await P.save();
 }

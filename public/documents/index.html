@@ -70,6 +70,7 @@
         <button class="btn btn--quiet" type="button" id="btnIndispo"><span>Indisponible — annuler</span></button>
         <button class="btn btn--quiet" type="button" id="btnSansChauffeur"><span>Aucun chauffeur — rembourser</span></button>
       </div>
+      <div class="docs__row"><button class="btn btn--quiet" type="button" id="btnDevisEnvoye" hidden><span>Télécharger le devis envoyé</span></button></div>
       <p class="docs__msg" id="pMsg" role="status"></p>
       <ul id="pHisto"></ul>
     </section>
@@ -153,7 +154,7 @@
           </div>
           <div class="field field--full">
             <label for="d-designation">Désignation sur le document <span class="opt">facultatif</span></label>
-            <input id="d-designation" type="text" maxlength="300" placeholder="Par défaut : Transport de personnes avec chauffeur (VTC)">
+            <input id="d-designation" type="text" maxlength="300" placeholder="Par défaut : Transport de personnes avec chauffeur">
           </div>
     </fieldset>
 
@@ -212,8 +213,8 @@
             <p class="field__help" id="v-lien-aide">Créez le lien dans l'espace sécurisé de votre prestataire, pour le montant validé, puis collez-le ici. Disponible après les étapes 1 et 2.</p>
           </div>
           <div class="docs__actions field--full" id="stripeLien" hidden>
-            <button class="btn btn--quiet" type="button" id="btnStripe" disabled><span>Créer le lien de paiement Stripe pour ce montant</span></button>
-            <p class="field__help">Le lien est créé par le serveur pour le montant validé à l'étape 2 (mode test). Il remplace tout lien précédent non payé.</p>
+            <button class="btn btn--quiet" type="button" id="btnStripe" disabled><span>Valider le tarif et envoyer le devis au client</span></button>
+            <p class="field__help">Le serveur crée le lien de paiement Stripe pour le montant validé à l'étape 2 et envoie automatiquement le devis PDF avec le bouton « Accepter le devis et payer en ligne » (copie à ELEV8). Il remplace tout lien précédent non payé.</p>
           </div>
           <div class="field field--full field--check" data-vt="validation" data-lien hidden>
             <label class="check" for="v-lien-ok"><input id="v-lien-ok" type="checkbox"><span class="check__box" aria-hidden="true"></span><span>J'ai vérifié ce lien<span id="v-lien-domaine"></span> : il a été créé pour ce client et pour le montant de <strong id="v-lien-montant">—</strong></span></label>
@@ -342,6 +343,6 @@
 
 <script src="/config.js?v=20261118b"></script>
 <script src="/assets/js/messages-client.js?v=20261119d"></script>
-<script src="/assets/js/documents.js?v=20261120b"></script>
+<script src="/assets/js/documents.js?v=20261120d"></script>
 </body>
 </html>

@@ -551,10 +551,11 @@
     bloc.id = "sentPayer"; bloc.className = "sent__payer";
     var a = document.createElement("a");
     a.className = "btn btn--gold"; a.href = pay.url;
-    var sp = document.createElement("span"); sp.textContent = "Payer " + fmtEuro(pay.montant) + " en toute sécurité"; a.appendChild(sp);
+    var sp = document.createElement("span"); sp.textContent = "Accepter le devis et payer en ligne (" + fmtEuro(pay.montant) + ")"; a.appendChild(sp);
     a.addEventListener("click", function () { suivi("clic_paiement", { value: pay.montant, currency: "EUR" }); });
     var p = document.createElement("p");
-    p.textContent = (pay.email ? "Ce lien vous a aussi été envoyé par e-mail. " : "") +
+    p.textContent = (pay.email ? "Votre devis (PDF) et ce lien vous ont aussi été envoyés par e-mail. " : "") +
+      "Le paiement vaut acceptation du devis. " +
       "Dès réception de votre règlement, nous attribuons votre course à un chauffeur ; vous recevrez la confirmation par e-mail. Sans chauffeur disponible, vous seriez intégralement remboursé." +
       (pay.mode === "test" ? " (Paiement en mode test : aucune somme réelle n'est prélevée.)" : "");
     bloc.appendChild(a); bloc.appendChild(p);

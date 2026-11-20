@@ -49,8 +49,7 @@ import { stripeActif } from "../lib/stripe.mjs";
 import { retenirContexte, estSiteDeTest, marquerTest } from "../lib/environnement.mjs";
 import { eligibleAuto, magasin as magasinPaiements, modifier as modifierPaiement } from "../lib/paiements.mjs";
 import { preparerPaiement } from "../lib/actions-paiement.mjs";
-import { mailLienPaiement } from "../lib/courriels.mjs";
-import { envoyerUneFois } from "../lib/notifications.mjs";
+import { envoyerDevis } from "../lib/devis-auto.mjs";
 
 const ESTIMATION_MAX_MS = 6000;    // recalcul de l'estimation : au-delà, la demande part « tarif à établir »
 
@@ -438,7 +437,8 @@ export default async (req, context) => {
   let lienPaiement = null;
   if (dossier) {
     lienPaiement = { url: "/payer/" + dossier.jeton, montant: dossier.montantCents / 100, valableJusqu: dossier.valableJusqu, email: false, mode: "test" };
-    if (D && D.client.email) lienPaiement.email = await envoyerUneFois(magasinPaiements(), dossier, "client_lien", mailLienPaiement(D, dossier, origine + "/payer/" + dossier.jeton), D.client.email);
+    // Devis PDF + bouton « Accepter le devis et payer en ligne », copie à ELEV8 (sans e-mail client : envoyé à ELEV8)
+    if (D) { const r = await envoyerDevis(magasinPaiements(), D, dossier, { origine }); lienPaiement.email = !!(D.client.email && r.envoye); lienPaiement.devis = r.devis; }
     if (idem && store) { try { await store.setJSON(idem, { etat: "envoye", ref, t: Date.now(), estimation: estPublic, paiement: lienPaiement }); } catch { /* ignoré */ } }
   }
   return json(200, { ok: true, ref, statut: dossier ? "attente_paiement" : "demande_recue", estimation: estPublic, paiement: lienPaiement });

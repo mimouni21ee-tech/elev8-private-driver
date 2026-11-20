@@ -380,6 +380,7 @@
     $("#pStatut").textContent = P.etapeLibelle + (P.statut !== "paye" ? " · " + P.statutLibelle : "") + (P.litige ? " · LITIGE" : "");
     var d = ["Montant : " + fmt(P.montant) + " TTC", "Lien : " + location.origin + P.lien];
     if (P.statut === "en_attente") d.push("Valable jusqu'au " + dateHeure(P.valableJusqu));
+    if (P.devis) d.push("Devis " + P.devis.numero + " envoyé le " + dateHeure(P.devis.le));
     if (P.payeLe) d.push("Payé le " + dateHeure(P.payeLe));
     if (P.rembourse > 0) d.push("Remboursé : " + fmt(P.rembourse));
     if (P.motifVerification) d.push("À vérifier : " + P.motifVerification);
@@ -387,6 +388,7 @@
     if (P.statut === "paye") d.push("HUBER : " + (P.huber && P.huber.etat === "en_attente_api" ? "transmission automatique dès que son API sera disponible (aucune publication pour l'instant)" : (P.huber && P.huber.etat) || "—"));
     $("#pDetail").textContent = d.join(" · ");
     $("#pChauffeur").hidden = !(P.statut === "paye" && P.etape === "payee_attente_attribution");
+    $("#btnDevisEnvoye").hidden = !P.devis;
     var annulable = ["attente_paiement", "payee_attente_attribution", "chauffeur_confirme"].indexOf(P.etape) >= 0 && ["en_attente", "expire", "paye", "a_verifier", "rembourse_partiel"].indexOf(P.statut) >= 0;
     $("#pAnnuler").hidden = !annulable;
     $("#btnSansChauffeur").hidden = ["paye", "a_verifier", "rembourse_partiel"].indexOf(P.statut) < 0;
@@ -414,6 +416,11 @@
     return p.year + "-" + p.month + "-" + p.day;
   }
   function preremplirFactureStripe(P) {
+    // Devis d'une réservation avec paiement en ligne (lien envoyé, payé ou remboursé) : montant fixé par le paiement
+    if (P && ["annule", "remplace", "expire"].indexOf(P.statut) < 0) {
+      $("#d-valide").checked = true;
+      if (!donnees().supplements.length && Math.abs(total() - P.montant) >= 0.005) { $("#d-montant").value = String(P.montant).replace(".", ","); majTotal(); }
+    }
     paiementFacture = P && P.payeLe && ["paye", "rembourse_partiel", "rembourse"].indexOf(P.statut) >= 0 ? P : null;
     if (paiementFacture && P.statut !== "rembourse") {
       $("#d-paye").checked = true;
@@ -447,11 +454,13 @@
   $("#btnStripe").addEventListener("click", function () {
     if (!demandeChargee || !demandeChargee.ref) return;
     var t = total();
-    if (!confirm("Créer le lien de paiement Stripe de " + fmt(t) + " TTC pour " + demandeChargee.ref + " ? Tout lien précédent non payé sera désactivé.")) return;
-    actionPaiement({ action: "paiement-lien", montant: t }, function (j) {
+    if (!confirm("Valider " + fmt(t) + " TTC pour " + demandeChargee.ref + " : le devis PDF et le bouton « Accepter le devis et payer en ligne » seront envoyés automatiquement au client (copie à ELEV8). Tout lien précédent non payé sera désactivé.")) return;
+    var D0 = donnees();
+    actionPaiement({ action: "paiement-lien", montant: t, detail: { montant: D0.montant, supplements: D0.supplements } }, function (j) {
       $("#v-lien").value = location.origin + j.paiement.lien;
       $("#v-lien-ok").checked = true; majValidation();
-      return "Lien créé pour " + fmt(j.paiement.montant) + " : il est inséré à l'étape 3. Préparez maintenant le message au client.";
+      return (j.devis ? "Devis " + j.devis + " envoyé " + (j.sansEmailClient ? "à ELEV8 (client sans e-mail : transmettez-le)" : "au client, copie à ELEV8") : "Lien créé (devis PDF non produit : vérifiez les informations légales)") +
+        " — " + fmt(j.paiement.montant) + " TTC. Le message de l'étape 4 reste disponible (WhatsApp, par exemple).";
     });
   });
   $("#btnChauffeur").addEventListener("click", function () {
@@ -467,6 +476,19 @@
     actionPaiement({ action: "annuler-course", motif: motif }, function (j) { return j.rembourse ? "Remboursement intégral demandé à Stripe : il sera confirmé par notification." : "Lien désactivé, client prévenu."; });
   }
   $("#btnIndispo").addEventListener("click", function () { annuler("indisponible"); });
+  /* Devis tel qu'il a été envoyé au client (document figé, relu sur le serveur) */
+  $("#btnDevisEnvoye").addEventListener("click", function () {
+    if (!demandeChargee || !demandeChargee.ref) return;
+    $("#pMsg").textContent = "Préparation du devis envoyé…";
+    appel({ action: "devis-envoye", ref: demandeChargee.ref }).then(function (j) {
+      if (!j.ok || !j.pdf) { $("#pMsg").textContent = j.message || "Devis introuvable."; return; }
+      var bin = atob(j.pdf), bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      var a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" })); a.download = j.fichier;
+      document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+      $("#pMsg").textContent = "Devis " + j.numero + " téléchargé.";
+    });
+  });
   $("#btnSansChauffeur").addEventListener("click", function () { annuler("sans_chauffeur"); });
 
   function infos() {
