@@ -55,8 +55,11 @@ process.env.EMAIL_API_KEY = "cle-email-de-test";
 process.env.MAIL_TO = "contact@elev8privatedriver.com";
 process.env.MAIL_FROM = "reservations@example.test";
 EST.deps.now = () => Date.parse("2026-11-17T12:00:00Z");
+/* Date de course : le prochain mercredi au moins 2 jours après aujourd'hui (le serveur refuse les dates passées ;
+   un jour de semaine garde la grille tarifaire testée identique, quel que soit le jour d'exécution des tests) */
+const JOUR = (() => { const d = new Date(Date.now() + 2 * 86400_000); while (d.getUTCDay() !== 3) d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); })();
 const base = { prestation: "Transferts gares", depart: "Gare de Dijon-Ville, 21000 Dijon, France", destination: "12 rue de Longvic, 21000 Dijon, France",
-  date: "2026-11-18", heure: "10:00", vehicule: "Tesla Model Y", passagers: 2 };
+  date: JOUR, heure: "10:00", vehicule: "Tesla Model Y", passagers: 2 };
 
 /* ---------- 1. Grille inchangée ---------- */
 await t("moteur de calcul identique à la préproduction ; grille ELEV8 du 17 nov. 2026", async () => {
@@ -115,11 +118,11 @@ await t("« Pas de préférence » : Confort jusqu'à 4 passagers, Van au-delà"
   assert.equal((await EST.estimer({ ...base, vehicule: "Pas de préférence", passagers: 5 })).categorie, "van");
 });
 await t("aller-retour : chaque trajet calculé séparément (jour 20 € + nuit 22,83 €)", async () => {
-  const r = await EST.estimer({ ...base, allerRetour: true, dateRetour: "2026-11-18", heureRetour: "21:00" });
+  const r = await EST.estimer({ ...base, allerRetour: true, dateRetour: JOUR, heureRetour: "21:00" });
   assert.equal(r.montant, 42.83); assert.equal(r.lignes.length, 2);
 });
 await t("retour avant l'aller : refusé", async () => {
-  await assert.rejects(EST.estimer({ ...base, allerRetour: true, dateRetour: "2026-11-18", heureRetour: "09:00" }), { code: "retour" });
+  await assert.rejects(EST.estimer({ ...base, allerRetour: true, dateRetour: JOUR, heureRetour: "09:00" }), { code: "retour" });
 });
 await t("zone étendue : Dijon → Nuits-Saint-Georges (24 km) estimé, 24 × 1,90 = 45,60 €", async () => {
   EST._reset(); EST.deps.fetch = fauxFetch({ km: 24 });
@@ -258,7 +261,7 @@ await t("calcul indisponible : la demande part quand même", async () => {
   EST.deps.fetch = fauxFetch();
 });
 await t("aller-retour : retour avant l'aller refusé par le serveur", async () => {
-  const r = await handler(req("/envoi-reservation", demande({ allerRetour: true, dateRetour: "2026-11-18", heureRetour: "08:00", demandeId: idDemande() })), { ip: "9.9.9.6" });
+  const r = await handler(req("/envoi-reservation", demande({ allerRetour: true, dateRetour: JOUR, heureRetour: "08:00", demandeId: idDemande() })), { ip: "9.9.9.6" });
   assert.equal(r.status, 422); assert.deepEqual((await r.json()).fields, ["heureRetour"]);
 });
 await t("identifiant anti-doublon : format et durée de validité contrôlés", () => {

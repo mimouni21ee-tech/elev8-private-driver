@@ -15,6 +15,7 @@ Object.assign(process.env, { PAIEMENT_STRIPE: "test", STRIPE_SECRET_KEY: CLE, ST
   FACTURATION_AUTOMATIQUE: "non", RATE_GLOBAL_PER_HOUR: "1000" });   // nombreuses demandes de test dans la même heure simulée          // étapes précédentes testées sans facturation automatique ; activée pour les tests de l'étape 2
 let NOW = Date.parse("2026-11-17T12:00:00Z");
 const horloge = () => NOW;
+Date.now = horloge;          // toute la simulation (contrôles de date du formulaire compris) suit l'horloge du test
 
 function fauxStore() {
   const m = new Map(); let v = 0;
@@ -1080,6 +1081,139 @@ await t("aller-retour : réalisation acceptée jusqu'à 24 h après le retour pr
   assert.equal(r1.status, 422);
   const r2 = await aLaDate("2026-12-01T10:00:00Z", () => admin({ action: "course-realisee", ref, realiseeLe: "2026-11-30T19:00" }));
   assert.equal(r2.status, 200, JSON.stringify(r2.j));
+  process.env.FACTURATION_AUTOMATIQUE = "non";
+});
+
+/* ---------- Étape 4 : tableau de gestion, documents, export comptable, e-mail de changement de date ---------- */
+const lireCsv = (b64) => Buffer.from(b64, "base64").toString("utf8").replace(/^﻿/, "").trim().split("\r\n").map((l) => l.split(";"));
+const num = (x) => Math.round(parseFloat(String(x).replace(",", ".")) * 100);
+const G = {};
+await t("préparation : 4 réservations (réalisée, remboursée partiellement, en attente de paiement, annulée)", async () => {
+  process.env.FACTURATION_AUTOMATIQUE = "";
+  envoyes.length = 0;
+  G.r1 = await courseConfirmee("2026-12-14", "09:00");                                         // payée → réalisée
+  await aLaDate("2026-12-14T09:00:00Z", () => admin({ action: "course-realisee", ref: G.r1, realiseeLe: "2026-12-14T09:30" }));
+  G.r2 = await courseConfirmee("2026-12-15", "09:00");                                         // payée, remboursement partiel de 5 €
+  await rembourserChezStripe(G.r2, 500);
+  G.r3 = (await envoyer({ date: "2026-12-16", heure: "09:00" })).j.ref;                        // lien envoyé, non payé
+  G.r4 = (await envoyer({ date: "2026-12-17", heure: "09:00" })).j.ref;                        // annulée avant paiement
+  await admin({ action: "annuler-course", ref: G.r4, motif: "indisponible" });
+  G.pdf = Object.fromEntries(envoyes.filter((m) => m.pieces && m.pieces.length).map((m) => [m.pieces[0].nom.replace(".pdf", ""), m.pieces[0].contenu]));
+  assert.equal((await dossier(G.r1)).etape, "realisee"); assert.equal((await dossier(G.r2)).statut, "rembourse_partiel");
+});
+await t("tableau : droits d'accès, filtres, période, recherche, montants et documents de chaque réservation", async () => {
+  assert.equal((await documents(post("/documents-api", { action: "tableau" }), { ip: "4.4.4.4" })).status, 401);
+  const tab = async (o) => (await admin({ action: "tableau", du: "2026-12-14", au: "2026-12-17", ...o })).j;
+  const tous = await tab({});
+  assert.equal(tous.total, 4); assert.deepEqual(tous.lignes.map((l) => l.ref).sort(), [G.r1, G.r2, G.r3, G.r4].sort());
+  const L = Object.fromEntries(tous.lignes.map((l) => [l.ref, l]));
+  // Réservation payée et réalisée, avec ses documents
+  assert.equal(L[G.r1].client, "Claire Martin"); assert.match(L[G.r1].trajet, /^Gare de Dijon-Ville.* → 12 rue de Longvic/);
+  assert.equal(L[G.r1].etapeLibelle, "Course réalisée"); assert.equal(L[G.r1].chauffeur, "Karim");
+  assert.equal(L[G.r1].encaisse, L[G.r1].prixTTC); assert.equal(L[G.r1].rembourse, 0); assert.equal(L[G.r1].solde, 0);
+  assert.equal(L[G.r1].devis.length, 1); assert.match(L[G.r1].acompte, /^TEST-F-/); assert.match(L[G.r1].finale, /^TEST-F-/);
+  // Remboursement partiel et son avoir
+  assert.equal(L[G.r2].rembourse, 5); assert.equal(L[G.r2].encaisse, L[G.r2].prixTTC - 5);
+  assert.equal(L[G.r2].avoirs.length, 1); assert.equal(L[G.r2].avoirs[0].montant, 5); assert.equal(L[G.r2].finale, null);
+  // En attente de paiement : solde = prix ; annulée : solde 0
+  assert.equal(L[G.r3].solde, L[G.r3].prixTTC); assert.equal(L[G.r3].encaisse, 0); assert.equal(L[G.r4].solde, 0);
+  // Filtres
+  const refs = async (filtre) => (await tab({ filtre })).lignes.map((l) => l.ref).sort();
+  assert.deepEqual(await refs("payees"), [G.r1, G.r2].sort());
+  assert.deepEqual(await refs("realisees"), [G.r1]);
+  assert.deepEqual(await refs("a_attribuer"), []);
+  assert.deepEqual(await refs("remboursees"), [G.r2]);
+  assert.deepEqual(await refs("annulees"), [G.r4]);
+  assert.deepEqual(await refs("attente_paiement"), [G.r3]);
+  assert.deepEqual(await refs("inconnu"), [G.r1, G.r2, G.r3, G.r4].sort());                        // filtre inconnu → tous
+  // Période et recherche
+  assert.deepEqual((await tab({ du: "2026-12-15", au: "2026-12-15" })).lignes.map((l) => l.ref), [G.r2]);
+  assert.deepEqual((await tab({ recherche: G.r3.toLowerCase() })).lignes.map((l) => l.ref), [G.r3]);
+  assert.equal((await tab({ du: "pas-une-date" })).total >= 4, true);                              // date invalide ignorée
+});
+await t("tableau : pagination côté serveur (pages disjointes, taille bornée)", async () => {
+  const p1 = (await admin({ action: "tableau", page: 1, parPage: 5 })).j, p2 = (await admin({ action: "tableau", page: 2, parPage: 5 })).j;
+  assert.equal(p1.lignes.length, 5); assert.ok(p1.pages >= 2); assert.equal(p1.total, p2.total);
+  assert.equal(p1.lignes.filter((l) => p2.lignes.some((m) => m.ref === l.ref)).length, 0);
+  assert.equal((await admin({ action: "tableau", parPage: 500 })).j.parPage, 50);
+  assert.equal((await admin({ action: "tableau", page: 999 })).j.lignes.length, 0);
+});
+await t("documents d'une réservation : une rubrique (devis, acompte, finale, avoirs, références Stripe), téléchargement identique à l'envoi", async () => {
+  const d1 = (await admin({ action: "documents-reservation", ref: G.r1 })).j;
+  assert.deepEqual(d1.docs.map((d) => d.type), ["devis", "acompte", "finale"]);
+  assert.match(d1.stripe.paiement, /^pi_test_/);
+  for (const d of d1.docs) {
+    const r = await admin({ action: "document-pdf", ref: G.r1, numero: d.numero });
+    assert.equal(r.status, 200, d.numero); assert.equal(r.j.fichier, d.numero + ".pdf");
+    if (G.pdf[d.numero]) assert.equal(Buffer.from(r.j.pdf, "base64").compare(Buffer.from(G.pdf[d.numero])), 0, "identique à l'envoi : " + d.numero);
+  }
+  const d2 = (await admin({ action: "documents-reservation", ref: G.r2 })).j;
+  const av = d2.docs.find((d) => d.type === "avoir");
+  assert.equal(av.montant, 5); assert.match(av.facture, /^TEST-F-/); assert.equal(d2.stripe.rembourse, 5); assert.equal(d2.stripe.operations.length, 1);
+  assert.equal((await admin({ action: "document-pdf", ref: G.r2, numero: av.numero })).status, 200);
+  // Droits : autre réservation, sans session, numéro mal formé, référence inconnue
+  assert.equal((await admin({ action: "document-pdf", ref: G.r2, numero: d1.docs[1].numero })).status, 404);
+  assert.equal((await documents(post("/documents-api", { action: "document-pdf", ref: G.r1, numero: d1.docs[1].numero }), { ip: "4.4.4.5" })).status, 401);
+  assert.equal((await documents(post("/documents-api", { action: "documents-reservation", ref: G.r1 }), { ip: "4.4.4.6" })).status, 401);
+  assert.equal((await admin({ action: "document-pdf", ref: G.r1, numero: "../../etc" })).status, 400);
+  assert.equal((await admin({ action: "documents-reservation", ref: "E8-261120-INCONNUE" })).status, 404);
+});
+await t("export comptable CSV : colonnes, période, aucune double comptabilisation acompte/facture finale, montants inchangés", async () => {
+  assert.equal((await documents(post("/documents-api", { action: "export-comptable", du: "2026-01-01", au: "2026-12-31" }), { ip: "4.4.4.7" })).status, 401);
+  assert.equal((await admin({ action: "export-comptable", du: "2026-12-31", au: "2026-01-01" })).status, 422);
+  assert.equal((await admin({ action: "export-comptable", du: "2025-01-01", au: "2026-12-31" })).status, 422);
+  const avant = JSON.stringify([...docDeps.store.m.entries()].filter(([k]) => /^(facture|avoir|devis)\//.test(k)));
+  const r = await admin({ action: "export-comptable", du: "2026-01-01", au: "2026-12-31" });
+  assert.equal(r.status, 200); assert.match(r.j.fichier, /^elev8-comptabilite-TEST-2026-01-01_2026-12-31\.csv$/);
+  assert.equal(JSON.stringify([...docDeps.store.m.entries()].filter(([k]) => /^(facture|avoir|devis)\//.test(k))), avant, "aucun document modifié par l'export");
+  const csv = lireCsv(r.j.csv), tete = csv[0], C = (n) => tete.indexOf(n);
+  for (const c of ["Date d'émission", "Type de document", "Numéro", "Référence réservation", "Client", "Montant HT", "TVA", "Montant TTC", "Montant encaissé",
+    "Montant remboursé", "Référence Stripe", "Mode de paiement", "Identifiant archivé", "CA HT", "TVA collectée", "Avance client HT"]) assert.ok(C(c) >= 0, c);
+  const lignes = csv.slice(1, -1), total = csv[csv.length - 1];
+  assert.equal(lignes.length, r.j.documents);
+  assert.ok(lignes.every((l) => l[0] === "TEST"));
+  const de = (ref) => lignes.filter((l) => l[C("Référence réservation")] === ref);
+  const somme = (ls, c) => ls.reduce((a, l) => a + num(l[C(c)]), 0);
+  // R1 : acompte + facture finale → CA = HT de la course UNE fois, TVA = TVA de la course UNE fois, avance soldée
+  const r1 = de(G.r1);
+  assert.deepEqual(r1.map((l) => l[C("Type de document")]).sort(), ["Facture d'acompte", "Facture finale"]);
+  const fin = r1.find((l) => l[C("Type de document")] === "Facture finale"), ac = r1.find((l) => l[C("Type de document")] === "Facture d'acompte");
+  assert.equal(somme(r1, "CA HT"), num(fin[C("Montant HT")]));
+  assert.equal(somme(r1, "TVA collectée"), num(ac[C("TVA")]));
+  assert.equal(somme(r1, "Avance client HT"), 0);
+  assert.equal(somme(r1, "Montant encaissé"), num(ac[C("Montant TTC")]), "encaissement compté une seule fois");
+  assert.equal(num(fin[C("Acompte déduit TTC")]), num(ac[C("Montant TTC")])); assert.match(fin[C("Document lié")], /Acompte TEST-F-/);
+  assert.match(ac[C("Référence Stripe")], /^pi_test_/); assert.equal(ac[C("Mode de paiement")], "carte bancaire via Stripe");
+  assert.match(ac[C("Identifiant archivé")], /^facture\/TEST-F-/);
+  // R2 : acompte + avoir sur acompte → aucun CA, avance et TVA nettes du remboursement
+  const r2 = de(G.r2), avr = r2.find((l) => l[C("Type de document")] === "Avoir");
+  assert.equal(somme(r2, "CA HT"), 0); assert.equal(num(avr[C("Montant remboursé")]), 500);
+  assert.equal(somme(r2, "Avance client HT") + somme(r2, "TVA collectée"), num(r2.find((l) => l[C("Type de document")] === "Facture d'acompte")[C("Montant TTC")]) - 500);
+  // Ligne TOTAL = somme des colonnes
+  for (const c of ["CA HT", "TVA collectée", "Avance client HT", "Montant encaissé", "Montant remboursé"]) assert.equal(num(total[C(c)]), somme(lignes, c), c);
+  // Période : seuls les documents émis entre les dates
+  const vide = await admin({ action: "export-comptable", du: "2026-01-01", au: "2026-01-31" });
+  assert.equal(vide.j.documents, 0); assert.equal(lireCsv(vide.j.csv).length, 2);
+});
+await t("changement officiel de date : e-mail au client (ancienne/nouvelle date, référence, sans nouvelle facturation), variante « à confirmer »", async () => {
+  const ref = await courseConfirmee("2026-12-18", "09:00");
+  const nbFactures = [...docDeps.store.m.keys()].filter((k) => k.startsWith("facture/") || k.startsWith("avoir/")).length;
+  envoyes.length = 0;
+  const r = await aLaDate("2026-12-01T10:00:00Z", () => admin({ action: "modifier-date", ref, date: "2026-12-19", heure: "10:30", motif: "Report demandé par le client" }));
+  assert.equal(r.status, 200); assert.equal(r.j.mail, true);
+  const m = envoyes.find((x) => /date/i.test(x.subject));
+  assert.equal(m.to, "claire@example.test"); assert.equal(m.copie, "contact@elev8privatedriver.com");
+  assert.match(m.subject, /Modification de la date de votre réservation \| E8-/);
+  for (const x of ["Référence : " + ref, "Ancienne date : vendredi 18 décembre 2026 à 09h00", "Nouvelle date : samedi 19 décembre 2026 à 10h30", "aucune nouvelle facturation"]) assert.ok(m.text.includes(x), x);
+  assert.ok(!/facture/i.test(m.text.replace("aucune nouvelle facturation", "")), "aucune facturation annoncée");
+  assert.ok(!m.text.includes("Report demandé"), "motif interne non communiqué");
+  envoyes.length = 0;
+  const r2 = await aLaDate("2026-12-01T10:00:00Z", () => admin({ action: "modifier-date", ref, date: "2026-12-20", heure: "10:30", motif: "Disponibilité du chauffeur", validationClient: true }));
+  assert.equal(r2.status, 200);
+  const m2 = envoyes.find((x) => /date/i.test(x.subject));
+  assert.match(m2.subject, /Nouvelle date à confirmer/); assert.ok(m2.text.includes("« Je confirme »") && m2.text.includes("Ancienne date : samedi 19 décembre 2026 à 10h30"));
+  assert.equal((await dossier(ref)).modificationsDate[1].validationClient, true);
+  assert.equal([...docDeps.store.m.keys()].filter((k) => k.startsWith("facture/") || k.startsWith("avoir/")).length, nbFactures, "aucune facture créée");
   process.env.FACTURATION_AUTOMATIQUE = "non";
 });
 

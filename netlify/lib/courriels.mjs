@@ -158,6 +158,20 @@ export function mailAvoir(D, rec) {
     html: gabarit({ titre: "Votre avoir", intro: [bonjourDe(D), ...blocs], encadre: "Montant remboursé : " + euros(a.montantCents) + " TTC" }) };
 }
 
+/* 2 quinquies. Changement officiel de la date ou de l'heure de la prise en charge.
+   Aucune nouvelle facturation n'est annoncée. Avec « validation », le client est invité à confirmer. */
+export function mailChangementDate(D, { ancienne, nouvelle, validation }) {
+  const quand = (iso) => new Date(iso).toLocaleString("fr-FR", { timeZone: "Europe/Paris", weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" }).replace(":", "h");
+  const blocs = ["La date de prise en charge de votre réservation " + D.ref + " a été modifiée.",
+    validation ? "Merci de confirmer cette nouvelle date en répondant simplement « Je confirme » à ce message. Si elle ne vous convient pas, répondez-nous ou appelez-nous : nous trouverons une solution."
+               : "Cette modification a été convenue avec vous ; aucune démarche n'est nécessaire.",
+    "Cette modification n'entraîne aucune nouvelle facturation : le montant de votre réservation reste inchangé."];
+  const L = [["Référence", D.ref], ["Ancienne date", quand(ancienne)], ["Nouvelle date", quand(nouvelle)]];
+  return { subject: `${MARQUE} — ${validation ? "Nouvelle date à confirmer" : "Modification de la date de votre réservation"} | ${D.ref}`,
+    text: texte(bonjourDe(D), [blocs[0], L.map(([k, v]) => k + " : " + v).join("\n"), blocs[1], blocs[2]]),
+    html: gabarit({ titre: validation ? "Nouvelle date à confirmer" : "Modification de la date", intro: [bonjourDe(D), blocs[0]], lignes: L, apres: [blocs[1], blocs[2]] }) };
+}
+
 /* 2. Paiement confirmé par Stripe : la course est EN ATTENTE d'attribution (pas encore confirmée) */
 export function mailPaiementRecu(D, p) {
   const blocs = ["Nous avons bien reçu votre règlement de " + euros(p.montantCents) + " TTC pour la réservation " + D.ref + ". Merci.",

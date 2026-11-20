@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;0,6..96,500;1,6..96,400&family=Jost:wght@300;400;500&display=swap">
-<link rel="stylesheet" href="/assets/css/style.css?v=20261119e">
+<link rel="stylesheet" href="/assets/css/style.css?v=20261120h">
 </head>
 <body class="page-resa page-docs">
 <!-- Page réservée à ELEV8 (non référencée) : devis et factures PDF.
@@ -44,6 +44,47 @@
 
   <form class="form docs__form" id="docForm" novalidate hidden>
     <p class="docs__alerte" id="emetteurMsg" hidden></p>
+
+    <!-- Tableau de gestion : réservations payables en ligne (filtres et pagination côté serveur) -->
+    <section class="docs__tableau" id="tableau" aria-label="Tableau de gestion">
+      <h2 class="docs__h2">Tableau de gestion <span class="docs__badge docs__badge--test" id="tModeTest" hidden>site de test</span></h2>
+      <div class="docs__filtres">
+        <div class="field"><label for="t-filtre">Afficher</label>
+          <select id="t-filtre">
+            <option value="tous">Toutes les réservations</option>
+            <option value="payees">Payées</option>
+            <option value="a_attribuer">À attribuer</option>
+            <option value="realisees">Réalisées</option>
+            <option value="annulees">Annulées</option>
+            <option value="remboursees">Remboursées</option>
+            <option value="attente_paiement">En attente de paiement</option>
+          </select>
+        </div>
+        <div class="field"><label for="t-du">Prise en charge du</label><input id="t-du" type="date"></div>
+        <div class="field"><label for="t-au">au</label><input id="t-au" type="date"></div>
+        <div class="field"><label for="t-q">Référence</label><input id="t-q" type="text" maxlength="40" autocapitalize="characters" spellcheck="false" placeholder="E8-…"></div>
+        <button class="btn btn--quiet" type="button" id="btnFiltrer"><span>Afficher</span></button>
+      </div>
+      <p class="docs__msg" id="tMsg" role="status"></p>
+      <div class="docs__liste" id="tListe"></div>
+      <div class="docs__pages">
+        <button class="btn btn--quiet" type="button" id="tPrec"><span>Précédent</span></button>
+        <span id="tInfo"></span>
+        <button class="btn btn--quiet" type="button" id="tSuiv"><span>Suivant</span></button>
+      </div>
+      <details class="docs__export" id="export">
+        <summary>Exporter la comptabilité</summary>
+        <div class="docs__filtres">
+          <div class="field"><label for="x-du">Documents émis du</label><input id="x-du" type="date"></div>
+          <div class="field"><label for="x-au">au</label><input id="x-au" type="date"></div>
+          <button class="btn btn--gold" type="button" id="btnExport"><span>Exporter la comptabilité</span></button>
+        </div>
+        <p class="field__help">Fichier CSV (séparateur « ; », compatible Excel) : factures d'acompte, factures finales, factures manuelles et avoirs émis sur la période. Les colonnes « CA HT », « TVA collectée » et « Avance client HT » évitent de compter deux fois l'acompte et la facture finale. Format d'import Indy à vérifier avant usage.</p>
+        <p class="docs__msg" id="xMsg" role="status"></p>
+      </details>
+    </section>
+
+    <h2 class="docs__h2">Réservation</h2>
     <div class="docs__ouvrir">
       <div class="field">
         <label for="d-chercher">Ouvrir une demande par sa référence</label>
@@ -71,6 +112,8 @@
         <div class="field"><label for="md-date">Nouvelle date</label><input id="md-date" type="date"></div>
         <div class="field"><label for="md-heure">Nouvelle heure de prise en charge</label><input id="md-heure" type="time"></div>
         <div class="field"><label for="md-motif">Motif (obligatoire)</label><input id="md-motif" type="text" maxlength="200" placeholder="Ex. avancée à la demande du client"></div>
+        <label class="check" for="md-validation"><input id="md-validation" type="checkbox"><span class="check__box" aria-hidden="true"></span><span>Le client doit confirmer cette nouvelle date (l'e-mail lui demandera de répondre « Je confirme »)</span></label>
+        <p class="field__help">Un e-mail est envoyé automatiquement au client (copie ELEV8) : référence, ancienne et nouvelle date, sans nouvelle facturation.</p>
         <div class="docs__row"><button class="btn btn--quiet" type="button" id="btnModifDate"><span>Enregistrer la nouvelle date</span></button></div>
         <p class="field__help">Seule exception au contrôle « Course réalisée » : la nouvelle date est enregistrée dans la réservation, avec son motif et l'historique. Les documents déjà émis ne changent pas.</p>
       </details>
@@ -83,15 +126,18 @@
         <button class="btn btn--quiet" type="button" id="btnIndispo"><span>Indisponible — annuler</span></button>
         <button class="btn btn--quiet" type="button" id="btnSansChauffeur"><span>Aucun chauffeur — rembourser</span></button>
       </div>
-      <div class="docs__row">
-        <button class="btn btn--quiet" type="button" id="btnDevisEnvoye" hidden><span>Télécharger le devis envoyé</span></button>
-        <button class="btn btn--quiet" type="button" id="btnFactureAcompte" hidden><span>Télécharger la facture d'acompte</span></button>
+      <!-- Documents : devis, facture d'acompte, facture finale, avoirs, références Stripe (archives, jamais modifiées) -->
+      <div class="docs__documents" id="pDocuments" hidden>
+        <h3>Documents</h3>
+        <ul class="docs__doclist" id="pDocs"></ul>
+        <p class="docs__text" id="pStripe"></p>
       </div>
-      <div class="docs__row" id="pDocs"></div>
       <p class="docs__msg" id="pMsg" role="status"></p>
       <ul id="pHisto"></ul>
     </section>
 
+    <h2 class="docs__h2" id="casTitre">Cas particuliers <span class="opt">saisie et validation manuelles</span></h2>
+    <p class="docs__text">Pour une demande sur devis, une demande particulière, un client professionnel ou une réservation prise par téléphone. Le parcours standard (devis, paiement, factures) est automatique.</p>
     <details class="docs__edition" id="edition" open>
     <summary id="editionTitre">Informations du client et du trajet</summary>
     <fieldset class="form__group">
@@ -360,6 +406,6 @@
 
 <script src="/config.js?v=20261118b"></script>
 <script src="/assets/js/messages-client.js?v=20261119d"></script>
-<script src="/assets/js/documents.js?v=20261120g"></script>
+<script src="/assets/js/documents.js?v=20261120h"></script>
 </body>
 </html>

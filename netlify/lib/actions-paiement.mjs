@@ -7,7 +7,7 @@
 import { stripeActif, expirerSession, rembourser } from "./stripe.mjs";
 import { magasin, parRef, creer, modifier, resume, instantParis, controleRealisation, deps as P } from "./paiements.mjs";
 import { magasin as magasinDemandes, chargerParRef } from "./demandes.mjs";
-import { mailChauffeurConfirme, mailAnnulation, alerteElev8 } from "./courriels.mjs";
+import { mailChauffeurConfirme, mailAnnulation, alerteElev8, mailChangementDate } from "./courriels.mjs";
 import { envoyerDevis } from "./devis-auto.mjs";
 import { facturerRealisation } from "./facturation.mjs";
 import { envoyerUneFois, demandeDe, lienDocuments } from "./notifications.mjs";
@@ -108,7 +108,7 @@ async function finPrevue(p, now) {
    Réservée à ELEV8 connecté, motif obligatoire, historique conservé ; impossible une fois la course
    réalisée, annulée ou remboursée. Les documents déjà émis (devis, facture d'acompte) ne changent pas ;
    la facture finale indique la date réelle de réalisation. */
-export async function modifierDatePrestation({ ref, date, heure, motif, now = P.now() }) {
+export async function modifierDatePrestation({ ref, date, heure, motif, validationClient = false, now = P.now() }) {
   const st = magasin();
   const p = await parRef(st, ref);
   if (!p) return { erreur: [404, "Aucun paiement en ligne pour cette référence."] };
@@ -126,11 +126,18 @@ export async function modifierDatePrestation({ ref, date, heure, motif, now = P.
     const n = { ...(x.notifications || {}) };
     for (const k of Object.keys(n)) if (k.startsWith("elev8_sans_chauffeur_")) delete n[k];     // alertes recalées sur la nouvelle date
     return note({ ...x, priseEnCharge: nouvelle, decalagePrestation: (x.decalagePrestation || 0) + (t - Date.parse(ancienne)), notifications: n,
-      modificationsDate: (x.modificationsDate || []).concat([{ ancienne, nouvelle, motif: m.slice(0, 200), le: new Date(now).toISOString(), par: "elev8" }]) },
+      modificationsDate: (x.modificationsDate || []).concat([{ ancienne, nouvelle, motif: m.slice(0, 200), le: new Date(now).toISOString(), par: "elev8", validationClient: !!validationClient }]) },
       "date de la prestation modifiée : " + new Date(t).toLocaleString("fr-FR", { timeZone: "Europe/Paris" }) + " (" + m.slice(0, 80) + ")", now);
   });
   if (!r.change) return { erreur: [409, "La réservation a changé entre-temps : rechargez-la."] };
-  return { paiement: resume(r.p) };
+  // E-mail au client (copie ELEV8) : ancienne et nouvelle date, aucune nouvelle facturation ; une fois par modification
+  const D = await demandeDe(r.p, now);
+  const n = r.p.modificationsDate.length;
+  const msg = { ...mailChangementDate(D || { ref, client: {} }, { ancienne, nouvelle, validation: !!validationClient }), copieElev8: true };
+  const mail = D && D.client && D.client.email
+    ? await envoyerUneFois(st, r.p, "client_date_" + n, msg, D.client.email, now)
+    : await envoyerUneFois(st, r.p, "elev8_date_" + n, { ...msg, subject: "[Client sans e-mail — à prévenir] " + msg.subject }, "elev8", now);
+  return { paiement: resume(await parRef(st, ref)), mail, sansEmailClient: !(D && D.client && D.client.email) };
 }
 
 /* Indisponibilité ou aucun chauffeur : lien désactivé (non payé) ou remboursement intégral (payé) */

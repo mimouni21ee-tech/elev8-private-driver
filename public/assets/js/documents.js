@@ -44,6 +44,10 @@
     $("#emetteurMsg").hidden = !m.length;
     if (m.length) $("#emetteurMsg").textContent = "Avant de produire un devis ou une facture, complétez dans public/config.js (rubrique legal) : " + m.join(" ; ") + ".";
     chargerDepuisLien();
+    var d = new Date(), deb = new Date(d.getFullYear(), d.getMonth(), 1);
+    var iso = function (x) { return x.getFullYear() + "-" + ("0" + (x.getMonth() + 1)).slice(-2) + "-" + ("0" + x.getDate()).slice(-2); };
+    if (!v("#x-du")) { $("#x-du").value = iso(deb); $("#x-au").value = iso(d); }
+    afficherTableau(1);
   }
   $("#lockForm").addEventListener("submit", function (e) {
     e.preventDefault();
@@ -394,19 +398,13 @@
     if (P.statut === "paye") d.push("HUBER : " + (P.huber && P.huber.etat === "en_attente_api" ? "transmission automatique dès que son API sera disponible (aucune publication pour l'instant)" : (P.huber && P.huber.etat) || "—"));
     $("#pDetail").textContent = d.join(" · ");
     $("#pChauffeur").hidden = !(["paye", "rembourse_partiel"].indexOf(P.statut) >= 0 && P.etape === "payee_attente_attribution");
-    $("#btnDevisEnvoye").hidden = !P.devis;
-    $("#btnFactureAcompte").hidden = !(P.factures && P.factures.acompte);
     // « Course réalisée » : paiement confirmé, chauffeur confirmé, ni annulée ni remboursée intégralement
     var realisable = P.etape === "chauffeur_confirme" && ["paye", "rembourse_partiel"].indexOf(P.statut) >= 0;
     $("#pRealisation").hidden = !realisable;
     // Proposition : la prise en charge enregistrée (le serveur contrôle la fenêtre de réalisation)
     if (realisable && P.priseEnCharge) $("#r-le").value = localParis(P.priseEnCharge);
     $("#pModifDate").hidden = !(["paye", "rembourse_partiel"].indexOf(P.statut) >= 0 && ["payee_attente_attribution", "chauffeur_confirme"].indexOf(P.etape) >= 0);
-    // Facture finale et avoirs : un bouton de téléchargement par document
-    var docs = [];
-    if (P.factures && P.factures.finale) docs.push([P.factures.finale, "Télécharger la facture finale"]);
-    ((P.factures && P.factures.avoirs) || []).forEach(function (a) { docs.push([a.numero, "Télécharger l'avoir " + a.numero]); });
-    $("#pDocs").innerHTML = docs.map(function (x) { return '<button class="btn btn--quiet" type="button" data-doc="' + esc(x[0]) + '"><span>' + esc(x[1]) + "</span></button>"; }).join("");
+    chargerDocuments();
     var annulable = ["attente_paiement", "payee_attente_attribution", "chauffeur_confirme"].indexOf(P.etape) >= 0 && ["en_attente", "expire", "paye", "a_verifier", "rembourse_partiel"].indexOf(P.statut) >= 0;
     $("#pAnnuler").hidden = !annulable;
     $("#btnSansChauffeur").hidden = ["paye", "a_verifier", "rembourse_partiel"].indexOf(P.statut) < 0;
@@ -509,8 +507,25 @@
       $("#pMsg").textContent = j.numero + " téléchargé.";
     });
   }
-  $("#btnDevisEnvoye").addEventListener("click", function () { telechargerEnregistre("devis-envoye", "devis envoyé"); });
-  $("#btnFactureAcompte").addEventListener("click", function () { telechargerEnregistre("facture-acompte", "facture d'acompte"); });
+  /* Rubrique « Documents » : devis (toutes versions), facture d'acompte, facture finale, avoirs, références Stripe */
+  function chargerDocuments() {
+    if (!demandeChargee || !demandeChargee.ref) { $("#pDocuments").hidden = true; return; }
+    var ref = demandeChargee.ref;
+    appel({ action: "documents-reservation", ref: ref }).then(function (j) {
+      if (!demandeChargee || demandeChargee.ref !== ref) return;
+      if (!j.ok) { $("#pDocuments").hidden = true; return; }
+      $("#pDocuments").hidden = !j.docs.length && !j.stripe.paiement;
+      $("#pDocs").innerHTML = j.docs.map(function (d) {
+        return '<li><span class="docs__docinfo"><strong>' + esc(d.libelle) + "</strong> " + esc(d.numero) + " · " + esc(d.date ? d.date.split("-").reverse().join("/") : "") +
+          " · " + esc(fmt(d.montant)) + (d.facture ? " (sur " + esc(d.facture) + ")" : "") + '</span><button class="btn btn--quiet" type="button" data-doc="' + esc(d.numero) + '"><span>Télécharger</span></button></li>';
+      }).join("") || "<li>Aucun document émis pour l'instant.</li>";
+      var s = j.stripe, t = [];
+      if (s.paiement) t.push("Paiement Stripe : " + s.paiement + (s.payeLe ? " (reçu le " + dateHeure(s.payeLe) + ")" : ""));
+      if (s.rembourse > 0) t.push("Remboursé : " + fmt(s.rembourse) + (s.operations.length ? " (opérations " + s.operations.join(", ") + ")" : ""));
+      if (s.sessions.length) t.push("Sessions Checkout : " + s.sessions.join(", "));
+      $("#pStripe").textContent = t.join(" · ");
+    });
+  }
   $("#pDocs").addEventListener("click", function (ev) {
     var b = ev.target.closest("[data-doc]");
     if (b) telechargerEnregistre("document-pdf", b.getAttribute("data-doc"), { numero: b.getAttribute("data-doc") });
@@ -524,7 +539,63 @@
     var date = v("#md-date"), heure = v("#md-heure"), motif = v("#md-motif");
     if (!date || !heure || !motif) { $("#pMsg").textContent = "Indiquez la nouvelle date, l'heure et le motif."; return; }
     if (!confirm("Enregistrer officiellement la nouvelle date de la prestation : " + date + " à " + heure + " ? Motif : " + motif)) return;
-    actionPaiement({ action: "modifier-date", date: date, heure: heure, motif: motif }, function () { $("#md-motif").value = ""; return "Nouvelle date enregistrée dans la réservation."; });
+    actionPaiement({ action: "modifier-date", date: date, heure: heure, motif: motif, validationClient: $("#md-validation").checked }, function (j) {
+      $("#md-motif").value = ""; $("#md-validation").checked = false;
+      return "Nouvelle date enregistrée dans la réservation. " + (j.sansEmailClient ? "Client sans e-mail : prévenez-le (ELEV8 a reçu le message)." : j.mail ? "Le client a été prévenu par e-mail (copie ELEV8)." : "E-mail au client non envoyé : prévenez-le.");
+    });
+  });
+  /* ---------- Tableau de gestion (filtres et pagination côté serveur) ---------- */
+  var tPage = 1;
+  function badge(t, cls) { return '<span class="docs__badge' + (cls ? " docs__badge--" + cls : "") + '">' + esc(t) + "</span>"; }
+  function afficherTableau(page) {
+    tPage = page || 1;
+    $("#tMsg").textContent = "Chargement…";
+    appel({ action: "tableau", filtre: $("#t-filtre").value, du: v("#t-du"), au: v("#t-au"), recherche: v("#t-q"), page: tPage, parPage: 20 }).then(function (j) {
+      if (j.code === "acces") { oublierSession(); verrouiller(j.message); return; }
+      if (!j.ok) { $("#tMsg").textContent = j.message || "Lecture impossible."; return; }
+      $("#tModeTest").hidden = !j.test;
+      $("#tMsg").textContent = j.total ? j.total + " réservation" + (j.total > 1 ? "s" : "") : "Aucune réservation pour ces critères.";
+      $("#tListe").innerHTML = j.lignes.map(function (l) {
+        var cls = l.statut === "paye" ? "ok" : l.statut === "rembourse" || l.statut === "rembourse_partiel" ? "alerte" : ["annule", "expire", "remplace"].indexOf(l.statut) >= 0 ? "neutre" : "";
+        var docs = [];
+        l.devis.forEach(function (d) { docs.push("Devis " + d.numero); });
+        if (l.acompte) docs.push("Acompte " + l.acompte);
+        if (l.finale) docs.push("Finale " + l.finale);
+        l.avoirs.forEach(function (a) { docs.push("Avoir " + a.numero + (a.montant != null ? " (" + fmt(a.montant) + ")" : "")); });
+        return '<article class="docs__ligne" data-ref="' + esc(l.ref) + '">' +
+          '<div class="docs__ligne-tete"><strong>' + esc(l.ref) + "</strong> " + esc(l.client) + '<span class="docs__badges">' + badge(l.paiement, cls) + badge(l.etapeLibelle) + (l.litige ? badge("Litige", "alerte") : "") + "</span></div>" +
+          '<div class="docs__ligne-trajet">' + esc(l.priseEnCharge ? dateHeure(l.priseEnCharge) : "") + " · " + esc(l.trajet) + (l.chauffeur ? " · chauffeur : " + esc(l.chauffeur) : "") + "</div>" +
+          '<dl class="docs__montants"><div><dt>Prix TTC</dt><dd>' + fmt(l.prixTTC) + "</dd></div><div><dt>Encaissé</dt><dd>" + fmt(l.encaisse) + "</dd></div><div><dt>Remboursé</dt><dd>" + fmt(l.rembourse) + "</dd></div><div><dt>Solde</dt><dd>" + fmt(l.solde) + "</dd></div></dl>" +
+          '<div class="docs__ligne-docs">' + (docs.length ? esc(docs.join(" · ")) : "Aucun document") + '</div>' +
+          '<button class="btn btn--quiet" type="button" data-ouvrir="' + esc(l.ref) + '"><span>Ouvrir</span></button></article>';
+      }).join("");
+      $("#tInfo").textContent = "Page " + j.page + " / " + j.pages;
+      $("#tPrec").disabled = j.page <= 1; $("#tSuiv").disabled = j.page >= j.pages;
+    });
+  }
+  $("#btnFiltrer").addEventListener("click", function () { afficherTableau(1); });
+  $("#tPrec").addEventListener("click", function () { afficherTableau(tPage - 1); });
+  $("#tSuiv").addEventListener("click", function () { afficherTableau(tPage + 1); });
+  $("#tListe").addEventListener("click", function (ev) {
+    var b = ev.target.closest("[data-ouvrir]");
+    if (!b) return;
+    etape = "";
+    var r = charger({ ref: b.getAttribute("data-ouvrir") }, false);
+    if (r && r.then) r.then(function () { var el = $("#paiementBloc"); if (!el.hidden) el.scrollIntoView({ block: "start" }); });
+  });
+  /* Export comptable (CSV) : lecture seule, aucun montant modifié */
+  $("#btnExport").addEventListener("click", function () {
+    var du = v("#x-du"), au = v("#x-au");
+    if (!du || !au) { $("#xMsg").textContent = "Indiquez la date de début et la date de fin."; return; }
+    $("#xMsg").textContent = "Préparation de l'export…";
+    appel({ action: "export-comptable", du: du, au: au }).then(function (j) {
+      if (!j.ok) { $("#xMsg").textContent = j.message || "Export impossible."; return; }
+      var bin = atob(j.csv), bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      var a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([bytes], { type: "text/csv;charset=utf-8" })); a.download = j.fichier;
+      document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+      $("#xMsg").textContent = j.documents + " document" + (j.documents > 1 ? "s" : "") + " exporté" + (j.documents > 1 ? "s" : "") + " (" + j.fichier + ").";
+    });
   });
   var realisationEnCours = false;
   $("#btnRealisee").addEventListener("click", function () {

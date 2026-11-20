@@ -33,6 +33,7 @@ import { magasin as magasinPaiements, parRef as paiementParRef, resume as resume
 import { creerLienManuel, confirmerChauffeur, annulerEtRembourser, confirmerRealisation, modifierDatePrestation } from "../lib/actions-paiement.mjs";
 import { magasinDevis, pdfDevis } from "../lib/devis-auto.mjs";
 import { pdfFacture } from "../lib/facturation.mjs";
+import { listerReservations, documentsReservation, documentArchive, exportComptable } from "../lib/gestion.mjs";
 import { numeroSuivant } from "../lib/numerotation.mjs";
 
 export const config = {
@@ -284,21 +285,44 @@ export default async (req, context) => {
     }
   }
 
-  /* Facture finale ou avoir enregistré (numéro rattaché à la réservation ; accès réservé à ELEV8) */
+  /* Document archivé d'une réservation (devis, facture d'acompte, facture finale, avoir) : PDF identique à l'envoi */
   if (b.action === "document-pdf") {
     const ref = String(b.ref || "").trim().toUpperCase(), numero = String(b.numero || "").trim().toUpperCase();
+    if (!/^E8-[A-Z0-9-]{3,30}$/.test(ref) || !/^[A-Z0-9-]{5,60}$/.test(numero)) return json(400, { ok: false, code: "document", message: "Référence ou numéro invalide." });
     try {
-      const P = /^E8-[A-Z0-9-]{3,30}$/.test(ref) ? await paiementParRef(magasinPaiements(), ref) : null;
-      const F = (P && P.factures) || {};
-      const autorise = [F.acompte, F.finale, ...((F.avoirs || []).map((a) => a.numero))].filter(Boolean);
-      if (!autorise.includes(numero)) return json(404, { ok: false, code: "document", message: "Document introuvable pour cette référence." });
-      const rec = await magasinDevis().get((/(^|-)AV-/.test(numero) ? "avoir/" : "facture/") + numero, { type: "json" });
-      if (!rec || rec.ref !== ref) return json(404, { ok: false, code: "document", message: "Document introuvable pour cette référence." });
-      const bytes = await pdfFacture(rec);
-      return json(200, { ok: true, numero: rec.numero, fichier: rec.numero + ".pdf", pdf: Buffer.from(bytes).toString("base64") });
+      const d = await documentArchive(ref, numero);
+      if (!d) return json(404, { ok: false, code: "document", message: "Document introuvable pour cette référence." });
+      const bytes = d.devis ? await pdfDevis(d.rec) : await pdfFacture(d.rec);
+      return json(200, { ok: true, numero: d.rec.numero, fichier: d.rec.numero + ".pdf", pdf: Buffer.from(bytes).toString("base64") });
     } catch (e) {
       console.error("Document :", String(e && e.message).slice(0, 60));
       return json(502, { ok: false, code: "document", message: "Lecture du document impossible pour le moment." });
+    }
+  }
+
+  /* Tableau de gestion, documents d'une réservation, export comptable (lecture seule) */
+  if (b.action === "tableau") {
+    try { return json(200, { ok: true, ...(await listerReservations({ filtre: b.filtre, du: b.du, au: b.au, recherche: b.recherche, page: b.page, parPage: b.parPage })), test: estSiteDeTest() }); }
+    catch (e) { console.error("Tableau :", String(e && e.message).slice(0, 60)); return json(502, { ok: false, code: "tableau", message: "Lecture des réservations impossible pour le moment." }); }
+  }
+  if (b.action === "documents-reservation") {
+    const ref = String(b.ref || "").trim().toUpperCase();
+    if (!/^E8-[A-Z0-9-]{3,30}$/.test(ref)) return json(400, { ok: false, code: "ref", message: "Référence invalide." });
+    try {
+      const r = await documentsReservation(ref);
+      return r ? json(200, { ok: true, ...r }) : json(404, { ok: false, code: "ref", message: "Aucun paiement en ligne pour cette référence." });
+    } catch (e) { console.error("Documents :", String(e && e.message).slice(0, 60)); return json(502, { ok: false, code: "documents", message: "Lecture des documents impossible pour le moment." }); }
+  }
+  if (b.action === "export-comptable") {
+    try {
+      const r = await exportComptable({ du: String(b.du || ""), au: String(b.au || "") });
+      return json(200, { ok: true, fichier: r.fichier, documents: r.documents, csv: Buffer.from(r.csv, "utf8").toString("base64") });
+    } catch (e) {
+      const m = String(e && e.message);
+      if (m === "periode") return json(422, { ok: false, code: "periode", message: "Indiquez une date de début et une date de fin valides (début ≤ fin)." });
+      if (m === "periode_longue") return json(422, { ok: false, code: "periode", message: "Période trop longue : 366 jours au maximum par export." });
+      console.error("Export comptable :", m.slice(0, 60));
+      return json(502, { ok: false, code: "export", message: "Export impossible pour le moment." });
     }
   }
 
@@ -316,7 +340,7 @@ export default async (req, context) => {
       }
       else if (b.action === "chauffeur-confirme") r = await confirmerChauffeur({ ref, chauffeur: b.chauffeur, now });
       else if (b.action === "course-realisee") r = await confirmerRealisation({ ref, realiseeLe: String(b.realiseeLe || ""), now });
-      else if (b.action === "modifier-date") r = await modifierDatePrestation({ ref, date: String(b.date || ""), heure: String(b.heure || ""), motif: String(b.motif || ""), now });
+      else if (b.action === "modifier-date") r = await modifierDatePrestation({ ref, date: String(b.date || ""), heure: String(b.heure || ""), motif: String(b.motif || ""), validationClient: b.validationClient === true, now });
       else r = await annulerEtRembourser({ ref, motif: b.motif, now });
       if (r.erreur) return json(r.erreur[0], { ok: false, code: "paiement", message: r.erreur[1] });
       return json(200, { ok: true, ...r });
