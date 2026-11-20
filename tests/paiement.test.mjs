@@ -459,4 +459,58 @@ await t("site de test : contrôle de cohérence de la facture effectué, puis au
   ENV._reinitialiser(); docDeps.config = null;
 });
 
+/* ---------- Devis : « Étapes suivantes » selon le règlement réellement prévu ---------- */
+await t("devis : textes adaptés au règlement (en ligne avant attribution, après la prestation, virement) ; texte d'origine conservé hors paiement en ligne", async () => {
+  const { textesDevis } = await import("../netlify/lib/documents.mjs");
+  const E = { modesPaiement: "carte bancaire ou virement bancaire" };
+  const d = (valide, reglement) => ({ devis: { valide, validiteJours: 15, reglement: reglement || "auto" } });
+  const meta = (r) => ({ dateEmission: "2026-11-20", reglement: r });
+  const tout = (x) => [x.bandeau || "", x.titre, ...x.paragraphes].join(" ");
+  // En ligne, à payer
+  let x = textesDevis(d(true), E, meta({ mode: "en_ligne", etat: "a_payer", montant: 20, valableJusqu: "2026-11-21" }), 20);
+  let t1 = tout(x);
+  for (const m of ["avant l'attribution du chauffeur", "réglez 20,00 € TTC en ligne", "lien valable jusqu'au 21 novembre 2026", "Le paiement vaut acceptation du présent devis",
+    "n'est définitivement confirmée qu'après l'acceptation de la course par un chauffeur", "si aucun chauffeur n'est disponible, le montant réglé vous est intégralement remboursé"]) assert.ok(t1.includes(m), m);
+  assert.ok(!/après la prestation|Aucun paiement n'est demandé/.test(t1)); assert.equal(x.signature, false); assert.equal(x.titre, "Étapes suivantes");
+  // En ligne, provisoire
+  t1 = tout(textesDevis(d(false), E, meta({ mode: "en_ligne", etat: "a_payer", montant: 20 }), 20));
+  assert.ok(t1.includes("lien de paiement sécurisé") && t1.includes("avant l'attribution du chauffeur") && t1.includes("intégralement remboursé") && !t1.includes("après la prestation"));
+  // Payé, sans chauffeur / avec chauffeur / remboursé
+  t1 = tout(textesDevis(d(true), E, meta({ mode: "en_ligne", etat: "paye", montant: 20, payeLe: "2026-11-17", reference: "pi_123" }), 20));
+  assert.ok(t1.includes("20,00 € reçus en ligne le 17 novembre 2026 (référence : pi_123), valant acceptation du présent devis") && t1.includes("en cours d'attribution") && t1.includes("intégralement remboursé"));
+  assert.ok(!/Réservation confirmée/.test(t1), "jamais « confirmée » sans chauffeur");
+  x = textesDevis(d(true), E, meta({ mode: "en_ligne", etat: "paye", montant: 20, payeLe: "2026-11-17", chauffeur: true }), 20);
+  assert.equal(x.titre, "Réservation confirmée"); assert.ok(tout(x).includes("un chauffeur a accepté votre course"));
+  assert.ok(tout(textesDevis(d(true), E, meta({ mode: "en_ligne", etat: "rembourse", montant: 20 }), 20)).includes("intégralement remboursé"));
+  // Sans paiement en ligne : texte d'origine, mot pour mot
+  x = textesDevis(d(true), E, meta(null), 20);
+  assert.equal(x.titre, "Bon pour accord"); assert.equal(x.signature, true);
+  assert.equal(x.paragraphes[0], "Pour accepter ce devis, répondez simplement « J'accepte » par e-mail ou par WhatsApp, ou retournez-le daté et signé avec la mention « Bon pour accord ». Règlement après la prestation, par carte bancaire ou virement bancaire.");
+  assert.equal(x.bandeau, "Devis valable jusqu'au 5 décembre 2026. Aucun paiement n'est demandé à cette étape : la réservation est confirmée par ELEV8 après votre accord.");
+  assert.equal(textesDevis(d(false), E, meta({ mode: "apres" }), 20).paragraphes[0], "ELEV8 vérifie la disponibilité du chauffeur et du véhicule, puis vous confirme le tarif définitif. Votre réservation est définitive uniquement après cette confirmation et votre accord. Règlement après la prestation, par carte bancaire ou virement bancaire.");
+  // Virement avant la prestation
+  x = textesDevis(d(true), E, meta({ mode: "virement_avant" }), 20);
+  assert.ok(tout(x).includes("virement bancaire avant la prestation") && !tout(x).includes("après la prestation") && x.signature);
+});
+await t("devis : règlement déterminé par le serveur depuis le paiement réel ; incohérences refusées ; PDF généré", async () => {
+  const { readFileSync } = await import("node:fs");
+  const C = (await import("../netlify/functions/documents.mjs")).parseConfig(readFileSync(new URL("../public/config.js", import.meta.url), "utf8"));
+  C.legal.capital = C.legal.capital && !/\[/.test(C.legal.capital) ? C.legal.capital : "1 000 €"; docDeps.config = C;
+  const doc = (ref, reglement = "auto", montant = "20") => ({ ref, client: { prenom: "Claire", nom: "Martin" }, prestation: { date: "2026-11-18", depart: "Gare de Dijon-Ville", destination: "12 rue de Longvic" },
+    montant, devis: { valide: true, validiteJours: 15, reglement } });
+  const avant = { ...(await dossier(A.ref)) };
+  const r1 = await admin({ action: "devis", doc: doc(A.ref) });                        // payée + chauffeur confirmé
+  assert.equal(r1.status, 200, JSON.stringify(r1.j)); assert.equal(r1.j.type, "devis");
+  assert.equal((await admin({ action: "devis", doc: doc(A.ref, "apres") })).j.code, "reglement_stripe");
+  assert.equal((await admin({ action: "devis", doc: doc(A.ref, "virement_avant") })).j.code, "reglement_stripe");
+  const r2 = await admin({ action: "devis", doc: doc(A.ref, "auto", "25") });
+  assert.equal(r2.j.code, "reglement_montant"); assert.ok(r2.j.message.includes("20,00 €"));
+  assert.equal((await admin({ action: "devis", doc: doc(A.ref, "en_ligne") })).status, 200);
+  for (const reg of ["auto", "apres", "virement_avant", "en_ligne"]) assert.equal((await admin({ action: "devis", doc: doc("E8-261120-SANSLIEN", reg, "35") })).status, 200, reg);
+  assert.equal((await admin({ action: "devis", doc: doc(A.sansChauffeur.ref) })).status, 200);   // remboursée : devis possible, montant non contrôlé
+  assert.deepEqual(await dossier(A.ref), avant, "le paiement n'est pas modifié");
+  assert.equal([...docDeps.store.m.keys()].filter((k) => k.startsWith("facture/") && docDeps.store.m.get(k).d.doc.ref === "E8-261120-SANSLIEN").length, 0);
+  docDeps.config = null;
+});
+
 console.log(`\n${ok} test(s) réussi(s)` + (process.exitCode ? " — ÉCHECS ci-dessus" : ""));

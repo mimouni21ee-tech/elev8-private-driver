@@ -143,6 +143,7 @@
       remplir(j.demande, j.facture);
       afficherPaiement(j.paiement, j.paiementEnLigne);
       preremplirFactureStripe(j.paiement);
+      $("#d-reglement").value = "auto";                                       // règlement du devis : selon la réservation
       if (etape === "validation") $("#validation").scrollIntoView({ block: "start" });
       else $("#recapDemande").scrollIntoView({ block: "start" });
     });
@@ -188,7 +189,7 @@
       montant: v("#d-montant").replace(/\s|€/g, "").replace(",", "."),
       supplements: $$("[data-sup]").map(function (r) { var i = r.querySelectorAll("input"); return { libelle: i[0].value.trim(), montant: i[1].value.replace(/\s|€/g, "").replace(",", ".") }; })
         .filter(function (x) { return x.libelle && parseFloat(x.montant) > 0; }),
-      devis: { valide: $("#d-valide").checked, validiteJours: v("#d-validite") },
+      devis: { valide: $("#d-valide").checked, validiteJours: v("#d-validite"), reglement: v("#d-reglement") || "auto" },
       facture: { datePrestation: v("#d-dateprestation"), paye: $("#d-paye").checked, datePaiement: v("#d-datepaiement"),
         modePaiement: v("#d-mode"), referencePaiement: v("#d-refpaiement"), echeanceJours: v("#d-echeance") }
     };

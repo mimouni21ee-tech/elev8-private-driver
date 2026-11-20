@@ -150,6 +150,27 @@ const esc = (x) => String(x).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&
    - mode Stripe sans paiement Stripe confirmé → refusé.
    Aucun appel à Stripe, aucune modification du dossier de paiement. */
 export const MODE_STRIPE = "paiement en ligne Stripe";
+
+/* Devis : règlement réellement prévu pour la réservation (lecture seule du dossier de paiement).
+   « auto » → paiement en ligne si un lien Stripe est en cours ou payé, sinon règlement après la prestation.
+   Une réservation qui a un lien Stripe actif ne peut pas recevoir un devis annonçant un autre règlement,
+   et le total du devis doit être celui du paiement en ligne. */
+async function reglementDevis(doc, E) {
+  let P = null;
+  try { P = doc.ref ? await paiementParRef(magasinPaiements(), doc.ref) : null; } catch { P = null; }
+  const actif = P && !["annule", "remplace", "expire"].includes(P.statut) ? P : null;
+  const choix = doc.devis.reglement;
+  if (!actif) return { reglement: { mode: choix === "auto" ? "apres" : choix } };
+  if (choix !== "auto" && choix !== "en_ligne")
+    return { erreur: [422, "reglement_stripe", "Cette réservation a un paiement en ligne Stripe (" + P.statut + ") : le devis doit indiquer « Paiement en ligne avant l'attribution du chauffeur » (ou « Automatique »)."] };
+  const etat = ["paye", "rembourse_partiel"].includes(P.statut) ? "paye" : P.statut === "rembourse" ? "rembourse" : "a_payer";
+  const ttc = Math.round(montants(doc.montant, E, doc.supplements).ttc * 100);
+  if (etat !== "rembourse" && ttc !== P.montantCents)
+    return { erreur: [422, "reglement_montant", "Le total du devis (" + euros(ttc / 100) + ") diffère du montant du paiement en ligne (" + euros(P.montantCents / 100) + ")."] };
+  return { reglement: { mode: "en_ligne", etat, montant: P.montantCents / 100,
+    payeLe: P.payeLe ? aujourdhuiParis(Date.parse(P.payeLe)) : "", reference: P.paymentIntent || "",
+    valableJusqu: etat === "a_payer" && P.valableJusqu ? aujourdhuiParis(Date.parse(P.valableJusqu)) : "", chauffeur: P.etape === "chauffeur_confirme" } };
+}
 async function coherenceStripe(doc, E) {
   let P = null;
   try { P = doc.ref ? await paiementParRef(magasinPaiements(), doc.ref) : null; } catch { P = null; }
@@ -262,7 +283,7 @@ export default async (req, context) => {
   const st = type === "facture" ? store() : null;
 
   /* ----- Facture : existante (même référence) ou nouvelle ----- */
-  let record = null, nouvelle = false;
+  let record = null, nouvelle = false, reglement = null;
   if (type === "facture") {
     try {
       const lien = doc.ref ? await st.get("ref/" + doc.ref, { type: "json" }) : null;
@@ -302,12 +323,15 @@ export default async (req, context) => {
   } else {
     const champs = aCompleter(doc, "devis");
     if (champs.length) return json(422, { ok: false, code: "champs", champs });
+    const k = await reglementDevis(doc, E);
+    if (k.erreur) return json(k.erreur[0], { ok: false, code: k.erreur[1], message: k.erreur[2] });
+    reglement = k.reglement;
   }
 
   /* ----- PDF ----- */
   const meta = type === "facture"
     ? { numero: record.numero, dateEmission: record.dateEmission, horodatage: record.horodatage, iban: record.iban }
-    : { numero: "D-" + doc.ref, dateEmission: aujourdhuiParis(now), horodatage: now };
+    : { numero: "D-" + doc.ref, dateEmission: aujourdhuiParis(now), horodatage: now, reglement };
   const bytes = await pdf(type, type === "facture" ? record.doc : doc, type === "facture" ? record.emetteur : E, meta);
   const fichier = nomFichier(type, meta.numero);
   const d = type === "facture" ? record.doc : doc;
@@ -322,8 +346,13 @@ export default async (req, context) => {
     const corps = type === "facture"
       ? `Bonjour ${nom},\n\nVeuillez trouver ci-joint votre facture ${meta.numero} d'un montant de ${euros(total)}.\n\nMerci pour votre confiance.\n\nELEV8 Private Driver\n${E.telephone}`
       : `Bonjour ${nom},\n\nVeuillez trouver ci-joint votre devis ${provisoire ? "provisoire " : ""}pour le trajet du ${d.prestation.date.split("-").reverse().join("/")}, d'un montant de ${euros(total)}.\n\n` +
-        (provisoire ? "Ce tarif reste à confirmer : nous revenons vers vous après vérification de la disponibilité." : "Pour l'accepter, répondez simplement « J'accepte » à ce message.") +
-        `\nAucun paiement n'est demandé à cette étape.\n\nELEV8 Private Driver\n${E.telephone}`;
+        (reglement && reglement.mode === "en_ligne"
+          ? (provisoire ? "Ce tarif reste à confirmer : après vérification de la disponibilité, vous recevrez un lien de paiement sécurisé. "
+                        : reglement.etat === "paye" ? "Votre règlement en ligne a bien été reçu. " : reglement.etat === "rembourse" ? "Le montant réglé vous a été intégralement remboursé. " : "Le règlement s'effectue en ligne, avec le lien de paiement sécurisé transmis par ELEV8, avant l'attribution du chauffeur. ") +
+            (reglement.etat === "rembourse" ? "" : "Votre réservation est définitivement confirmée après l'acceptation de la course par un chauffeur ; si aucun chauffeur n'est disponible, le montant réglé vous est intégralement remboursé.")
+          : (provisoire ? "Ce tarif reste à confirmer : nous revenons vers vous après vérification de la disponibilité." : "Pour l'accepter, répondez simplement « J'accepte » à ce message.") +
+            (reglement && reglement.mode === "virement_avant" ? "\nAprès votre accord, le règlement s'effectue par virement bancaire avant la prestation." : "\nAucun paiement n'est demandé à cette étape.")) +
+        `\n\nELEV8 Private Driver\n${E.telephone}`;
     const html = `<!doctype html><html><body style="margin:0;background:#f4efe6;font-family:Helvetica,Arial,sans-serif;color:#1b1814"><div style="max-width:560px;margin:0 auto;padding:28px 22px"><p style="margin:0 0 18px;font:400 22px Georgia,serif;letter-spacing:.2em;color:#8b7650">ELEV8</p>${corps.split("\n").map((l) => `<p style="margin:0 0 ${l ? 8 : 4}px;font-size:15px;line-height:1.5">${esc(l) || "&nbsp;"}</p>`).join("")}</div></body></html>`;
     try { await envoyerEmail({ to, subject: sujet, text: corps, html, fichier, contenu: bytes }); }
     catch (e) { console.error("Envoi du document impossible :", String(e && e.message).slice(0, 60)); return json(502, { ok: false, code: "envoi", message: "Envoi impossible pour le moment. Téléchargez le PDF et envoyez-le vous-même." }); }

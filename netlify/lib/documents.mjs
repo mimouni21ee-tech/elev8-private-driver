@@ -97,6 +97,51 @@ const ajouterJours = (iso, n) => { const d = new Date(iso + "T12:00:00Z"); d.set
 /* ---------- Données d'un document (nettoyées, bornées) ---------- */
 const s = (v, n = 200) => (typeof v === "string" ? v.replace(/[\u0000-\u0008\u000B-\u001F\u007F]/g, " ").trim().slice(0, n) : "");
 const reDate = /^\d{4}-\d{2}-\d{2}$/, reHeure = /^([01]\d|2[0-3]):[0-5]\d$/;
+/* Mode de règlement indiqué sur le devis : « auto » = déterminé par le serveur (paiement en ligne si un
+   lien Stripe existe pour la réservation, sinon règlement après la prestation). */
+export const REGLEMENTS = ["auto", "en_ligne", "apres", "virement_avant"];
+
+/* Textes du devis selon le règlement réellement prévu (meta.reglement, établi par le serveur) :
+   { mode: "en_ligne" | "apres" | "virement_avant", etat: "a_payer" | "paye" | "rembourse",
+     montant, payeLe, reference, valableJusqu, chauffeur } */
+export function textesDevis(doc, e, meta, totalTtc) {
+  const provisoire = !doc.devis.valide, r = meta.reglement || { mode: "apres" };
+  const validite = "Devis valable jusqu'au " + dateFr(ajouterJours(meta.dateEmission, doc.devis.validiteJours)) + ".";
+  const verif = "ELEV8 vérifie la disponibilité du chauffeur et du véhicule, puis vous confirme le tarif définitif.";
+  const attribution = "La réservation n'est définitivement confirmée qu'après l'acceptation de la course par un chauffeur ; vous en êtes informé par e-mail.";
+  const rembourse = "si aucun chauffeur n'est disponible, le montant réglé vous est intégralement remboursé.";
+  const Rembourse = "S" + rembourse.slice(1);
+  const lienJusqu = r.valableJusqu ? " (lien valable jusqu'au " + dateFr(r.valableJusqu) + ")" : "";
+  if (r.mode === "en_ligne") {
+    if (provisoire) return { titre: "Étapes suivantes", signature: false, paragraphes: [verif + " Vous recevrez alors un lien de paiement sécurisé : le règlement s'effectue en ligne, par carte bancaire, avant l'attribution du chauffeur. " + attribution + " " + Rembourse] };
+    if (r.etat === "rembourse") return { bandeau: "Réservation annulée : le montant réglé de " + euros(r.montant) + " vous a été intégralement remboursé.", titre: "Règlement", signature: false,
+      paragraphes: ["Le règlement effectué en ligne a été intégralement remboursé sur le moyen de paiement utilisé. Aucun montant ne reste dû."] };
+    if (r.etat === "paye") {
+      const recu = "Règlement de " + euros(r.montant) + " reçu en ligne le " + dateFr(r.payeLe) + (r.reference ? " (référence : " + r.reference + ")" : "") + ".";
+      return r.chauffeur
+        ? { bandeau: recu + " Réservation confirmée : un chauffeur a accepté votre course.", titre: "Réservation confirmée", signature: false,
+            paragraphes: [recu + " Un chauffeur a accepté votre course : votre réservation est définitivement confirmée.", "En cas d'empêchement de dernière minute et sans chauffeur de remplacement, le montant réglé vous serait intégralement remboursé."] }
+        : { bandeau: recu + " Votre course est en cours d'attribution à un chauffeur.", titre: "Étapes suivantes", signature: false,
+            paragraphes: ["1. Règlement : " + euros(r.montant) + " reçus en ligne le " + dateFr(r.payeLe) + (r.reference ? " (référence : " + r.reference + ")" : "") + ", valant acceptation du présent devis.",
+              "2. Attribution : votre course est proposée à nos chauffeurs. " + attribution, "3. Indisponibilité : " + rembourse] };
+    }
+    return { bandeau: validite + " Le règlement s'effectue en ligne, avant l'attribution du chauffeur, avec le lien de paiement sécurisé transmis par ELEV8.", titre: "Étapes suivantes", signature: false,
+      paragraphes: ["1. Règlement : réglez " + euros(totalTtc) + " TTC en ligne, par carte bancaire, avec le lien de paiement sécurisé transmis par ELEV8" + lienJusqu + ". Le paiement vaut acceptation du présent devis.",
+        "2. Attribution : votre course est ensuite proposée à nos chauffeurs. " + attribution, "3. Indisponibilité : " + rembourse] };
+  }
+  if (r.mode === "virement_avant") {
+    const virement = "Règlement par virement bancaire avant la prestation, selon les modalités convenues avec ELEV8 ; la réservation est confirmée à réception du règlement.";
+    if (provisoire) return { titre: "Étapes suivantes", signature: false, paragraphes: [verif + " Votre réservation est définitive uniquement après cette confirmation et votre accord. " + virement] };
+    return { bandeau: validite + " Après votre accord, le règlement s'effectue par virement bancaire avant la prestation.", titre: "Bon pour accord", signature: true,
+      paragraphes: ["Pour accepter ce devis, répondez simplement « J'accepte » par e-mail ou par WhatsApp, ou retournez-le daté et signé avec la mention « Bon pour accord ». " + virement] };
+  }
+  // Règlement après la prestation (fonctionnement d'origine, inchangé)
+  const apres = e.modesPaiement ? " Règlement après la prestation, par " + e.modesPaiement + "." : "";
+  if (provisoire) return { titre: "Étapes suivantes", signature: false, paragraphes: [verif + " Votre réservation est définitive uniquement après cette confirmation et votre accord." + apres] };
+  return { bandeau: validite + " Aucun paiement n'est demandé à cette étape : la réservation est confirmée par ELEV8 après votre accord.", titre: "Bon pour accord", signature: true,
+    paragraphes: ["Pour accepter ce devis, répondez simplement « J'accepte » par e-mail ou par WhatsApp, ou retournez-le daté et signé avec la mention « Bon pour accord »." + apres] };
+}
+
 export function nettoyer(d) {
   d = d || {};
   const c = d.client || {}, p = d.prestation || {}, f = d.facture || {}, v = d.devis || {};
@@ -117,7 +162,8 @@ export function nettoyer(d) {
     supplements: (Array.isArray(d.supplements) ? d.supplements : []).slice(0, 5)
       .map((x) => ({ libelle: s(x && x.libelle, 120), montant: Math.round((+String(x && x.montant).replace(",", ".") || 0) * 100) / 100 }))
       .filter((x) => x.libelle && x.montant > 0 && x.montant <= 10000),
-    devis: { valide: v.valide === true, validiteJours: Math.max(1, Math.min(90, parseInt(v.validiteJours, 10) || 15)) },
+    devis: { valide: v.valide === true, validiteJours: Math.max(1, Math.min(90, parseInt(v.validiteJours, 10) || 15)),
+      reglement: REGLEMENTS.includes(v.reglement) ? v.reglement : "auto" },
     facture: { datePrestation: date(f.datePrestation), paye: f.paye === true, datePaiement: date(f.datePaiement),
       modePaiement: s(f.modePaiement, 40), referencePaiement: s(f.referencePaiement, 60), echeanceJours: Math.max(0, Math.min(60, parseInt(f.echeanceJours, 10) || 0)) }
   };
@@ -228,10 +274,11 @@ export async function pdf(type, doc, e, meta = {}) {
   y = Math.min(y, yGauche) - 14;
 
   /* Bandeau d'état */
+  const TD = type === "devis" ? textesDevis(doc, e, meta, montants(doc.montant, e, doc.supplements).ttc) : null;
   if (provisoire || type === "devis") {
     const msg = provisoire
       ? "DEVIS PROVISOIRE — Tarif indicatif, sous réserve de validation de la disponibilité et des conditions du trajet par ELEV8 Private Driver. Aucun paiement n'est demandé à cette étape."
-      : "Devis valable jusqu'au " + dateFr(ajouterJours(meta.dateEmission, doc.devis.validiteJours)) + ". Aucun paiement n'est demandé à cette étape : la réservation est confirmée par ELEV8 après votre accord.";
+      : TD.bandeau;
     const l = couper(msg, W - 2 * M - 24, provisoire ? F.b : F.r, 8.8), h = l.length * 12 + 14;
     page.drawRectangle({ x: M, y: y - h + 4, width: W - 2 * M, height: h, color: FOND_DOUX, borderColor: OR, borderWidth: provisoire ? 1.2 : 0.6 });
     let yy = y - 9;
@@ -323,10 +370,9 @@ export async function pdf(type, doc, e, meta = {}) {
     for (const x of mentions) bloc(x, M, W - 2 * M, { size: 7.8, color: GRIS, lh: 11 });
   } else {
     besoin(70);
-    etiquette(provisoire ? "Étapes suivantes" : "Bon pour accord", M, y); y -= 6; filet(y); y -= 15;
-    if (provisoire) bloc("ELEV8 vérifie la disponibilité du chauffeur et du véhicule, puis vous confirme le tarif définitif. Votre réservation est définitive uniquement après cette confirmation et votre accord." + (e.modesPaiement ? " Règlement après la prestation, par " + e.modesPaiement + "." : ""), M, W - 2 * M);
-    else {
-      bloc("Pour accepter ce devis, répondez simplement « J'accepte » par e-mail ou par WhatsApp, ou retournez-le daté et signé avec la mention « Bon pour accord »." + (e.modesPaiement ? " Règlement après la prestation, par " + e.modesPaiement + "." : ""), M, W - 2 * M);
+    etiquette(TD.titre, M, y); y -= 6; filet(y); y -= 15;
+    TD.paragraphes.forEach((p, i) => { if (i) y -= 4; bloc(p, M, W - 2 * M); });
+    if (TD.signature) {
       y -= 6;
       page.drawRectangle({ x: W - M - 220, y: y - 52, width: 220, height: 56, borderColor: FILET, borderWidth: 0.8 });
       txt("Date et signature du client", W - M - 210, y - 8, { size: 7.5, color: GRIS });
