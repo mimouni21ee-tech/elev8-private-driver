@@ -401,10 +401,62 @@ await t("site de test : aucune facture définitive ne peut être émise", async 
   const { readFileSync } = await import("node:fs");
   const C = (await import("../netlify/functions/documents.mjs")).parseConfig(readFileSync(new URL("../public/config.js", import.meta.url), "utf8"));
   C.legal.capital = "1 000 €"; docDeps.config = C;
-  const r = await admin({ action: "facture", doc: { ref: A.ref, client: { prenom: "Claire", nom: "Martin", adresse: "1 rue X, 21000 Dijon" }, prestation: { date: "2026-11-16", depart: "A", destination: "B", vehicule: "Berline" }, montant: "20", facture: { dateEmission: "2026-11-17", datePrestation: "2026-11-16" } } });
+  const r = await admin({ action: "facture", doc: { ref: "E8-261117-SANSPAIEMENT", client: { prenom: "Claire", nom: "Martin", adresse: "1 rue X, 21000 Dijon" }, prestation: { date: "2026-11-16", depart: "A", destination: "B", vehicule: "Berline" }, montant: "20", facture: { dateEmission: "2026-11-17", datePrestation: "2026-11-16" } } });
   assert.equal(r.status, 409); assert.equal(r.j.code, "site_test");
   assert.equal([...docDeps.store.m.keys()].filter((k) => k.startsWith("facture/") || k.startsWith("compteur/")).length, 0);
   docDeps.config = null; ENV._reinitialiser();
+});
+
+/* ---------- Facture d'une course payée par Stripe : cohérence du mode, du montant, de la date et de la référence ---------- */
+await t("facture d'une course payée par Stripe : mode, date et référence imposés, total = montant encaissé ; émission unique", async () => {
+  const { readFileSync } = await import("node:fs");
+  const C = (await import("../netlify/functions/documents.mjs")).parseConfig(readFileSync(new URL("../public/config.js", import.meta.url), "utf8"));
+  C.legal.capital = "1 000 €"; docDeps.config = C;
+  const avant = process.env.PAIEMENT_STRIPE; delete process.env.PAIEMENT_STRIPE;        // émission comme sur le site officiel
+  const debut = NOW; NOW = Date.parse("2026-11-19T10:00:00Z");                          // après la course du 18/11
+  const P = await dossier(A.ref);                                                       // payée le 17/11, 20 €, chauffeur confirmé
+  assert.equal(P.statut, "paye"); assert.match(P.paymentIntent, /^pi_test_/);
+  const doc = (f = {}, montant = "20") => ({ ref: A.ref, client: { prenom: "Claire", nom: "Martin", adresse: "12 rue de Longvic, 21000 Dijon" },
+    prestation: { date: "2026-11-18", depart: "Gare de Dijon-Ville", destination: "12 rue de Longvic", vehicule: "Berline Confort" }, montant,
+    facture: { datePrestation: "2026-11-18", paye: true, datePaiement: "2026-11-17", modePaiement: "paiement en ligne Stripe", referencePaiement: "", ...f } });
+  const essai = async (d) => admin({ action: "facture", doc: d });
+  assert.equal((await essai(doc({ modePaiement: "carte bancaire" }))).j.code, "stripe_mode");
+  assert.equal((await essai(doc({ modePaiement: "lien de paiement Indy" }))).j.code, "stripe_mode");
+  const e1 = await essai(doc({ datePaiement: "2026-11-16" })); assert.equal(e1.j.code, "stripe_date"); assert.ok(e1.j.message.includes("17/11/2026"));
+  assert.equal((await essai(doc({ referencePaiement: "pi_autre" }))).j.code, "stripe_reference");
+  const e2 = await essai(doc({}, "25")); assert.equal(e2.j.code, "stripe_montant"); assert.ok(e2.j.message.includes("20,00 €"));
+  assert.equal((await essai(doc({ paye: false, datePaiement: "" }))).j.code, "stripe_paye");
+  assert.equal([...docDeps.store.m.keys()].filter((k) => k.startsWith("facture/")).length, 0, "aucune facture après les refus");
+  const ok1 = await essai(doc());                                                       // référence vide → reprise de Stripe
+  assert.equal(ok1.status, 200, JSON.stringify(ok1.j)); assert.equal(ok1.j.total, 20);
+  const rec = docDeps.store.m.get("facture/" + ok1.j.numero).d;
+  assert.equal(rec.doc.facture.modePaiement, "paiement en ligne Stripe"); assert.equal(rec.doc.facture.referencePaiement, P.paymentIntent);
+  assert.equal(rec.doc.facture.datePaiement, "2026-11-17"); assert.equal(rec.montants.ttc, 20);
+  const ok2 = await essai(doc());                                                       // redemandée : même facture, pas de doublon
+  assert.equal(ok2.j.numero, ok1.j.numero);
+  assert.equal([...docDeps.store.m.keys()].filter((k) => k.startsWith("facture/")).length, 1);
+  // Remboursée intégralement → aucune facture ; mode Stripe sans paiement Stripe → refusé ; autre réservation, autre mode → inchangé
+  const r1 = await essai({ ...doc(), ref: A.sansChauffeur.ref }); assert.equal(r1.status, 409); assert.equal(r1.j.code, "stripe_rembourse");
+  const r2 = await essai({ ...doc(), ref: "E8-261117-MANUEL" }); assert.equal(r2.j.code, "stripe_absent");
+  const r3 = await essai({ ...doc({ modePaiement: "virement bancaire", referencePaiement: "VIR-42" }, "35"), ref: "E8-261117-MANUEL" });
+  assert.equal(r3.status, 200); assert.equal(docDeps.store.m.get("facture/" + r3.j.numero).d.doc.facture.modePaiement, "virement bancaire");
+  // Le dossier de paiement n'a pas été modifié par la facturation
+  assert.deepEqual(await dossier(A.ref), P);
+  process.env.PAIEMENT_STRIPE = avant; NOW = debut; docDeps.config = null;
+});
+await t("site de test : contrôle de cohérence de la facture effectué, puis aucune émission", async () => {
+  const { readFileSync } = await import("node:fs");
+  const C = (await import("../netlify/functions/documents.mjs")).parseConfig(readFileSync(new URL("../public/config.js", import.meta.url), "utf8"));
+  C.legal.capital = "1 000 €"; docDeps.config = C;
+  ENV.retenirContexte({ deploy: { context: "branch-deploy" } });
+  const n = docDeps.store.m.size;
+  const d = (mode) => ({ ref: A.ref, client: { nom: "Martin", adresse: "12 rue de Longvic, 21000 Dijon" }, prestation: { depart: "A", destination: "B", date: "2026-11-18" }, montant: "20",
+    facture: { datePrestation: "2026-11-18", paye: true, datePaiement: "2026-11-17", modePaiement: mode } });
+  assert.equal((await admin({ action: "facture", doc: d("carte bancaire") })).j.code, "stripe_mode");
+  const r = await admin({ action: "facture", doc: d("paiement en ligne Stripe") });
+  assert.equal(r.status, 409); assert.equal(r.j.code, "site_test"); assert.ok(r.j.message.includes("réussi"));
+  assert.equal(docDeps.store.m.size, n);
+  ENV._reinitialiser(); docDeps.config = null;
 });
 
 console.log(`\n${ok} test(s) réussi(s)` + (process.exitCode ? " — ÉCHECS ci-dessus" : ""));

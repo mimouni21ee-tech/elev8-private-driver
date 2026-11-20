@@ -142,6 +142,7 @@
       $("#sourceMsg").classList.remove("docs__msg--erreur");
       remplir(j.demande, j.facture);
       afficherPaiement(j.paiement, j.paiementEnLigne);
+      preremplirFactureStripe(j.paiement);
       if (etape === "validation") $("#validation").scrollIntoView({ block: "start" });
       else $("#recapDemande").scrollIntoView({ block: "start" });
     });
@@ -402,6 +403,46 @@
       return j;
     });
   }
+  /* ---------- Facture d'une course payée par Stripe : mode, date et référence repris du paiement ----------
+     Le serveur refait les mêmes contrôles avant toute émission (montant encaissé, date, référence). */
+  var MODE_STRIPE = "paiement en ligne Stripe";
+  var paiementFacture = null;
+  function dateParis(iso) {
+    var p = {}; new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Paris", year: "numeric", month: "2-digit", day: "2-digit" })
+      .formatToParts(new Date(iso)).forEach(function (x) { p[x.type] = x.value; });
+    return p.year + "-" + p.month + "-" + p.day;
+  }
+  function preremplirFactureStripe(P) {
+    paiementFacture = P && P.payeLe && ["paye", "rembourse_partiel", "rembourse"].indexOf(P.statut) >= 0 ? P : null;
+    if (paiementFacture && P.statut !== "rembourse") {
+      $("#d-paye").checked = true;
+      $("#d-mode").value = MODE_STRIPE;
+      $("#d-datepaiement").value = dateParis(P.payeLe);
+      $("#d-refpaiement").value = P.paymentIntent || "";
+      var pr = demandeChargee && demandeChargee.prestation;                 // date de la course réservée (modifiable)
+      if (!v("#d-dateprestation") && pr && /^\d{4}-\d{2}-\d{2}$/.test(pr.date || "")) $("#d-dateprestation").value = pr.date;
+      majAffichage();
+    }
+    coherenceFacture();
+  }
+  function coherenceFacture() {
+    var el = $("#stripeFactureMsg"), P = paiementFacture, mode = $("#d-mode").value, m = "", alerte = false;
+    if (P) {
+      var encaisse = Math.round((P.montant - (P.rembourse || 0)) * 100) / 100;
+      if (P.statut === "rembourse") { m = "Course remboursée intégralement par Stripe : aucune facture à émettre."; alerte = true; }
+      else if (mode !== MODE_STRIPE) { m = "Cette réservation a été payée en ligne par Stripe : choisissez « Paiement en ligne Stripe »."; alerte = true; }
+      else if (Math.abs(total() - encaisse) >= 0.005) { m = "Le total de la facture (" + fmt(total()) + ") diffère du montant encaissé par Stripe (" + fmt(encaisse) + (P.rembourse > 0 ? ", après remboursement de " + fmt(P.rembourse) : "") + ")."; alerte = true; }
+      else m = "Payée par Stripe le " + new Date(P.payeLe).toLocaleDateString("fr-FR", { timeZone: "Europe/Paris" }) + " : " + fmt(encaisse) + " encaissés, référence " + (P.paymentIntent || "—") + ". Mode, date et référence sont repris automatiquement.";
+    } else if (mode === MODE_STRIPE && demandeChargee && demandeChargee.ref) {
+      m = "Aucun paiement Stripe confirmé pour cette réservation : choisissez un autre mode de paiement."; alerte = true;
+    }
+    el.textContent = m; el.hidden = !m;
+    el.classList.toggle("docs__msg--erreur", alerte);
+  }
+  ["#d-mode", "#d-paye"].forEach(function (s) { $(s).addEventListener("change", coherenceFacture); });
+  $("#d-montant").addEventListener("input", coherenceFacture);
+  $$("[data-sup] input").forEach(function (i) { i.addEventListener("input", coherenceFacture); });
+
   $("#btnStripe").addEventListener("click", function () {
     if (!demandeChargee || !demandeChargee.ref) return;
     var t = total();

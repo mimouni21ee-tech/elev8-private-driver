@@ -142,6 +142,34 @@ async function envoyerEmail(m) {
 }
 const esc = (x) => String(x).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
+/* Facture d'une réservation payée en ligne : cohérence avec le paiement enregistré (lecture seule).
+   - payée par Stripe → mode « paiement en ligne Stripe », facture acquittée, date du paiement et
+     référence (pi_…) identiques à celles de Stripe (complétées si vides), total = montant encaissé
+     (moins les remboursements partiels) ;
+   - remboursée intégralement → aucune facture ;
+   - mode Stripe sans paiement Stripe confirmé → refusé.
+   Aucun appel à Stripe, aucune modification du dossier de paiement. */
+export const MODE_STRIPE = "paiement en ligne Stripe";
+async function coherenceStripe(doc, E) {
+  let P = null;
+  try { P = doc.ref ? await paiementParRef(magasinPaiements(), doc.ref) : null; } catch { P = null; }
+  const paye = P && P.payeLe && ["paye", "rembourse_partiel", "rembourse"].includes(P.statut) ? P : null;
+  const f = doc.facture, stripe = f.modePaiement === MODE_STRIPE;
+  if (!paye) return stripe ? { erreur: [422, "stripe_absent", "Aucun paiement Stripe confirmé pour la référence " + doc.ref + " : choisissez un autre mode de paiement."] } : {};
+  if (paye.statut === "rembourse") return { erreur: [409, "stripe_rembourse", "Cette réservation a été remboursée intégralement par Stripe : aucune facture n'est à émettre."] };
+  if (!stripe) return { erreur: [422, "stripe_mode", "Cette réservation a été payée en ligne par Stripe : le mode de paiement de la facture doit être « Paiement en ligne Stripe »."] };
+  if (!f.paye) return { erreur: [422, "stripe_paye", "Cette réservation est payée par Stripe : la facture doit être indiquée comme acquittée (« Paiement reçu »)."] };
+  const date = aujourdhuiParis(Date.parse(paye.payeLe));
+  if (!f.datePaiement) f.datePaiement = date;
+  if (f.datePaiement !== date) return { erreur: [422, "stripe_date", "La date du paiement doit être celle enregistrée par Stripe : " + date.split("-").reverse().join("/") + "."] };
+  if (!f.referencePaiement && paye.paymentIntent) f.referencePaiement = paye.paymentIntent;
+  if (paye.paymentIntent && f.referencePaiement !== paye.paymentIntent) return { erreur: [422, "stripe_reference", "La référence du paiement doit être celle de Stripe : " + paye.paymentIntent + "."] };
+  const encaisse = paye.montantCents - (paye.rembourseCents || 0);
+  const ttc = Math.round(montants(doc.montant, E, doc.supplements).ttc * 100);
+  if (ttc !== encaisse) return { erreur: [422, "stripe_montant", "Le total de la facture (" + euros(ttc / 100) + ") doit être égal au montant encaissé par Stripe (" + euros(encaisse / 100) + (paye.rembourseCents ? ", après remboursement partiel" : "") + ")."] };
+  return {};
+}
+
 export default async (req, context) => {
   retenirContexte(context);
   if (req.method !== "POST") return json(405, { ok: false, code: "methode", message: "Méthode non autorisée." });
@@ -223,8 +251,11 @@ export default async (req, context) => {
     message: "Informations légales d'ELEV8 à compléter dans public/config.js (rubrique legal) : " + manque.join(" ; ") + "." });
 
   const type = action === "envoyer" ? (b.type === "facture" ? "facture" : "devis") : action;
-  if (type === "facture" && estSiteDeTest())
-    return json(409, { ok: false, code: "site_test", message: "Site de test : aucune facture n'est émise ici (les factures réelles restent sur le site officiel). Le devis reste disponible." });
+  if (type === "facture" && estSiteDeTest()) {
+    // Site de test : aucune facture émise, mais les contrôles de cohérence avec le paiement Stripe sont effectués
+    if (action === "facture") { const k = await coherenceStripe(nettoyer(b.doc), E); if (k.erreur) return json(k.erreur[0], { ok: false, code: k.erreur[1], message: k.erreur[2] }); }
+    return json(409, { ok: false, code: "site_test", message: "Site de test : aucune facture n'est émise ici (les factures réelles restent sur le site officiel). Contrôle de cohérence avec le paiement : réussi. Le devis reste disponible." });
+  }
   if (type === "facture" && E.facturation === "indy")
     return json(409, { ok: false, code: "facturation_indy", message: "Les factures sont établies dans Indy (réglage legal.facturation de config.js) : aucune facture n'est créée ici, pour éviter une double numérotation." });
   const doc = nettoyer(b.doc);
@@ -241,6 +272,8 @@ export default async (req, context) => {
       if (action === "envoyer") return json(409, { ok: false, code: "non_emise", message: "Générez d'abord la facture." });
       const champs = aCompleter(doc, "facture");
       if (champs.length) return json(422, { ok: false, code: "champs", champs });
+      const k = await coherenceStripe(doc, E);
+      if (k.erreur) return json(k.erreur[0], { ok: false, code: k.erreur[1], message: k.erreur[2] });
       const jour = aujourdhuiParis(now);
       if (doc.facture.datePrestation > jour || (doc.facture.paye && doc.facture.datePaiement > jour))
         return json(422, { ok: false, code: "date_future", message: "La facture s'établit une fois la prestation effectuée et le paiement reçu : la date de la prestation et celle du paiement ne peuvent pas être postérieures à aujourd'hui." });

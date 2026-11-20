@@ -283,9 +283,10 @@
           <div class="field" data-paye><label for="d-datepaiement">Date du paiement</label><input id="d-datepaiement" type="date"></div>
           <div class="field">
             <label for="d-mode">Mode de paiement</label>
-            <select id="d-mode"><option>lien de paiement Indy</option><option>carte bancaire (Tap to Pay Indy)</option><option>carte bancaire</option><option>virement bancaire</option></select>
+            <select id="d-mode"><option value="paiement en ligne Stripe">Paiement en ligne Stripe</option><option>lien de paiement Indy</option><option>carte bancaire (Tap to Pay Indy)</option><option>carte bancaire</option><option>virement bancaire</option></select>
           </div>
-          <div class="field" data-paye><label for="d-refpaiement">Référence du paiement <span class="opt">facultatif</span></label><input id="d-refpaiement" type="text" maxlength="60" placeholder="Ex. n° de transaction Indy"></div>
+          <div class="field" data-paye><label for="d-refpaiement">Référence du paiement <span class="opt">facultatif</span></label><input id="d-refpaiement" type="text" maxlength="60" placeholder="Ex. pi_… (Stripe) ou n° de transaction"></div>
+          <p class="field__help field--full" id="stripeFactureMsg" role="status" hidden></p>
           <div class="field" data-nonpaye hidden><label for="d-echeance">Échéance (jours)</label><input id="d-echeance" type="number" min="0" max="60" value="0" inputmode="numeric"></div>
           <p class="field__help field--full">La facture reçoit un numéro définitif (F-AAAA-0001…) et ne peut plus être modifiée une fois émise. Une seule facture par référence : la redemander renvoie la même.</p>
 
@@ -331,6 +332,6 @@
 
 <script src="/config.js?v=20261118b"></script>
 <script src="/assets/js/messages-client.js?v=20261119d"></script>
-<script src="/assets/js/documents.js?v=20261119e"></script>
+<script src="/assets/js/documents.js?v=20261120a"></script>
 </body>
 </html>
