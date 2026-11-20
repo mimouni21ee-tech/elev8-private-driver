@@ -228,9 +228,9 @@ await t("paiement confirmé par Stripe → « Payée — en attente d'attributio
   assert.equal((await ouvrir(A.lien)).loc, "/paiement/?etat=deja&ref=" + A.ref);
 });
 
-await t("événement réel (livemode) ignoré dans cette version de test", async () => {
+await t("événement réel (livemode) refusé sur le site de test", async () => {
   const e = await evenement("checkout.session.completed", { id: A.session }, { livemode: true });
-  assert.equal(e.status, 200); assert.equal(e.j.ignore, "livemode");
+  assert.equal(e.status, 400); assert.equal(e.j.erreur, "mode_incorrect");
 });
 
 await t("chauffeur : confirmation réservée à une session ELEV8, puis e-mail « Réservation confirmée » une seule fois", async () => {
@@ -382,6 +382,27 @@ await t("contexte Netlify « production » : paiement de test refusé, vrais sto
     ENV.retenirContexte({ deploy: { context: c } });
     assert.ok(STR.stripeActif(), c);
     for (const n of ["elev8-demandes", "elev8-paiements", "elev8-factures"]) assert.equal(ENV.nomMagasin(n), n + "-test", c + " " + n);
+  }
+  // Production : clés LIVE et activation explicite requises ; jamais les clés TEST.
+  ENV.retenirContexte({ deploy: { context: "production" } });
+  const old = { mode: process.env.PAIEMENT_STRIPE, key: process.env.STRIPE_SECRET_KEY, secret: process.env.STRIPE_WEBHOOK_SECRET };
+  try {
+    process.env.PAIEMENT_STRIPE = "live";
+    process.env.STRIPE_SECRET_KEY = "sk_live_" + "x".repeat(24);
+    assert.equal(STR.stripeActif()?.mode, "live");
+    process.env.STRIPE_SECRET_KEY = "rk_live_" + "x".repeat(24);
+    assert.equal(STR.stripeActif()?.mode, "live");
+    process.env.STRIPE_SECRET_KEY = CLE;
+    assert.equal(STR.stripeActif(), null, "clé test interdite en production");
+    ENV.retenirContexte({ deploy: { context: "branch-deploy" } });
+    process.env.STRIPE_SECRET_KEY = "sk_live_" + "x".repeat(24);
+    assert.equal(STR.stripeActif(), null, "clé live interdite sur branche de test");
+    ENV._reinitialiser();
+    assert.equal(STR.stripeActif(), null, "clé live interdite hors Netlify");
+  } finally {
+    process.env.PAIEMENT_STRIPE = old.mode;
+    process.env.STRIPE_SECRET_KEY = old.key;
+    process.env.STRIPE_WEBHOOK_SECRET = old.secret;
   }
   ENV.retenirContexte({ deploy: { context: "branch-deploy" } });
   const avant = process.env.PAIEMENT_STRIPE; delete process.env.PAIEMENT_STRIPE;          // variable oubliée : stockages de test quand même
