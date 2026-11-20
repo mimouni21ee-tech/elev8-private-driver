@@ -150,6 +150,25 @@ export function appliquerCharge(p, ch, now = deps.now()) {
   return p;
 }
 
+/* Fenêtre de réalisation d'une course (contrôlée par le serveur, à la validation ET avant toute facture finale) :
+   - au plus tôt 30 min avant la prise en charge enregistrée (chauffeur en avance) ;
+   - au plus tard 24 h après la fin prévue (prise en charge, ou retour pour un aller-retour) ;
+   - jamais dans le futur, ni avant la prise en charge si aucune date n'est indiquée.
+   La prise en charge de référence est celle du dossier : elle ne change que par une modification
+   officielle enregistrée (modifierDatePrestation), avec motif et historique. */
+export const FENETRE = { avantMin: 30, apresH: 24 };
+export function controleRealisation(p, le, { now, fin } = {}) {
+  const debut = Date.parse(p.priseEnCharge);
+  const finPrevue = Math.max(debut, Number.isFinite(fin) ? fin : debut);
+  if (!Number.isFinite(le) || !Number.isFinite(debut)) return "Date et heure de réalisation invalides.";
+  if (now != null && le > now + 5 * 60_000) return "La date de réalisation ne peut pas être dans le futur.";
+  if (le < debut - FENETRE.avantMin * 60_000)
+    return "La date de réalisation est antérieure à la prise en charge prévue (" + new Date(debut).toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "long", timeStyle: "short" }) + ") : la course ne peut pas être déclarée réalisée. Si la date de la prestation a changé, enregistrez d'abord la nouvelle date (« Modifier la date de la prestation »).";
+  if (le > finPrevue + FENETRE.apresH * 3600_000)
+    return "La date de réalisation est plus de " + FENETRE.apresH + " h après la fin prévue de la prestation : vérifiez-la, ou enregistrez d'abord la nouvelle date de la prestation.";
+  return null;
+}
+
 /* Libellés affichés dans /documents */
 export const LIBELLES = {
   en_attente: "Lien envoyé — paiement en attente", en_cours: "Paiement en cours de validation", paye: "Payée",
@@ -163,5 +182,6 @@ export function resume(p) {
   return { lien: "/payer/" + p.jeton, montant: p.montantCents / 100, statut: p.statut, statutLibelle: LIBELLES[p.statut] || p.statut,
     etape: p.etape, etapeLibelle: LIBELLES[p.etape] || p.etape, valableJusqu: p.valableJusqu, priseEnCharge: p.priseEnCharge,
     payeLe: p.payeLe, paymentIntent: p.paymentIntent, rembourse: p.rembourseCents / 100, litige: !!p.litige, motifVerification: p.motifVerification || null,
-    chauffeur: p.chauffeur || null, huber: p.huber, devis: p.devis || null, factures: p.factures || null, historique: (p.historique || []).slice(-12), mode: "test" };
+    chauffeur: p.chauffeur || null, huber: p.huber, devis: p.devis || null, factures: p.factures || null,
+    realisation: p.realisation ? { le: p.realisation.le } : null, modificationsDate: p.modificationsDate || [], historique: (p.historique || []).slice(-12), mode: "test" };
 }

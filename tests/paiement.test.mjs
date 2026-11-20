@@ -12,7 +12,7 @@ const t = async (nom, f) => { try { await f(); ok++; console.log("✓ " + nom); 
 const CLE = "sk_test_" + "x".repeat(24), SECRET = "whsec_" + "s".repeat(32);
 Object.assign(process.env, { PAIEMENT_STRIPE: "test", STRIPE_SECRET_KEY: CLE, STRIPE_WEBHOOK_SECRET: SECRET, DOCUMENTS_MOT_DE_PASSE: "mot-de-passe-de-test",
   EMAIL_API_KEY: "cle-email", MAIL_TO: "contact@elev8privatedriver.com", MAIL_FROM: "reservations@example.test", GOOGLE_MAPS_API_KEY: "cle-google", EMAILS_TEST_AUTORISES: "claire@example.test",
-  FACTURATION_AUTOMATIQUE: "non" });          // étapes précédentes testées sans facturation automatique ; activée pour les tests de l'étape 2
+  FACTURATION_AUTOMATIQUE: "non", RATE_GLOBAL_PER_HOUR: "1000" });   // nombreuses demandes de test dans la même heure simulée          // étapes précédentes testées sans facturation automatique ; activée pour les tests de l'étape 2
 let NOW = Date.parse("2026-11-17T12:00:00Z");
 const horloge = () => NOW;
 
@@ -684,6 +684,7 @@ const FACT = await import("../netlify/lib/facturation.mjs");
 const factures = (ref) => [...docDeps.store.m.entries()].filter(([k, v]) => k.startsWith("facture/") && v.d.ref === ref && v.d.type === "acompte").map(([, v]) => v.d);
 async function reserverEtPayer(extra = {}) {
   const { j } = await envoyer({ date: "2026-12-02", heure: "09:00", ...extra });
+  if (!j.paiement) throw new Error("demande refusée : " + JSON.stringify(j));
   const sid = (await ouvrir(j.paiement.url)).loc.split("/").pop();
   payerChezStripe(sid);
   const e = await evenement("checkout.session.completed", { id: sid });
@@ -852,7 +853,7 @@ await t("paiement → chauffeur confirmé → COURSE RÉALISÉE → facture fina
   const sans = await documents(post("/documents-api", { action: "course-realisee", ref: j.ref }), { ip: "6.6.6.6" });
   assert.equal(sans.status, 401);
   assert.equal((await admin({ action: "course-realisee", ref: j.ref, realiseeLe: "2026-12-31T10:00" })).status, 422);     // dans le futur
-  assert.match((await admin({ action: "course-realisee", ref: j.ref, realiseeLe: "2026-11-01T12:30" })).j.message, /très antérieure/);
+  assert.match((await admin({ action: "course-realisee", ref: j.ref, realiseeLe: "2026-11-01T12:30" })).j.message, /antérieure à la prise en charge/);
   const debut = NOW; NOW = Date.parse("2026-12-05T11:00:00Z");                         // le jour de la course, après la prise en charge
   const r = await admin({ action: "course-realisee", ref: j.ref, realiseeLe: "2026-12-05T09:40" });
   NOW = debut;
@@ -884,9 +885,11 @@ await t("paiement → chauffeur confirmé → COURSE RÉALISÉE → facture fina
 await t("double clic / validations simultanées sur « Course réalisée » : une seule validation, une seule facture finale", async () => {
   const { j } = await payeeConfirmee("10:00");
   envoyes.length = 0;
+  const debut = NOW; NOW = Date.parse("2026-12-05T10:30:00Z");                         // 11 h 30 à Paris, après la prise en charge de 10 h
   const [a, b] = await Promise.all([admin({ action: "course-realisee", ref: j.ref }), admin({ action: "course-realisee", ref: j.ref })]);
   assert.deepEqual([a.status, b.status].sort(), [200, 409]);
   assert.equal((await admin({ action: "course-realisee", ref: j.ref })).status, 409);
+  NOW = debut;
   await suivre(NOW); await suivre(NOW);
   assert.equal(docsDe(j.ref, "finale").length, 1);
   assert.equal(envoyes.filter((x) => /Votre facture TEST-F/.test(x.subject) && x.subject.includes(j.ref)).length, 1);
@@ -937,7 +940,9 @@ await t("remboursements partiels progressifs avant la course : un avoir par tran
   assert.deepEqual(AV.map((x) => x.avoir.cumulCents), [500, 800]);
   assert.ok(AV.every((x) => x.avoir.facture.numero === acompte.numero && !x.avoir.total));
   assert.equal((await dossier(j.ref)).statut, "rembourse_partiel");
-  const r = await admin({ action: "course-realisee", ref: j.ref });
+  const debut = NOW; NOW = Date.parse("2026-12-05T12:00:00Z");
+  const r = await admin({ action: "course-realisee", ref: j.ref, realiseeLe: "2026-12-05T11:20" });
+  NOW = debut;
   assert.equal(r.status, 200, JSON.stringify(r.j));
   const f = docsDe(j.ref, "finale")[0];
   assert.equal(f.montants.ttc, 12); assert.equal(f.finale.deductionCents, 1200); assert.equal(f.finale.soldeCents, 0);
@@ -964,7 +969,9 @@ await t("échec d'e-mail de la facture finale : facture conservée, renvoyée un
   const normal = MAIL.deps.send; let panne = true;
   MAIL.deps.send = async (m) => { if (panne && /Votre facture TEST-F/.test(m.subject)) throw new Error("provider:503"); envoyes.push(m); };
   envoyes.length = 0;
-  const r = await admin({ action: "course-realisee", ref: j.ref });
+  const debut = NOW; NOW = Date.parse("2026-12-05T12:00:00Z");
+  const r = await admin({ action: "course-realisee", ref: j.ref, realiseeLe: "2026-12-05T12:15" });
+  NOW = debut;
   assert.equal(r.status, 200); assert.equal(r.j.facture.envoye, false);
   assert.equal(docsDe(j.ref, "finale").length, 1);
   panne = false; await suivre(NOW); await suivre(NOW);
@@ -980,7 +987,8 @@ await t("émission interrompue : la reprise réutilise le numéro déjà attribu
   const cpt = st.m.get("compteur/2026").d.n + 1;
   await st.setJSON("compteur/2026", { n: cpt, par: cle });
   await st.setJSON(cle, { numero: null, t: NOW - 10 * 60_000 });
-  await PAI.modifier(PAI.magasin(), (await dossier(j.ref)).jeton, (x) => ({ ...x, etape: "realisee", realisation: { le: new Date(NOW).toISOString(), par: "elev8" } }));
+  await PAI.modifier(PAI.magasin(), (await dossier(j.ref)).jeton, (x) => ({ ...x, etape: "realisee",
+    realisation: { le: new Date(Date.parse(x.priseEnCharge) + 3600_000).toISOString(), declareLe: new Date(Date.parse(x.priseEnCharge) + 7200_000).toISOString(), par: "elev8", reference: { priseEnCharge: x.priseEnCharge, fin: x.priseEnCharge } } }));
   await suivre(NOW);
   const f = docsDe(j.ref, "finale");
   assert.equal(f.length, 1); assert.equal(f[0].numero, "TEST-F-2026-" + String(cpt).padStart(4, "0"), "numéro repris");
@@ -992,6 +1000,86 @@ await t("séries distinctes : factures F (acompte + finale, compteur commun) et 
   assert.equal(new Set(F).size, F.length, "aucun numéro F en double"); assert.equal(new Set(AV).size, AV.length, "aucun numéro AV en double");
   assert.ok(AV.every((n) => /^TEST-AV-2026-\d{4}$/.test(n)));
   assert.equal(docDeps.store.m.get("compteur-AV/2026").d.n, AV.length);
+  process.env.FACTURATION_AUTOMATIQUE = "non";
+});
+
+/* ---------- Étape 3 bis : contrôle de la date de réalisation (serveur) et modification officielle de la date ---------- */
+const aLaDate = async (iso, f) => { const debut = NOW; NOW = Date.parse(iso); try { return await f(); } finally { NOW = debut; } };
+async function courseConfirmee(date, heure, extra = {}) {
+  const r = await reserverEtPayer({ date, heure, ...extra });
+  if (!r.j.paiement) throw new Error("réservation refusée : " + JSON.stringify(r.j));
+  await admin({ action: "chauffeur-confirme", ref: r.j.ref, chauffeur: { prenom: "Karim", vehicule: "Tesla Model Y" } });
+  return r.j.ref;
+}
+await t("cas KPH : course prévue le 25/11 à 14 h, déclarée réalisée le 20/11 → refus du SERVEUR (date indiquée ou absente), aucune facture finale", async () => {
+  process.env.FACTURATION_AUTOMATIQUE = "";
+  const ref = await courseConfirmee("2026-11-25", "14:00");
+  const refus = async (corps) => { const r = await admin({ action: "course-realisee", ref, ...corps }); assert.equal(r.status, 422, JSON.stringify(r.j)); return r.j.message; };
+  await aLaDate("2026-11-20T11:00:00Z", async () => {
+    assert.match(await refus({ realiseeLe: "2026-11-20T10:00" }), /antérieure à la prise en charge prévue \(25 novembre 2026 à 14:00\)/);
+    assert.match(await refus({}), /antérieure à la prise en charge/);                       // champ vide : l'heure du clic est contrôlée aussi
+    assert.match(await refus({ realiseeLe: "2026-11-25T14:30" }), /futur/);
+  });
+  await aLaDate("2026-11-26T20:00:00Z", async () => {
+    assert.match(await refus({ realiseeLe: "2026-11-25T13:20" }), /antérieure/);          // 40 min avant la prise en charge
+    assert.match(await refus({ realiseeLe: "2026-11-26T15:30" }), /plus de 24 h après/);
+    assert.match(await refus({ realiseeLe: "25/11/2026 14:00" }), /invalides/);
+  });
+  const P = await dossier(ref);
+  assert.equal(P.etape, "chauffeur_confirme"); assert.equal(P.realisation, undefined);
+  assert.equal(docsDe(ref, "finale").length, 0);
+  // Dans la fenêtre (20 min d'avance tolérées) : accepté une seule fois
+  const ok = await aLaDate("2026-11-25T15:00:00Z", () => admin({ action: "course-realisee", ref, realiseeLe: "2026-11-25T13:40" }));
+  assert.equal(ok.status, 200, JSON.stringify(ok.j)); assert.equal(docsDe(ref, "finale").length, 1);
+  assert.equal((await aLaDate("2026-11-25T15:00:00Z", () => admin({ action: "course-realisee", ref, realiseeLe: "2026-11-25T14:10" }))).status, 409);
+  assert.equal(docsDe(ref, "finale").length, 1);
+});
+await t("exception sécurisée : date officiellement modifiée (session ELEV8, motif, historique) → réalisation acceptée à la nouvelle date", async () => {
+  const ref = await courseConfirmee("2026-11-26", "14:00");
+  const corps = { action: "modifier-date", ref, date: "2026-11-20", heure: "09:30", motif: "Avancée à la demande du client" };
+  assert.equal((await documents(post("/documents-api", corps), { ip: "5.5.5.5" })).status, 401);
+  assert.equal((await admin({ ...corps, motif: "" })).status, 422);
+  assert.equal((await admin({ ...corps, date: "20/11/2026" })).status, 422);
+  const r = await aLaDate("2026-11-19T10:00:00Z", () => admin(corps));
+  assert.equal(r.status, 200, JSON.stringify(r.j));
+  const P = await dossier(ref);
+  assert.equal(P.priseEnCharge, new Date(PAI.instantParis("2026-11-20", "09:30")).toISOString());
+  assert.equal(P.modificationsDate.length, 1); assert.equal(P.modificationsDate[0].motif, "Avancée à la demande du client");
+  assert.equal(P.modificationsDate[0].ancienne, new Date(PAI.instantParis("2026-11-26", "14:00")).toISOString());
+  assert.ok(P.historique.some((h) => /date de la prestation modifiée/.test(h.quoi)));
+  assert.equal(r.j.paiement.modificationsDate.length, 1);
+  // Réalisation à la nouvelle date : acceptée, facture finale datée du jour réel
+  const ok = await aLaDate("2026-11-20T11:00:00Z", () => admin({ action: "course-realisee", ref, realiseeLe: "2026-11-20T10:15" }));
+  assert.equal(ok.status, 200, JSON.stringify(ok.j));
+  const f = docsDe(ref, "finale")[0];
+  assert.equal(f.doc.facture.datePrestation, "2026-11-20"); assert.equal(f.finale.heureRealisation, "10h15");
+  // Plus aucune modification possible une fois la course réalisée
+  assert.equal((await admin({ ...corps, date: "2026-11-21" })).status, 409);
+});
+await t("facture finale bloquée si la date de réalisation enregistrée est incohérente (contrôle indépendant de l'écran)", async () => {
+  const ref = await courseConfirmee("2026-11-27", "14:00");
+  const P0 = await dossier(ref);
+  const debut = Date.parse(P0.priseEnCharge);
+  const casIncoherents = [
+    { le: debut - 5 * 86400_000, declareLe: debut - 5 * 86400_000, reference: { priseEnCharge: P0.priseEnCharge, fin: P0.priseEnCharge } },   // avant la prise en charge
+    { le: debut + 3600_000, declareLe: debut - 86400_000, reference: { priseEnCharge: P0.priseEnCharge, fin: P0.priseEnCharge } },            // déclarée avant d'avoir eu lieu
+    { le: debut + 3600_000, declareLe: debut + 7200_000, reference: { priseEnCharge: "2026-11-01T10:00:00.000Z", fin: P0.priseEnCharge } },  // date de référence différente
+    { le: debut + 3600_000, declareLe: debut + 7200_000 }                                                                                    // sans référence
+  ];
+  for (const R of casIncoherents) {
+    await PAI.modifier(PAI.magasin(), P0.jeton, (x) => ({ ...x, etape: "realisee", realisation: { ...R, le: new Date(R.le).toISOString(), declareLe: new Date(R.declareLe).toISOString(), par: "elev8" } }));
+    const r = await FACT.facturerRealisation(PAI.magasin(), await dossier(ref), { now: NOW });
+    assert.equal(r.ignore, "date_incoherente");
+    await suivre(NOW);
+    assert.equal(docsDe(ref, "finale").length, 0);
+  }
+});
+await t("aller-retour : réalisation acceptée jusqu'à 24 h après le retour prévu, refusée au-delà", async () => {
+  const ref = await courseConfirmee("2026-11-28", "08:00", { allerRetour: true, dateRetour: "2026-11-30", heureRetour: "18:00" });
+  const r1 = await aLaDate("2026-12-02T10:00:00Z", () => admin({ action: "course-realisee", ref, realiseeLe: "2026-12-01T19:30" }));
+  assert.equal(r1.status, 422);
+  const r2 = await aLaDate("2026-12-01T10:00:00Z", () => admin({ action: "course-realisee", ref, realiseeLe: "2026-11-30T19:00" }));
+  assert.equal(r2.status, 200, JSON.stringify(r2.j));
   process.env.FACTURATION_AUTOMATIQUE = "non";
 });
 

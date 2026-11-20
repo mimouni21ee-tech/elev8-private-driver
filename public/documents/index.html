@@ -66,6 +66,14 @@
         <div class="field"><label for="c-plaque">Immatriculation <span class="opt">facultatif</span></label><input id="c-plaque" type="text" maxlength="20" autocomplete="off"></div>
         <div class="docs__row"><button class="btn btn--gold" type="button" id="btnChauffeur"><span>Chauffeur confirmé — prévenir le client</span></button></div>
       </div>
+      <details class="docs__modifdate" id="pModifDate" hidden>
+        <summary>Modifier la date de la prestation (changement officiel)</summary>
+        <div class="field"><label for="md-date">Nouvelle date</label><input id="md-date" type="date"></div>
+        <div class="field"><label for="md-heure">Nouvelle heure de prise en charge</label><input id="md-heure" type="time"></div>
+        <div class="field"><label for="md-motif">Motif (obligatoire)</label><input id="md-motif" type="text" maxlength="200" placeholder="Ex. avancée à la demande du client"></div>
+        <div class="docs__row"><button class="btn btn--quiet" type="button" id="btnModifDate"><span>Enregistrer la nouvelle date</span></button></div>
+        <p class="field__help">Seule exception au contrôle « Course réalisée » : la nouvelle date est enregistrée dans la réservation, avec son motif et l'historique. Les documents déjà émis ne changent pas.</p>
+      </details>
       <div id="pRealisation" hidden>
         <div class="field"><label for="r-le">Date et heure réelles de réalisation</label><input id="r-le" type="datetime-local"></div>
         <div class="docs__row"><button class="btn btn--gold" type="button" id="btnRealisee"><span>COURSE RÉALISÉE</span></button></div>
@@ -352,6 +360,6 @@
 
 <script src="/config.js?v=20261118b"></script>
 <script src="/assets/js/messages-client.js?v=20261119d"></script>
-<script src="/assets/js/documents.js?v=20261120f"></script>
+<script src="/assets/js/documents.js?v=20261120g"></script>
 </body>
 </html>

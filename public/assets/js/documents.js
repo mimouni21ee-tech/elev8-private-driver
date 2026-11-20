@@ -383,6 +383,8 @@
     if (P.devis) d.push("Devis " + P.devis.numero + " envoyé le " + dateHeure(P.devis.le));
     if (P.payeLe) d.push("Payé le " + dateHeure(P.payeLe));
     if (P.factures && P.factures.acompte) d.push("Facture d'acompte " + P.factures.acompte + " émise (100 %, reste à payer 0,00 €)");
+    if (P.priseEnCharge) d.push("Prise en charge enregistrée : " + dateHeure(P.priseEnCharge));
+    (P.modificationsDate || []).forEach(function (m) { d.push("Date modifiée le " + dateHeure(m.le) + " (" + m.motif + ")"); });
     if (P.realisation) d.push("Course réalisée le " + dateHeure(P.realisation.le));
     if (P.factures && P.factures.finale) d.push("Facture finale " + P.factures.finale + " émise (solde 0,00 €)");
     if (P.factures && P.factures.avoirs && P.factures.avoirs.length) d.push("Avoir(s) : " + P.factures.avoirs.map(function (a) { return a.numero; }).join(", "));
@@ -397,7 +399,9 @@
     // « Course réalisée » : paiement confirmé, chauffeur confirmé, ni annulée ni remboursée intégralement
     var realisable = P.etape === "chauffeur_confirme" && ["paye", "rembourse_partiel"].indexOf(P.statut) >= 0;
     $("#pRealisation").hidden = !realisable;
-    if (realisable && !v("#r-le")) { var n = new Date(); n.setMinutes(n.getMinutes() - n.getTimezoneOffset()); $("#r-le").value = n.toISOString().slice(0, 16); }
+    // Proposition : la prise en charge enregistrée (le serveur contrôle la fenêtre de réalisation)
+    if (realisable && P.priseEnCharge) $("#r-le").value = localParis(P.priseEnCharge);
+    $("#pModifDate").hidden = !(["paye", "rembourse_partiel"].indexOf(P.statut) >= 0 && ["payee_attente_attribution", "chauffeur_confirme"].indexOf(P.etape) >= 0);
     // Facture finale et avoirs : un bouton de téléchargement par document
     var docs = [];
     if (P.factures && P.factures.finale) docs.push([P.factures.finale, "Télécharger la facture finale"]);
@@ -510,6 +514,17 @@
   $("#pDocs").addEventListener("click", function (ev) {
     var b = ev.target.closest("[data-doc]");
     if (b) telechargerEnregistre("document-pdf", b.getAttribute("data-doc"), { numero: b.getAttribute("data-doc") });
+  });
+  function localParis(iso) {                                       // « AAAA-MM-JJTHH:MM » à l'heure de Paris
+    var p = {}; new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Paris", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+      .formatToParts(new Date(iso)).forEach(function (x) { p[x.type] = x.value; });
+    return p.year + "-" + p.month + "-" + p.day + "T" + p.hour + ":" + p.minute;
+  }
+  $("#btnModifDate").addEventListener("click", function () {
+    var date = v("#md-date"), heure = v("#md-heure"), motif = v("#md-motif");
+    if (!date || !heure || !motif) { $("#pMsg").textContent = "Indiquez la nouvelle date, l'heure et le motif."; return; }
+    if (!confirm("Enregistrer officiellement la nouvelle date de la prestation : " + date + " à " + heure + " ? Motif : " + motif)) return;
+    actionPaiement({ action: "modifier-date", date: date, heure: heure, motif: motif }, function () { $("#md-motif").value = ""; return "Nouvelle date enregistrée dans la réservation."; });
   });
   var realisationEnCours = false;
   $("#btnRealisee").addEventListener("click", function () {

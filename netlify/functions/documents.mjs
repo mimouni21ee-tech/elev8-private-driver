@@ -30,7 +30,7 @@ import { magasin as magasinDemandes, chargerParId, chargerParRef } from "../lib/
 import { stripeActif } from "../lib/stripe.mjs";
 import { retenirContexte, estSiteDeTest, nomMagasin, destinataireTest, marquerTest } from "../lib/environnement.mjs";
 import { magasin as magasinPaiements, parRef as paiementParRef, resume as resumePaiement } from "../lib/paiements.mjs";
-import { creerLienManuel, confirmerChauffeur, annulerEtRembourser, confirmerRealisation } from "../lib/actions-paiement.mjs";
+import { creerLienManuel, confirmerChauffeur, annulerEtRembourser, confirmerRealisation, modifierDatePrestation } from "../lib/actions-paiement.mjs";
 import { magasinDevis, pdfDevis } from "../lib/devis-auto.mjs";
 import { pdfFacture } from "../lib/facturation.mjs";
 import { numeroSuivant } from "../lib/numerotation.mjs";
@@ -302,7 +302,7 @@ export default async (req, context) => {
     }
   }
 
-  if (["paiement-etat", "paiement-lien", "chauffeur-confirme", "annuler-course", "course-realisee"].includes(b.action)) {
+  if (["paiement-etat", "paiement-lien", "chauffeur-confirme", "annuler-course", "course-realisee", "modifier-date"].includes(b.action)) {
     const ref = String(b.ref || "").trim().toUpperCase();
     if (!/^E8-[A-Z0-9-]{3,30}$/.test(ref)) return json(400, { ok: false, code: "ref", message: "Référence invalide." });
     if (!stripeActif()) return json(503, { ok: false, code: "stripe", message: "Paiement en ligne non activé (variables Stripe de test absentes)." });
@@ -316,6 +316,7 @@ export default async (req, context) => {
       }
       else if (b.action === "chauffeur-confirme") r = await confirmerChauffeur({ ref, chauffeur: b.chauffeur, now });
       else if (b.action === "course-realisee") r = await confirmerRealisation({ ref, realiseeLe: String(b.realiseeLe || ""), now });
+      else if (b.action === "modifier-date") r = await modifierDatePrestation({ ref, date: String(b.date || ""), heure: String(b.heure || ""), motif: String(b.motif || ""), now });
       else r = await annulerEtRembourser({ ref, motif: b.motif, now });
       if (r.erreur) return json(r.erreur[0], { ok: false, code: "paiement", message: r.erreur[1] });
       return json(200, { ok: true, ...r });

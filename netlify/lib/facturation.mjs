@@ -23,7 +23,7 @@ import { magasinDevis, chargerConfig, documentDevis } from "./devis-auto.mjs";
 import { emetteur, manquants, pdf, montants, aujourdhuiParis, designationAuto } from "./documents.mjs";
 import { numeroSuivant, numeroAttribue } from "./numerotation.mjs";
 import { estSiteDeTest } from "./environnement.mjs";
-import { modifier } from "./paiements.mjs";
+import { modifier, controleRealisation } from "./paiements.mjs";
 import { demandeDe, envoyerUneFois } from "./notifications.mjs";
 import { mailFactureAcompte, mailFactureFinale, mailAvoir } from "./courriels.mjs";
 
@@ -104,6 +104,11 @@ export async function emettreAcompte(p, { now = Date.now() } = {}) {
 export async function emettreFinale(p, { now = Date.now() } = {}) {
   if (!facturationAutomatique()) return { ignore: "desactivee" };
   if (!p || p.etape !== "realisee" || !["paye", "rembourse_partiel"].includes(p.statut)) return { ignore: "non_realisee" };
+  // Contrôle de cohérence de la date de réalisation, indépendant de l'écran de validation
+  const R = p.realisation || {}, ref0 = R.reference || {};
+  if (!R.le || !ref0.priseEnCharge || ref0.priseEnCharge !== p.priseEnCharge
+      || controleRealisation(p, Date.parse(R.le), { now: Date.parse(R.declareLe || R.le), fin: Date.parse(ref0.fin) }))
+    return { ignore: "date_incoherente" };
   const st = magasinDevis();
   const l = await st.get("acompte-ref/" + p.ref, { type: "json" });
   const acompte = l && l.numero ? await st.get("facture/" + l.numero, { type: "json" }) : null;

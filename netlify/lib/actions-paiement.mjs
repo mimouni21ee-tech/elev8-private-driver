@@ -5,7 +5,7 @@
    d'idempotence Stripe, e-mails marqués comme envoyés).
    ========================================================================== */
 import { stripeActif, expirerSession, rembourser } from "./stripe.mjs";
-import { magasin, parRef, creer, modifier, resume, instantParis, deps as P } from "./paiements.mjs";
+import { magasin, parRef, creer, modifier, resume, instantParis, controleRealisation, deps as P } from "./paiements.mjs";
 import { magasin as magasinDemandes, chargerParRef } from "./demandes.mjs";
 import { mailChauffeurConfirme, mailAnnulation, alerteElev8 } from "./courriels.mjs";
 import { envoyerDevis } from "./devis-auto.mjs";
@@ -74,21 +74,63 @@ export async function confirmerRealisation({ ref, realiseeLe = "", now = P.now()
   if (p.etape === "realisee") return { erreur: [409, "Course déjà déclarée réalisée le " + new Date(p.realisation.le).toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "long", timeStyle: "short" }) + "."] };
   if (!["paye", "rembourse_partiel"].includes(p.statut)) return { erreur: [409, "Paiement non confirmé ou remboursé intégralement (statut : " + p.statut + ") : la course ne peut pas être déclarée réalisée."] };
   if (p.etape !== "chauffeur_confirme") return { erreur: [409, p.etape === "payee_attente_attribution" ? "Confirmez d'abord le chauffeur." : "Réservation annulée ou déjà traitée (étape : " + p.etape + ")."] };
+  // Date de réalisation : celle indiquée, sinon l'heure de la validation — contrôlée dans les deux cas
   let le = now;
   if (realiseeLe) {
     const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})$/.exec(String(realiseeLe));
     le = m ? instantParis(m[1], m[2]) : NaN;
-    if (!Number.isFinite(le)) return { erreur: [422, "Date et heure de réalisation invalides."] };
-    if (le > now + 5 * 60_000) return { erreur: [422, "La date de réalisation ne peut pas être dans le futur."] };
-    if (le < Date.parse(p.priseEnCharge) - 24 * 3600_000) return { erreur: [422, "La date de réalisation est très antérieure à la prise en charge prévue : vérifiez-la."] };
   }
-  const r = await modifier(st, p.jeton, (x) => (x.etape === "chauffeur_confirme" && ["paye", "rembourse_partiel"].includes(x.statut)
-    ? note({ ...x, etape: "realisee", realisation: { le: new Date(le).toISOString(), declareLe: new Date(now).toISOString(), par: "elev8" } }, "course réalisée (" + new Date(le).toLocaleString("fr-FR", { timeZone: "Europe/Paris" }) + ")", now) : null));
+  const fin = await finPrevue(p, now);
+  const refus = controleRealisation(p, le, { now, fin });
+  if (refus) return { erreur: [422, refus] };
+  const reference = { priseEnCharge: p.priseEnCharge, fin: new Date(Math.max(fin || 0, Date.parse(p.priseEnCharge))).toISOString() };
+  const r = await modifier(st, p.jeton, (x) => (x.etape === "chauffeur_confirme" && ["paye", "rembourse_partiel"].includes(x.statut) && x.priseEnCharge === p.priseEnCharge
+    ? note({ ...x, etape: "realisee", realisation: { le: new Date(le).toISOString(), declareLe: new Date(now).toISOString(), par: "elev8", reference } }, "course réalisée (" + new Date(le).toLocaleString("fr-FR", { timeZone: "Europe/Paris" }) + ")", now) : null));
   if (!r.change) return { erreur: [409, "Course déjà déclarée réalisée (validation simultanée)."] };
   let facture = null;
   try { facture = await facturerRealisation(st, r.p, { now }); }
   catch (e) { console.error("Facture finale différée :", String(e && e.message).slice(0, 60)); facture = { differee: true }; }
   return { paiement: resume(await parRef(st, ref)), facture };
+}
+
+/* Fin prévue de la prestation : retour d'un aller-retour (demande enregistrée), sinon la prise en charge */
+async function finPrevue(p, now) {
+  const D = await demandeDe(p, now);
+  const x = D && D.prestation;
+  if (x && x.allerRetour && x.dateRetour) {
+    const t = instantParis(x.dateRetour, x.heureRetour || "23:59");
+    if (Number.isFinite(t)) return t + (p.decalagePrestation || 0);   // suit une modification officielle de date
+  }
+  return Date.parse(p.priseEnCharge);
+}
+
+/* Modification OFFICIELLE de la date de la prestation (seule exception à la fenêtre de réalisation).
+   Réservée à ELEV8 connecté, motif obligatoire, historique conservé ; impossible une fois la course
+   réalisée, annulée ou remboursée. Les documents déjà émis (devis, facture d'acompte) ne changent pas ;
+   la facture finale indique la date réelle de réalisation. */
+export async function modifierDatePrestation({ ref, date, heure, motif, now = P.now() }) {
+  const st = magasin();
+  const p = await parRef(st, ref);
+  if (!p) return { erreur: [404, "Aucun paiement en ligne pour cette référence."] };
+  if (!["paye", "rembourse_partiel"].includes(p.statut) || !["payee_attente_attribution", "chauffeur_confirme"].includes(p.etape))
+    return { erreur: [409, "La date ne peut être modifiée que pour une réservation payée, ni réalisée ni annulée (étape : " + p.etape + ", paiement : " + p.statut + ")."] };
+  const m = String(motif || "").trim();
+  if (m.length < 5) return { erreur: [422, "Indiquez le motif de la modification (par exemple : « avancée à la demande du client »)."] };
+  const t = /^\d{4}-\d{2}-\d{2}$/.test(date || "") && /^\d{2}:\d{2}$/.test(heure || "") ? instantParis(date, heure) : NaN;
+  if (!Number.isFinite(t)) return { erreur: [422, "Nouvelle date ou heure invalide."] };
+  if (Math.abs(t - now) > 366 * 86400_000) return { erreur: [422, "Nouvelle date hors limites."] };
+  const ancienne = p.priseEnCharge, nouvelle = new Date(t).toISOString();
+  if (ancienne === nouvelle) return { erreur: [409, "La date indiquée est déjà la date enregistrée."] };
+  const r = await modifier(st, p.jeton, (x) => {
+    if (x.priseEnCharge !== ancienne || !["payee_attente_attribution", "chauffeur_confirme"].includes(x.etape)) return null;
+    const n = { ...(x.notifications || {}) };
+    for (const k of Object.keys(n)) if (k.startsWith("elev8_sans_chauffeur_")) delete n[k];     // alertes recalées sur la nouvelle date
+    return note({ ...x, priseEnCharge: nouvelle, decalagePrestation: (x.decalagePrestation || 0) + (t - Date.parse(ancienne)), notifications: n,
+      modificationsDate: (x.modificationsDate || []).concat([{ ancienne, nouvelle, motif: m.slice(0, 200), le: new Date(now).toISOString(), par: "elev8" }]) },
+      "date de la prestation modifiée : " + new Date(t).toLocaleString("fr-FR", { timeZone: "Europe/Paris" }) + " (" + m.slice(0, 80) + ")", now);
+  });
+  if (!r.change) return { erreur: [409, "La réservation a changé entre-temps : rechargez-la."] };
+  return { paiement: resume(r.p) };
 }
 
 /* Indisponibilité ou aucun chauffeur : lien désactivé (non payé) ou remboursement intégral (payé) */
