@@ -273,7 +273,7 @@ window.SITE_CONFIG = {
     siret: "131 595 068 00019",
     immatriculation: "131 595 068 R.C.S. Dijon",
     tva: "FR66131595068",
-    capital: "[Montant du capital social, ex. 1 000 €]",  // OBLIGATOIRE pour une SASU sur les factures et devis : à compléter
+    capital: "1 000 €",  // OBLIGATOIRE pour une SASU sur les factures et devis : à compléter
     regimeTVA: "assujetti",                  // n° de TVA intracommunautaire fourni : TVA facturée
     tauxTVA: 10,                             // transport de personnes (VTC) : 10 %. Les prix du site sont des prix TTC.
     modesPaiement: "carte bancaire ou virement bancaire",
