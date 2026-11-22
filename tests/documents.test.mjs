@@ -146,7 +146,7 @@ await t("TVA (assujetti 10 %) : HT, TVA et TTC détaillés, n° de TVA de l'éme
   assert.ok(manquants(emetteur(CONF({ ...LEGAL, regimeTVA: "assujetti", tva: "" }))).some((m) => m.includes("TVA intracommunautaire")));
   deps.config = CONF();
 });
-await t("configuration officielle (public/config.js) : informations cohérentes, seul le capital social manque", async () => {
+await t("configuration officielle (public/config.js) : informations cohérentes et complètes (capital social renseigné)", async () => {
   const { readFileSync } = await import("node:fs");
   const { parseConfig } = await import("../netlify/functions/documents.mjs");
   const C = parseConfig(readFileSync(new URL("../public/config.js", import.meta.url), "utf8"));
@@ -158,8 +158,9 @@ await t("configuration officielle (public/config.js) : informations cohérentes,
   const siren = E.siret.replace(/\s/g, "").slice(0, 9);
   assert.equal(E.tva, "FR" + String((12 + 3 * (Number(siren) % 97)) % 97).padStart(2, "0") + siren);
   assert.ok(E.rcs.replace(/\s/g, "").startsWith(siren));
-  const m = manquants(E);
-  assert.equal(m.length, 1); assert.match(m[0], /capital social/);
+  assert.deepEqual(manquants(E), []);                                  // capital social complété le 20/11/2026
+  assert.match(E.capital, /^\d[\d\s.]*(,\d+)?\s?€$/);
+  assert.equal(manquants({ ...E, capital: "[Montant du capital social, ex. 1 000 €]" }).length, 1);   // un capital non renseigné reste bloquant
 });
 await t("suppléments : lignes détaillées, HT/TVA exacts au centime", async () => {
   assert.deepEqual(montants(20, { regimeTVA: "assujetti", tauxTVA: 10 }, [{ montant: 15 }]), { ht: 31.82, tva: 3.18, ttc: 35, taux: 10, franchise: false, lignesHt: [18.18, 13.64] });

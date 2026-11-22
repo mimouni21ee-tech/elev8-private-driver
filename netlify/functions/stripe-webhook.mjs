@@ -5,7 +5,7 @@
    Stripe (/paiement/?etat=merci) n'a aucun effet.
    Contrôles, dans l'ordre :
      1. signature Stripe (STRIPE_WEBHOOK_SECRET, tolérance 5 min) sur le corps brut ;
-     2. objet réel (mode test uniquement dans cette version) ;
+     2. mode de l'événement identique au contexte Stripe (test ou live) ;
      3. anti-rejeu : chaque événement n'est traité qu'une fois (evt/<id>) ;
      4. état RELU auprès de Stripe (session, charge) : montant, devise, référence, jeton ;
      5. statuts qui n'avancent que dans un sens (un événement en retard ne fait pas reculer).
@@ -16,14 +16,17 @@
    passagère (Stripe renverra l'événement plus tard).
    ========================================================================== */
 import { stripeActif, verifierSignature, lireSession, lireCharge } from "../lib/stripe.mjs";
+import { retenirContexte } from "../lib/environnement.mjs";
 import { magasin, parCle, lire, modifier, appliquerSession, appliquerEchecDiffere, appliquerCharge, deps as P } from "../lib/paiements.mjs";
 import { mailPaiementRecu, alerteElev8 } from "../lib/courriels.mjs";
 import { envoyerUneFois, demandeDe, lienDocuments } from "../lib/notifications.mjs";
+import { facturerPaiement, facturerRemboursement } from "../lib/facturation.mjs";
 
 export const config = { path: "/stripe-webhook" };
 const rep = (status, body) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
-export default async (req) => {
+export default async (req, context) => {
+  retenirContexte(context);
   if (req.method !== "POST") return rep(405, { ok: false });
   const c = stripeActif();
   if (!c) return rep(503, { ok: false, erreur: "inactif" });
@@ -32,7 +35,7 @@ export default async (req) => {
   let ev;
   try { ev = JSON.parse(brut); } catch { return rep(400, { ok: false, erreur: "format" }); }
   if (!ev || typeof ev.id !== "string" || !ev.type) return rep(400, { ok: false, erreur: "format" });
-  if (ev.livemode === true) { console.warn("Événement Stripe réel ignoré (version de test)"); return rep(200, { ok: true, ignore: "livemode" }); }
+  if (ev.livemode !== (c.mode === "live")) return rep(400, { ok: false, erreur: "mode_incorrect" });
 
   const st = magasin(), now = P.now();
   // Anti-rejeu
@@ -74,6 +77,9 @@ async function traiter(st, ev, now) {
       if (D && D.client && D.client.email) await envoyerUneFois(st, n, "client_paiement_recu", mailPaiementRecu(D, n), D.client.email, now);
       await envoyerUneFois(st, n, "elev8_paiement_recu", alerteElev8(D, n, "Paiement reçu — course à attribuer",
         ["Le paiement est confirmé par Stripe.", "Statut : Payée — en attente d'attribution.", "HUBER : transmission automatique dès que son API sera disponible ; d'ici là, confirmez le chauffeur dans /documents."], lienDocuments(n)), "elev8", now);
+      // Facture d'acompte (100 %) : isolée, elle ne peut pas faire échouer la confirmation du paiement ; reprise par la tâche horaire
+      try { await facturerPaiement(st, n, { now }); }
+      catch (e) { console.error("Facture d'acompte différée :", String(e && e.message).slice(0, 60)); }
       return "paye";
     }
     if (n.statut === "a_verifier" && r.change)
@@ -90,10 +96,13 @@ async function traiter(st, ev, now) {
     if (!p) return "inconnu";
     const r = await modifier(st, p.jeton, (x) => {
       const y = appliquerCharge(x, ch, now);
-      if (y.statut === "rembourse" && ["attente_paiement", "payee_attente_attribution"].includes(y.etape)) y.etape = y.etapeAnnulation || "annulee";
+      if (y.statut === "rembourse" && ["attente_paiement", "payee_attente_attribution", "chauffeur_confirme"].includes(y.etape)) y.etape = y.etapeAnnulation || "annulee";
       return y;
     });
     if (r.change) await envoyerUneFois(st, r.p, "elev8_rembourse_" + ch.amount_refunded, alerteElev8(await demandeDe(r.p, now), r.p, "Remboursement enregistré", [r.p.statut === "rembourse" ? "Remboursement intégral." : "Remboursement partiel : " + (ch.amount_refunded / 100).toFixed(2) + " €."], lienDocuments(r.p)), "elev8", now);
+    // Avoir rattaché à la facture émise : isolé, il ne peut pas faire échouer l'enregistrement du remboursement ; reprise horaire
+    try { await facturerRemboursement(st, r.p, { charge: ch.id, now }); }
+    catch (e) { console.error("Avoir différé :", String(e && e.message).slice(0, 60)); }
     return r.p.statut;
   }
   if (ev.type === "charge.dispute.created") {

@@ -30,7 +30,7 @@
     Siège social : <span data-c="legal.adresse"></span><br>
     SIRET : <span data-c="legal.siret"></span> · <span data-c="legal.immatriculation"></span><br>
     TVA intracommunautaire : <span data-c="legal.tva"></span><br>
-    Inscription au registre des exploitants de voitures de transport avec chauffeur (VTC) : <span data-c="legal.registreVTC"></span><br>
+    <span data-if="legal.registreVTC">Inscription au registre des exploitants de voitures de transport avec chauffeur (VTC) : <span data-c="legal.registreVTC"></span><br></span>
     Téléphone : <span data-c="contact.telephoneAffiche"></span><br>
     E-mail : <span data-c="contact.email"></span>
   </p>
@@ -40,7 +40,9 @@
   <p data-c="legal.hebergeur"></p>
 
   <h2>Activité</h2>
-  <p>Transport de personnes par voiture de transport avec chauffeur (VTC), exclusivement sur réservation préalable. Les demandes envoyées depuis ce site ne valent pas réservation tant qu'elles n'ont pas été confirmées par le chauffeur.</p>
+  <p>Transport de personnes avec chauffeur, exclusivement sur réservation préalable. ELEV8 réalise les courses elle-même ou les confie en sous-traitance à des chauffeurs VTC ou taxis professionnels légalement habilités, en restant l'unique interlocuteur du client. Une demande envoyée depuis ce site ne vaut pas réservation : la réservation est confirmée dans les conditions des <a href="cgv.html">conditions générales de vente</a>.</p>
+
+  <p data-if="legal.mediateur">Médiateur de la consommation : <span data-c="legal.mediateur"></span>.</p>
 
   <h2>Propriété intellectuelle</h2>
   <p>L'ensemble des contenus de ce site (textes, photographies, logo, mise en page) est protégé. Toute reproduction sans autorisation préalable est interdite. Les marques et noms de véhicules cités appartiennent à leurs propriétaires respectifs.</p>
@@ -50,7 +52,7 @@
 
   <p>Dernière mise à jour : <span data-c="legal.dateMiseAJour"></span></p>
 </main>
-<script src="config.js?v=20261118b"></script>
+<script src="config.js?v=20261120j"></script>
 <script src="assets/js/legal.js?v=20261016e"></script>
 </body>
 </html>

@@ -14,6 +14,7 @@
    ========================================================================== */
 import { randomBytes } from "node:crypto";
 import { getStore } from "@netlify/blobs";
+import { nomMagasin } from "./environnement.mjs";
 
 export const DUREE_MS = 365 * 86400_000;
 export const ID_RE = /^[A-Za-z0-9_-]{24}$/;
@@ -21,7 +22,7 @@ export const REF_RE = /^E8-[A-Z0-9-]{3,30}$/;
 
 export const deps = { store: null };
 export function magasin() {
-  return deps.store || getStore({ name: "elev8-demandes", consistency: "strong" });
+  return deps.store || getStore({ name: nomMagasin("elev8-demandes"), consistency: "strong" });
 }
 export const nouvelId = () => randomBytes(18).toString("base64url");     // 24 caractères, non devinable
 
