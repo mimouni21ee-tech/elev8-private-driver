@@ -208,7 +208,8 @@
      L'origine de la visite (QR code, carte de visite, campagne) suit le client. */
   (function () {
     var q = new URLSearchParams(location.search), keep = new URLSearchParams();
-    ["src", "bord", "utm_source", "utm_medium", "utm_campaign", "utm_content"].forEach(function (k) { if (q.get(k)) keep.set(k, q.get(k)); });
+    // gclid / gbraid / wbraid : identifiant de clic Google Ads, nécessaire pour attribuer la demande à l'annonce
+    ["src", "bord", "utm_source", "utm_medium", "utm_campaign", "utm_content", "gclid", "gbraid", "wbraid"].forEach(function (k) { if (q.get(k)) keep.set(k, q.get(k)); });
     $$("a[data-resa]").forEach(function (a) {
       var u = new URL(a.getAttribute("href"), location.href);
       keep.forEach(function (v, k) { if (!u.searchParams.has(k)) u.searchParams.set(k, v); });

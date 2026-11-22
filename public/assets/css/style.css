@@ -1017,3 +1017,40 @@ html.has-intro.intro-skip:not(.is-bord) .route__stop { animation-delay: var(--d,
 .docs__docinfo { min-width: 0; overflow-wrap: anywhere; }
 @media (max-width: 560px) { .docs__montants { grid-template-columns: repeat(2, minmax(0, 1fr)); } .docs__badges { margin-left: 0; } }
 .docs__paiement .docs__doclist { padding-left: 0; font-size: .85rem; opacity: 1; }
+
+/* ---------- Bandeau de consentement (assets/js/consentement.js) ----------
+   Affiché seulement si la mesure Google Ads est configurée dans config.js.
+   « Tout refuser » et « Accepter » ont exactement la même présentation (recommandation CNIL). */
+.consent {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 1000;
+  padding: 0 .75rem calc(env(safe-area-inset-bottom, 0px) + .75rem);
+  pointer-events: none;
+}
+.consent[hidden] { display: none; }
+.consent__in {
+  pointer-events: auto; max-width: 46rem; margin: 0 auto; padding: 1.1rem 1.25rem 1.15rem;
+  background: var(--noir-2); color: var(--ivoire-doux); border: 1px solid var(--filet-fort);
+  box-shadow: 0 -.5rem 2.5rem rgba(0, 0, 0, .55);
+  font: 300 var(--s-sm)/1.55 var(--f-body);
+}
+.consent__titre { margin: 0 0 .35rem; font: 400 var(--s-xs)/1.3 var(--f-body); letter-spacing: .22em; text-transform: uppercase; color: var(--champagne-clair); }
+.consent__texte { margin: 0 0 .9rem; }
+.consent__texte a { color: var(--champagne-clair); }
+.consent__btns { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
+.consent__btn {
+  min-height: 2.9rem; padding: 0 1rem; cursor: pointer;
+  background: transparent; color: var(--ivoire); border: 1px solid var(--champagne);
+  font: 400 var(--s-xs)/1 var(--f-body); letter-spacing: .18em; text-transform: uppercase;
+  transition: background-color .3s var(--ease), color .3s var(--ease);
+}
+.consent__btn:focus-visible { outline: 2px solid var(--champagne-clair); outline-offset: 2px; }
+@media (hover: hover) { .consent__btn:hover { background: var(--champagne); color: var(--noir); } }
+@media (min-width: 720px) {
+  .consent { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 1.25rem); }
+  .consent__in { display: grid; grid-template-columns: 1fr auto; column-gap: 1.5rem; align-items: center; }
+  .consent__titre { grid-column: 1 / -1; }
+  .consent__texte { margin: 0; }
+  .consent__btns { grid-template-columns: auto auto; }
+  .consent__btn { padding: 0 1.4rem; }
+}
+@media print { .consent { display: none; } }
