@@ -9,7 +9,7 @@
 <meta name="theme-color" content="#0c0b09">
 <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;1,6..96,400&family=Jost:wght@300;400&display=swap">
-<link rel="stylesheet" href="assets/css/style.css?v=20261118b">
+<link rel="stylesheet" href="assets/css/style.css?v=20261122a">
 </head>
 <body class="legal-page">
 <header class="top">
@@ -44,7 +44,9 @@
   <p>La limitation des envois et la vérification anti-robot reposent sur l'intérêt légitime à protéger le formulaire contre les abus et le spam (article 6.1.f). Une demande peut être refusée automatiquement si elle dépasse le nombre d'envois autorisé ou si elle est identifiée comme provenant d'un robot ; vous pouvez alors nous joindre par WhatsApp ou par téléphone.</p>
   <p>L'origine de la visite jointe à la demande sert à savoir quels supports (QR code à bord, carte de visite, campagne) amènent des demandes, sur la base de notre intérêt légitime à évaluer nos canaux de communication.</p>
   <p>Les champs sans mention « facultatif » sont nécessaires au traitement de la demande : sans eux, nous ne pouvons pas organiser le trajet ni vous recontacter.</p>
-  <p>Vos données ne sont ni vendues, ni louées, ni utilisées à des fins publicitaires.</p>
+  <p data-ifnot="suivi.googleAds.id">Vos données ne sont ni vendues, ni louées, ni utilisées à des fins publicitaires.</p>
+  <p data-if="suivi.googleAds.id">Vos données ne sont ni vendues ni louées. Aucune donnée saisie dans le formulaire (nom, téléphone, e-mail, adresses) n'est transmise à Google ni à un autre annonceur.</p>
+  <p data-if="suivi.googleAds.id">Si vous l'acceptez, la mesure de l'efficacité de nos annonces Google Ads repose sur votre consentement (article 6.1.a du RGPD et article 82 de la loi Informatique et Libertés). Vous pouvez le retirer à tout moment, sans conséquence sur votre demande.</p>
 
   <h2>Destinataires et prestataires techniques</h2>
   <ul>
@@ -58,6 +60,7 @@
     <li>Polices de caractères : Google Fonts (Google Ireland Limited), qui reçoit votre adresse IP lors de l'affichage du site.</li>
     <li>Suggestions d'adresses : lorsque vous saisissez un lieu de départ ou de destination, notre serveur transmet uniquement le texte saisi (sans votre adresse IP ni aucune autre information) à un service de recherche d'adresses, Google Maps Platform (Google Ireland Limited) ou, à défaut, la Géoplateforme de l'IGN et le service Photon de komoot GmbH (données OpenStreetMap). Ce texte n'est pas conservé par le site.</li>
     <li>Estimation du tarif : pour calculer la distance du trajet, notre serveur transmet uniquement les adresses de départ et de destination (sans votre nom, vos coordonnées ni votre adresse IP) à Google Maps Platform (Google Ireland Limited) ou, à défaut, à la Géoplateforme de l'IGN et au service Photon de komoot GmbH. Ces adresses ne sont pas conservées par le site.</li>
+    <li data-if="suivi.googleAds.id">Mesure des annonces (uniquement si vous l'acceptez) : Google Ads (Google Ireland Limited). Google reçoit l'information qu'une demande a été envoyée ou qu'un bouton Appeler ou WhatsApp a été utilisé, avec la référence de la demande et son montant estimé, ainsi que les données techniques liées aux cookies décrits plus bas (identifiant de clic sur l'annonce, adresse IP, navigateur). Aucune donnée saisie dans le formulaire ne lui est transmise.</li>
     <li data-if="formulaire.turnstileSiteKey">Vérification anti-robot : Cloudflare Turnstile (Cloudflare, Inc.). Au moment de l'envoi, Cloudflare analyse des informations techniques sur votre navigateur et votre adresse IP afin de distinguer une personne d'un robot. Ces informations ne sont pas utilisées à des fins publicitaires.</li>
   </ul>
   <p>Certains de ces prestataires peuvent traiter des données hors de l'Union européenne. Dans ce cas, le transfert est encadré par les garanties prévues par le RGPD (décision d'adéquation ou clauses contractuelles types de la Commission européenne).</p>
@@ -66,15 +69,22 @@
   <ul>
     <li>Demande sans suite : <span data-c="legal.dureeDemandes"></span>.</li>
     <li>Clients : <span data-c="legal.dureeClients"></span>.</li>
+    <li data-if="suivi.googleAds.id">Cookies Google Ads (seulement si vous les acceptez) : 90 jours au plus. Votre choix d'accepter ou de refuser : 6 mois.</li>
     <li>Empreintes chiffrées d'adresse IP (limitation des envois) : <span data-c="legal.dureeEmpreintes"></span>.</li>
     <li>Factures et devis acceptés (identité et adresse de facturation du client, société, prestation, montant) : 10 ans, au titre des obligations comptables (article L123-22 du Code de commerce).</li>
     <li>E-mails de demande dans la messagerie du professionnel : selon les durées ci-dessus, puis suppression.</li>
   </ul>
 
-  <h2>Cookies et mesure d'audience</h2>
-  <p>Le site ne dépose aucun cookie et n'utilise aucun traceur publicitaire ni outil de mesure d'audience. L'origine de votre visite (paramètre du lien) est lue dans l'adresse de la page, sans rien enregistrer sur votre appareil.</p>
+  <h2 id="cookies">Cookies et mesure d'audience</h2>
+  <p data-ifnot="suivi.googleAds.id">Le site ne dépose aucun cookie et n'utilise aucun traceur publicitaire ni outil de mesure d'audience. L'origine de votre visite (paramètre du lien) est lue dans l'adresse de la page, sans rien enregistrer sur votre appareil.</p>
+  <div data-if="suivi.googleAds.id">
+    <p>Le site n'utilise aucun outil de mesure d'audience. Il ne dépose des cookies publicitaires que si vous cliquez sur « Accepter » dans le bandeau affiché lors de votre première visite. Tant que vous n'avez pas fait de choix, ou si vous cliquez sur « Tout refuser », aucun cookie publicitaire n'est déposé et la balise Google n'est pas chargée.</p>
+    <p><strong>Si vous acceptez :</strong> la balise Google Ads (Google Ireland Limited) est chargée et dépose des cookies (notamment <code>_gcl_au</code> et <code>_gcl_aw</code>, durée maximale de 90 jours) qui permettent de savoir si votre demande de réservation, ou votre clic sur Appeler ou WhatsApp, fait suite à un clic sur une de nos annonces. Cette mesure sert uniquement à évaluer et ajuster nos annonces. La personnalisation publicitaire est désactivée : ce site n'est pas utilisé pour vous proposer des publicités ciblées. Google peut traiter ces données hors de l'Union européenne, dans le cadre du Data Privacy Framework UE–États-Unis et des clauses contractuelles types ; voir aussi les règles de confidentialité de Google (policies.google.com/privacy).</p>
+    <p><strong>Votre choix</strong> est mémorisé dans votre navigateur pendant 6 mois, puis vous est redemandé. Vous pouvez le modifier à tout moment : <a href="#" data-cookies hidden>gérer les cookies</a>. En cas de retrait, les cookies Google Ads sont supprimés.</p>
+    <p>L'origine de votre visite (paramètre du lien) reste par ailleurs lue dans l'adresse de la page et jointe à votre demande, comme indiqué plus haut.</p>
+  </div>
   <p data-if="formulaire.turnstileSiteKey">Lorsque vous utilisez le formulaire, le service de vérification anti-robot de Cloudflare peut lire ou enregistrer des informations techniques sur votre appareil, uniquement pour sécuriser l'envoi. Cette opération, strictement nécessaire au service que vous demandez, n'est pas soumise à votre consentement.</p>
-  <p>Si des outils de mesure ou de publicité étaient ajoutés à l'avenir, ils ne seraient activés qu'après votre consentement, et cette page serait mise à jour.</p>
+  <p data-ifnot="suivi.googleAds.id">Si des outils de mesure ou de publicité étaient ajoutés à l'avenir, ils ne seraient activés qu'après votre consentement, et cette page serait mise à jour.</p>
 
   <h2>Sécurité</h2>
   <p>Le site est servi exclusivement en HTTPS. Les clés d'accès aux services d'envoi et de paiement sont conservées sur le serveur et ne sont jamais transmises à votre navigateur.</p>
@@ -84,7 +94,8 @@
 
   <p>Dernière mise à jour : <span data-c="legal.dateMiseAJour"></span></p>
 </main>
-<script src="config.js?v=20261120j"></script>
-<script src="assets/js/legal.js?v=20261016e"></script>
+<script src="config.js?v=20261122a"></script>
+<script src="assets/js/legal.js?v=20261122a"></script>
+<script src="assets/js/consentement.js?v=20261122a"></script>
 </body>
 </html>

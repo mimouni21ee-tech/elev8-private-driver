@@ -10,5 +10,9 @@
   Array.prototype.forEach.call(document.querySelectorAll("[data-if]"), function (el) {
     el.hidden = !get(el.getAttribute("data-if"));
   });
+  // … et inversement : affichés seulement si l'option est désactivée (vide)
+  Array.prototype.forEach.call(document.querySelectorAll("[data-ifnot]"), function (el) {
+    el.hidden = !!get(el.getAttribute("data-ifnot"));
+  });
   document.title = document.title.replace(/ELEV8 Private Driver/, C.marque.nomComplet);
 })();

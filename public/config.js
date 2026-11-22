@@ -240,7 +240,8 @@ window.SITE_CONFIG = {
   },
 
   /* ---------- Suivi des sources de demande ----------
-     Aucun cookie, aucun traceur publicitaire, rien d'enregistré dans le navigateur.
+     Aucun cookie ni traceur pour ce suivi des sources : rien d'enregistré dans le navigateur.
+     (La mesure Google Ads, plus bas, est distincte et soumise au consentement du visiteur.)
      Le paramètre ?src=... du lien visité est simplement joint à la demande envoyée par le client.
      Associez ici chaque code de lien à un libellé lisible (voir CAMPAGNES.md). */
   suivi: {
@@ -259,7 +260,23 @@ window.SITE_CONFIG = {
       "flyer": "Flyer"
     },
     libelleBord: "QR code à bord",
-    libelleDirect: "Accès direct"
+    libelleDirect: "Accès direct",
+
+    /* Mesure des conversions Google Ads (assets/js/consentement.js).
+       Tant que « id » est vide : aucun bandeau, aucune balise, aucun cookie (situation actuelle).
+       Une fois renseigné : bandeau de consentement, puis balise Google chargée UNIQUEMENT si le visiteur accepte.
+       id                : identifiant du compte, format « AW-123456789 » (Google Ads › Objectifs › Conversions › balise)
+       conversionDemande : « libellé de conversion » de l'action « Demande de réservation » (partie après le « / »)
+       conversionAppel / conversionWhatsApp : facultatifs (clics sur Appeler / WhatsApp), laisser vide sinon
+       valeurParDefaut   : valeur en € d'une demande « sur devis » (sans estimation automatique) */
+    googleAds: {
+      id: "",
+      conversionDemande: "",
+      conversionAppel: "",
+      conversionWhatsApp: "",
+      valeurParDefaut: 120,
+      dureeConsentementJours: 182
+    }
   },
 
   /* ---------- 8. Informations légales ----------
@@ -294,6 +311,6 @@ window.SITE_CONFIG = {
                                              // et sur la page de paiement Stripe (« En procédant au paiement, vous acceptez… »).
     mediateur: "",                           // Médiateur de la consommation (nom, adresse, site) : OBLIGATOIRE, à renseigner dès l'adhésion
     assurance: "",                           // Assureur RC professionnelle, n° de contrat, couverture géographique : à renseigner
-    dateMiseAJour: "20 novembre 2026"
+    dateMiseAJour: "22 novembre 2026"
   }
 };
