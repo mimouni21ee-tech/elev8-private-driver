@@ -34,10 +34,10 @@ async function page({ ads = {}, stockage = null, maintenant = Date.now(), url = 
   const conversions = () => JSON.parse(JSON.stringify(commandes().filter((c) => c[0] === "event" && c[1] === "conversion").map((c) => c[2])));
   return { w, balise, bandeau, visible, clic, evenement, commandes, conversions };
 }
-const ADS = { id: "AW-123456789", conversionDemande: "AbCdEf123", conversionAppel: "Appel456" };
+const ADS = { id: "AW-123456789", conversionDemande: "AbCdEf123", conversionAppel: "Appel456", conversionWhatsApp: "" };
 
-await t("sans identifiant Google Ads (situation actuelle) : aucun bandeau, aucune balise, aucun cookie", async () => {
-  const p = await page();
+await t("sans identifiant Google Ads : aucun bandeau, aucune balise, aucun cookie", async () => {
+  const p = await page({ ads: { id: "" } });
   assert.equal(p.bandeau(), null);
   assert.equal(p.balise(), null);
   assert.equal(p.w.document.cookie, "");
@@ -159,6 +159,12 @@ await t("« Gestion des cookies » rouvre le bandeau ; retrait de l'accord : coo
   assert.ok(/autre=1/.test(p.w.document.cookie), "autres cookies intacts");
   const derniere = p.commandes().filter((x) => x[0] === "consent").pop()[2];
   assert.equal(derniere.ad_storage, "denied");
+});
+
+await t("config.js : identifiant et libellé Google Ads réels au bon format", () => {
+  const w = new JSDOM("", { runScripts: "outside-only" }).window; w.eval(CONFIG);
+  const g = w.SITE_CONFIG.suivi.googleAds;
+  assert.match(g.id, /^AW-\d{6,14}$/); assert.match(g.conversionDemande, /^[A-Za-z0-9_-]{4,64}$/);
 });
 
 await t("pages : consentement.js chargé après config.js sur les pages publiques, absent de /documents", () => {

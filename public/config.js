@@ -270,8 +270,8 @@ window.SITE_CONFIG = {
        conversionAppel / conversionWhatsApp : facultatifs (clics sur Appeler / WhatsApp), laisser vide sinon
        valeurParDefaut   : valeur en € d'une demande « sur devis » (sans estimation automatique) */
     googleAds: {
-      id: "",
-      conversionDemande: "",
+      id: "AW-18590283906",
+      conversionDemande: "PLWDCNiOw70dEILxxKBF",
       conversionAppel: "",
       conversionWhatsApp: "",
       valeurParDefaut: 120,
