@@ -309,8 +309,8 @@ window.SITE_CONFIG = {
     cgv: "/cgv.html",                        // Adresse des conditions générales de vente.
                                              // Vide = aucun lien. Renseignée : lien dans le pied de page, sous le formulaire
                                              // et sur la page de paiement Stripe (« En procédant au paiement, vous acceptez… »).
-    mediateur: "",                           // Médiateur de la consommation (nom, adresse, site) : OBLIGATOIRE, à renseigner dès l'adhésion
+    mediateur: "ANM Conso, 25 allée Rose Dieng Kuntz, 75019 Paris — saisine en ligne : www.anm-conso.com/page-saisine.php",                           // Médiateur de la consommation (nom, adresse, site) : OBLIGATOIRE, à renseigner dès l'adhésion
     assurance: "",                           // Assureur RC professionnelle, n° de contrat, couverture géographique : à renseigner
-    dateMiseAJour: "22 novembre 2026"
+    dateMiseAJour: "23 novembre 2026"
   }
 };
