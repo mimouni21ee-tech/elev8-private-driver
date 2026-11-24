@@ -19,7 +19,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;0,6..96,500;1,6..96,400&family=Jost:wght@300;400;500&display=swap">
-<link rel="stylesheet" href="/assets/css/style.css?v=20261122a">
+<link rel="stylesheet" href="/assets/css/style.css?v=20261124a">
 </head>
 <body class="page-resa">
 <a class="skip" href="#bookingForm">Aller au formulaire</a>
@@ -49,6 +49,10 @@
       <p class="resa-intro__text" data-c="pageReservation.texte">Estimez votre trajet en quelques instants et envoyez votre demande sans engagement. Devis par e-mail, paiement en ligne sécurisé, puis confirmation de votre chauffeur par ELEV8.</p>
       <p class="resa-pro"><span data-c="pageReservation.proTexte">Vous êtes un professionnel ?</span> <a href="#pro" class="resa-pro__lien" id="proLien" aria-expanded="false" aria-controls="pro" data-c="pageReservation.proLien">Contactez ELEV8 directement</a></p>
       <p class="resa-pro__actions" id="pro" hidden><a class="js-tel" href="tel:+33626927218">Appeler · <span data-c="contact.telephoneAffiche">06 26 92 72 18</span></a><a data-wa-pro href="https://wa.me/33626927218" target="_blank" rel="noopener">WhatsApp</a><a class="js-mail" href="mailto:contact@elev8privatedriver.com">E-mail</a></p>
+      <div class="resa-trust">
+        <img class="resa-trust__img" src="/assets/img/tesla-model-y.jpg" alt="Tesla Model Y ELEV8" width="76" height="52" loading="eager" decoding="async">
+        <p class="resa-trust__txt"><strong data-c="pageReservation.confianceBandeau">Prix fixe annoncé avant le trajet — pas de compteur</strong><span data-c="pageReservation.confianceBandeau2">Votre chauffeur : David · 7j/7, 24h/24</span><a class="resa-trust__tel js-tel" href="tel:+33626927218"><span data-c="pageReservation.confianceAppel">Départ immédiat ? Appelez-nous</span> · <span data-c="contact.telephoneAffiche">06 26 92 72 18</span></a></p>
+      </div>
       <ol class="resa-steps">
         <li><span class="resa-steps__n">1</span><span><strong data-c="pageReservation.etape1">Estimation immédiate</strong><span data-c="pageReservation.etape1Texte">selon notre grille tarifaire</span></span></li>
         <li><span class="resa-steps__n">2</span><span><strong data-c="pageReservation.etape2">Devis et paiement sécurisé</strong><span data-c="pageReservation.etape2Texte">règlement en ligne par carte (Stripe)</span></span></li>
@@ -152,9 +156,9 @@
             <p class="field__err">Numéro invalide. Vérifiez l'indicatif, ou saisissez le numéro complet avec + (ex. +41 79 123 45 67).</p>
           </div>
           <div class="field field--full">
-            <label for="f-email">E-mail <span class="opt">facultatif</span></label>
-            <input id="f-email" name="email" type="email" enterkeyhint="done" autocapitalize="off" autocomplete="email" inputmode="email" maxlength="120" spellcheck="false">
-            <p class="field__err">Adresse e-mail invalide.</p>
+            <label for="f-email">E-mail <span class="opt">pour recevoir votre devis</span></label>
+            <input id="f-email" name="email" type="email" enterkeyhint="done" autocapitalize="off" autocomplete="email" inputmode="email" maxlength="120" spellcheck="false" required>
+            <p class="field__err">Indiquez une adresse e-mail valide : votre devis vous y sera envoyé.</p>
           </div>
           <div class="field field--full">
             <label for="f-company">Société <span class="opt">facultatif</span></label>
@@ -213,6 +217,23 @@
     </div>
   </section>
 
+  <section class="resa-why" aria-labelledby="whyTitle">
+    <div class="wrap booking__wrap resa-why__in">
+      <img class="resa-why__img" src="/assets/img/tesla-model-y.jpg" alt="Tesla Model Y, berline ELEV8 Private Driver" width="640" height="420" loading="lazy" decoding="async">
+      <div>
+        <h2 class="resa-why__title" id="whyTitle" data-c="pageReservation.confianceTitre">Pourquoi choisir ELEV8 ?</h2>
+        <ul class="resa-why__list">
+          <li><strong data-c="pageReservation.confiance1"></strong><span data-c="pageReservation.confiance1Texte"></span></li>
+          <li><strong data-c="pageReservation.confiance2"></strong><span data-c="pageReservation.confiance2Texte"></span></li>
+          <li><strong data-c="pageReservation.confiance3"></strong><span data-c="pageReservation.confiance3Texte"></span></li>
+          <li><strong data-c="pageReservation.confiance4"></strong><span data-c="pageReservation.confiance4Texte"></span></li>
+          <li><strong data-c="pageReservation.confiance5"></strong><span data-c="pageReservation.confiance5Texte"></span></li>
+        </ul>
+        <p class="resa-why__more"><a href="/" data-c="pageReservation.confianceLien">Découvrir ELEV8</a></p>
+      </div>
+    </div>
+  </section>
+
   <section class="resa-help">
     <div class="wrap booking__wrap">
       <p class="resa-help__title" data-c="pageReservation.aideTitre">Une question avant de réserver ?</p>
@@ -238,9 +259,9 @@
 
 <noscript><p class="noscript">Cette page nécessite JavaScript. Vous pouvez nous appeler au 06 26 92 72 18.</p></noscript>
 
-<script src="/config.js?v=20261122a"></script>
+<script src="/config.js?v=20261124a"></script>
 <script src="/assets/js/consentement.js?v=20261122a"></script>
-<script src="/assets/js/reservation.js?v=20261120i"></script>
+<script src="/assets/js/reservation.js?v=20261123a"></script>
 <script src="/assets/js/adresses.js?v=20261016g"></script>
 </body>
 </html>

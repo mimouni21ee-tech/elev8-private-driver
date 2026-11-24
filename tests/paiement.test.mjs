@@ -676,12 +676,11 @@ await t("cas particulier : « Valider le tarif et envoyer le devis » → devis 
   const rec = docDeps.store.m.get("devis/" + r3.j.devis).d;
   assert.equal(rec.doc.montant, 45); assert.equal(rec.doc.supplements.length, 0);
 });
-await t("client sans e-mail : le devis est envoyé à ELEV8 pour transmission ; informations légales incomplètes : lien envoyé sans PDF", async () => {
+await t("e-mail obligatoire : demande sans e-mail refusée (422, champ email) ; informations légales incomplètes : lien envoyé sans PDF", async () => {
   envoyes.length = 0;
-  const { j } = await envoyer({ date: "2026-11-29", heure: "09:00", email: "" });
-  assert.equal(j.paiement.email, false);
-  const m = envoyes.find((x) => /Client sans e-mail/.test(x.subject));
-  assert.equal(m.to, ""); assert.equal(m.pieces.length, 1);
+  const r0 = await envoyer({ date: "2026-11-29", heure: "09:00", email: "" });
+  assert.equal(r0.status, 422); assert.deepEqual(r0.j.fields, ["email"]);
+  assert.equal(envoyes.length, 0, "aucun e-mail envoyé pour une demande refusée");
   const cfg = DEVIS.deps.config; DEVIS.deps.config = { ...cfg, legal: { ...cfg.legal, capital: "" } };
   envoyes.length = 0;
   const { j: j2 } = await envoyer({ date: "2026-11-29", heure: "10:00" });
@@ -1379,7 +1378,7 @@ await t("pages légales : aucune information provisoire affichée ; lignes EVTC,
   for (const f of ["../public/cgv.html", "../public/mentions-legales.html", "../public/confidentialite.html"]) {
     const h = readFileSync(new URL(f, import.meta.url), "utf8");
     assert.ok(!/\[(Prénom|Numéro|Ex\.|assureur|nom du médiateur)/i.test(h), f);
-    assert.match(h, /config\.js\?v=20261122a/);
+    assert.match(h, /config\.js\?v=20261124a/);
   }
   const cgv = readFileSync(new URL("../public/cgv.html", import.meta.url), "utf8");
   for (const x of ['data-if="legal.registreVTC"', 'data-if="legal.assurance"', 'data-if="legal.mediateur"', "25 % du prix, avec un minimum de 10 €", "au plus tard 3 heures avant", "sous-traitance", "L. 221-2"]) assert.ok(cgv.includes(x), x);
