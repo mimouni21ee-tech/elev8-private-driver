@@ -149,6 +149,8 @@ export async function annulerEtRembourser({ ref, motif, now = P.now(), automatiq
   const etape = motif === "sans_chauffeur" ? "sans_chauffeur" : "annulee_indisponible";
   if (p.statut === "en_cours") return { erreur: [409, "Paiement en cours de validation par la banque : attendez son résultat avant d'annuler."] };
   if (["rembourse"].includes(p.statut) || (p.remboursementDemande && p.statut !== "en_attente")) return { paiement: resume(p), dejaFait: true };
+  if (p.horsStripe && p.statut === "paye")
+    return { erreur: [409, "Course payée hors Stripe (" + p.horsStripe.moyen + ") : aucun remboursement automatique possible. Remboursez le client par le même moyen (TPE Indy, espèces…)."] };
   let rembourse = false;
   if (["en_attente", "expire", "annule", "remplace"].includes(p.statut)) {
     if (p.sessionActive) { try { await expirerSession(p.sessionActive); } catch { /* déjà expirée */ } }

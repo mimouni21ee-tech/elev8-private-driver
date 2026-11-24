@@ -51,7 +51,8 @@ export async function enregistrer(st, { ref, d, est, now = Date.now() }) {
       dureeMin: est.statut === "estimation" ? est.dureeMin ?? null : null,
       lignes: Array.isArray(est.lignes) ? est.lignes : []
     } : null,
-    origine: d.origine ? (d.origine.libelle || d.origine.code || "") : ""
+    origine: d.origine ? (d.origine.libelle || d.origine.code || "") : "",
+    ...(d.surPlace ? { surPlace: d.surPlace } : {})
   };
   await st.setJSON("demande/" + id, record, { metadata: { expire } });
   await st.setJSON("ref/" + ref, { id, expire });

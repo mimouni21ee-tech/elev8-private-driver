@@ -174,6 +174,12 @@ export function mailChangementDate(D, { ancienne, nouvelle, validation }) {
 
 /* 2. Paiement confirmé par Stripe : la course est EN ATTENTE d'attribution (pas encore confirmée) */
 export function mailPaiementRecu(D, p) {
+  if (p.surPlace) {
+    const b = ["Nous avons bien reçu votre règlement de " + euros(p.montantCents) + " TTC pour la réservation " + D.ref + ". Merci et bon trajet avec ELEV8."];
+    return { subject: `${MARQUE} — Paiement reçu | ${D.ref}`,
+      text: texte(bonjourDe(D), [b.join("\n\n"), "Votre trajet\n\n" + lignesTrajet(D).map(([k, v]) => k + " : " + v).join("\n")]),
+      html: gabarit({ titre: "Paiement reçu", intro: [bonjourDe(D), ...b], lignes: lignesTrajet(D) }) };
+  }
   const blocs = ["Nous avons bien reçu votre règlement de " + euros(p.montantCents) + " TTC pour la réservation " + D.ref + ". Merci.",
     "Votre course est en cours d'attribution à un chauffeur. Vous recevrez un e-mail de confirmation dès qu'un chauffeur l'aura acceptée.",
     "Si aucun chauffeur ne pouvait assurer votre trajet, vous seriez intégralement remboursé."];

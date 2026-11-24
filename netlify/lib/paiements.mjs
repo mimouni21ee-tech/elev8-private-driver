@@ -89,10 +89,12 @@ const histo = (p, quoi, now) => { p.historique = (p.historique || []).concat([{ 
 
 /* Création du dossier de paiement d'une réservation (automatique ou après validation manuelle).
    Un éventuel lien précédent non payé est « remplacé » : il ne peut plus servir. */
-export async function creer(st, { ref, idDemande, montant, libelle, description, priseEnCharge, origine, now = deps.now() }) {
+export async function creer(st, { ref, idDemande, montant, libelle, description, priseEnCharge, origine, surPlace = null, now = deps.now() }) {
   const cents = Math.round(Number(montant) * 100);
   if (!(cents >= 100 && cents <= 500_000)) throw new Error("montant");
-  const limite = priseEnCharge - REGLES.limiteAvantH() * 3600_000;
+  // Course saisie par le chauffeur (« sur place ») : le client paie tout de suite ou en fin de course,
+  // le lien reste donc valable jusqu'à 24 h après la prise en charge (au moins 24 h après la saisie).
+  const limite = surPlace ? Math.max(priseEnCharge, now) + 24 * 3600_000 : priseEnCharge - REGLES.limiteAvantH() * 3600_000;
   if (!(limite - now > 35 * 60_000)) throw new Error("delai");
   const ancien = await parRef(st, ref);
   if (ancien && ["paye", "en_cours", "rembourse_partiel", "a_verifier"].includes(ancien.statut)) throw new Error("deja_paye");
@@ -101,7 +103,8 @@ export async function creer(st, { ref, idDemande, montant, libelle, description,
     priseEnCharge: new Date(priseEnCharge).toISOString(), valableJusqu: new Date(limite).toISOString(),
     statut: "en_attente", etape: "attente_paiement", sessions: [], sessionActive: null, tentatives: 0,
     paymentIntent: null, charge: null, payeLe: null, rembourseCents: 0, litige: false,
-    notifications: {}, huber: { etat: "non_transmise", cle: ref }, cree: new Date(now).toISOString() }, "lien de paiement créé (" + (cents / 100).toFixed(2) + " €)", now);
+    notifications: {}, huber: { etat: "non_transmise", cle: ref }, cree: new Date(now).toISOString(),
+    ...(surPlace ? { surPlace: { apporteur: surPlace.apporteur || "", saisieLe: new Date(now).toISOString() }, chauffeur: surPlace.chauffeur || null } : {}) }, "lien de paiement créé (" + (cents / 100).toFixed(2) + " €)", now);
   await st.setJSON("paiement/" + jeton, p, { onlyIfNew: true });
   await st.setJSON("ref/" + ref, { jeton });
   if (ancien && ancien.jeton !== jeton) await modifier(st, ancien.jeton, (a) => (["en_attente", "expire"].includes(a.statut) ? histo({ ...a, statut: "remplace" }, "remplacé par un nouveau lien", now) : null));
@@ -118,6 +121,12 @@ export function appliquerSession(p, s, now = deps.now()) {
   if (s.status === "expired" && p.sessionActive === s.id) p.sessionActive = null;
   if (s.status !== "complete") return p;
   if (s.payment_status === "paid") {
+    // Course déjà marquée payée hors Stripe (TPE, espèces…) puis payée AUSSI en ligne : double paiement à vérifier
+    if (p.horsStripe && !p.paymentIntent) {
+      p.paymentIntent = typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent && s.payment_intent.id || null;
+      p.sessionActive = null; p.motifVerification = "double_paiement_hors_stripe"; p.statut = "a_verifier";
+      return histo(p, "paiement Stripe reçu alors que la course était déjà payée hors Stripe : à rembourser", now);
+    }
     if (RANG[p.statut] >= 2) return p;                                    // déjà payé (rejeu) : rien ne change
     p.paymentIntent = typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent && s.payment_intent.id || null;
     p.payeLe = new Date(now).toISOString(); p.sessionActive = null;
@@ -127,7 +136,7 @@ export function appliquerSession(p, s, now = deps.now()) {
       return histo(p, "paiement reçu à vérifier (" + p.motifVerification + ")", now);
     }
     p.statut = "paye";
-    if (p.etape === "attente_paiement") p.etape = "payee_attente_attribution";
+    if (p.etape === "attente_paiement") p.etape = p.surPlace ? "chauffeur_confirme" : "payee_attente_attribution";
     p.huber = { ...(p.huber || {}), etat: "en_attente_api" };             // HUBER : transmission dès que son API existera
     return histo(p, "paiement confirmé par Stripe", now);
   }
@@ -185,6 +194,6 @@ export function resume(p) {
   return { lien: "/payer/" + p.jeton, montant: p.montantCents / 100, statut: p.statut, statutLibelle: LIBELLES[p.statut] || p.statut,
     etape: p.etape, etapeLibelle: LIBELLES[p.etape] || p.etape, valableJusqu: p.valableJusqu, priseEnCharge: p.priseEnCharge,
     payeLe: p.payeLe, paymentIntent: p.paymentIntent, rembourse: p.rembourseCents / 100, litige: !!p.litige, motifVerification: p.motifVerification || null,
-    chauffeur: p.chauffeur || null, huber: p.huber, devis: p.devis || null, factures: p.factures || null,
+    chauffeur: p.chauffeur || null, huber: p.huber, surPlace: p.surPlace || null, horsStripe: p.horsStripe || null, devis: p.devis || null, factures: p.factures || null,
     realisation: p.realisation ? { le: p.realisation.le } : null, modificationsDate: p.modificationsDate || [], historique: (p.historique || []).slice(-12), mode: stripeActif()?.mode === "live" ? "live" : "test" };
 }

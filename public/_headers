@@ -2,7 +2,7 @@
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   X-Frame-Options: SAMEORIGIN
-  Permissions-Policy: camera=(), microphone=(), geolocation=(), interest-cohort=()
+  Permissions-Policy: camera=(), microphone=(), geolocation=(self), interest-cohort=()
   Strict-Transport-Security: max-age=31536000; includeSubDomains
   Content-Security-Policy: default-src 'self'; script-src 'self' https://challenges.cloudflare.com https://www.googletagmanager.com https://www.googleadservices.com https://www.google.com; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://www.googletagmanager.com https://www.googleadservices.com https://googleads.g.doubleclick.net https://pagead2.googlesyndication.com https://www.google.com https://www.google.fr https://www.google.ch; connect-src 'self' https://www.googletagmanager.com https://www.googleadservices.com https://googleads.g.doubleclick.net https://pagead2.googlesyndication.com https://www.google.com https://www.google.fr https://www.google.ch https://google.com https://ad.doubleclick.net; frame-src https://challenges.cloudflare.com https://www.googletagmanager.com; form-action 'self'; base-uri 'self'; frame-ancestors 'self'; object-src 'none'
 # Domaines Google ci-dessus : balise de conversion Google Ads (chargée seulement après consentement, voir consentement.js).
@@ -21,6 +21,12 @@
 # Photos : 1 jour (une photo remplacée sous le même nom apparaît au plus tard le lendemain)
 /assets/img/*
   Cache-Control: public, max-age=86400
+
+# Espace chauffeur (courses sur place) : jamais référencé ni mis en cache.
+# « geolocation=(self) » ci-dessus : seul ce site peut demander la position (bouton « Ma position » de /chauffeur).
+/chauffeur/*
+  X-Robots-Tag: noindex, nofollow
+  Cache-Control: no-store
 
 # Page réservée à ELEV8 (devis et factures) : jamais référencée ni mise en cache
 /documents/*
