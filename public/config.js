@@ -210,6 +210,17 @@ window.SITE_CONFIG = {
     etape1: "Estimation immédiate", etape1Texte: "selon notre grille tarifaire",
     etape2: "Devis et paiement sécurisé", etape2Texte: "règlement en ligne par carte (Stripe)",
     etape3: "Confirmation du chauffeur", etape3Texte: "remboursement intégral si aucun n'est disponible",
+    /* Bloc de confiance (24 nov. 2026) : bandeau court avant le formulaire, présentation après le formulaire */
+    confianceBandeau: "Prix fixe annoncé avant le trajet — pas de compteur",
+    confianceBandeau2: "Votre chauffeur : David · 7j/7, 24h/24",
+    confianceAppel: "Départ immédiat ? Appelez-nous",   // lien d'appel (VTC : réservation par téléphone, même pour tout de suite)
+    confianceTitre: "Pourquoi choisir ELEV8 ?",
+    confiance1: "Prix fixe, connu avant le départ", confiance1Texte: "Pas de compteur ni de mauvaise surprise : le tarif est estimé en ligne puis confirmé avant le trajet.",
+    confiance2: "Votre chauffeur : David", confiance2Texte: "Un chauffeur professionnel, ponctuel et discret, disponible 7j/7 et 24h/24 : réservez en ligne, ou appelez-nous pour un départ immédiat, selon disponibilité.",
+    confiance3: "Des véhicules haut de gamme", confiance3Texte: "Berline Tesla Model Y ou équivalent ; van Mercedes Classe V ou équivalent pour les groupes.",
+    confiance4: "Gares, aéroports, longue distance", confiance4Texte: "Transferts, mise à disposition à l'heure ou à la journée, vignobles et événements, à Dijon, Beaune et au-delà.",
+    confiance5: "Paiement sécurisé et facture", confiance5Texte: "Carte bancaire (Stripe) ou virement ; facture pour les professionnels.",
+    confianceLien: "Découvrir ELEV8",
     aideTitre: "Une question avant de réserver ?",
     retour: "Découvrir le site ELEV8"
   },

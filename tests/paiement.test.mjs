@@ -1378,7 +1378,7 @@ await t("pages légales : aucune information provisoire affichée ; lignes EVTC,
   for (const f of ["../public/cgv.html", "../public/mentions-legales.html", "../public/confidentialite.html"]) {
     const h = readFileSync(new URL(f, import.meta.url), "utf8");
     assert.ok(!/\[(Prénom|Numéro|Ex\.|assureur|nom du médiateur)/i.test(h), f);
-    assert.match(h, /config\.js\?v=20261122a/);
+    assert.match(h, /config\.js\?v=20261124a/);
   }
   const cgv = readFileSync(new URL("../public/cgv.html", import.meta.url), "utf8");
   for (const x of ['data-if="legal.registreVTC"', 'data-if="legal.assurance"', 'data-if="legal.mediateur"', "25 % du prix, avec un minimum de 10 €", "au plus tard 3 heures avant", "sous-traitance", "L. 221-2"]) assert.ok(cgv.includes(x), x);
