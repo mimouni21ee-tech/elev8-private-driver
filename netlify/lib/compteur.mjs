@@ -56,10 +56,11 @@ export function calculer({ km = 0, lentSec = 0, peages = 0 }, T = TARIFS) {
 export async function demarrer(b, { now = P.now() } = {}) {
   const c = b && b.client || {};
   const client = { prenom: s(c.prenom, 60), nom: s(c.nom, 80), telephone: telephone(c.telephone), email: s(c.email, 120).toLowerCase() };
-  const depart = s(b && b.depart, 200), pos = coord(b && b.position);
+  // Un seul geste pour le chauffeur : le lieu vient du GPS s'il n'est pas saisi ; les infos client sont facultatives
+  const pos = coord(b && b.position);
+  let depart = s(b && b.depart, 200);
+  if (depart.length < 3) depart = (pos && await deps.adresse(pos.lat, pos.lon)) || (pos ? `Position GPS ${pos.lat.toFixed(5)}, ${pos.lon.toFixed(5)}` : "Lieu non renseigné");
   const bad = [];
-  if (depart.length < 3) bad.push("depart");
-  if (client.nom.length < 2) bad.push("nom");
   if (client.telephone === null) bad.push("telephone");
   if (client.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(client.email)) bad.push("email");
   if (bad.length) return { erreur: [422, "Champs à vérifier : " + bad.join(", ") + "."], champs: bad };

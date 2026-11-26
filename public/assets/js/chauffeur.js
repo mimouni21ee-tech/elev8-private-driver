@@ -355,11 +355,10 @@
     if (err && err.code === 3) return "Le GPS met trop de temps à répondre : rapprochez-vous d'une fenêtre ou sortez, puis réessayez.";
     return "Position introuvable pour l'instant (intérieur ?) : réessayez dehors ou saisissez l'adresse.";
   }
+  // Tarifs rappelés sous le bouton Départ (information du client avant la course)
   function afficherTarifs() {
     var t = T();
-    $("#cptTarifs").innerHTML = [["Prise en charge", eur(t.priseEnCharge)], ["Prix au kilomètre", eur(t.km)],
-      ["Attente / marche lente (sous " + t.seuilKmh + " km/h)", eur(t.heure) + " / h"], ["Course minimum", eur(t.minimum)]]
-      .map(function (l) { return "<span>" + esc(l[0]) + "</span><span>" + esc(l[1]) + "</span>"; }).join("");
+    $("#cptTarifs").textContent = "Prise en charge " + eur(t.priseEnCharge) + " · " + eur(t.km) + " / km · attente et bouchons " + eur(t.heure / 60) + " / min · minimum " + eur(t.minimum) + " · péages en sus";
   }
   afficherTarifs();
   // Même formule que le serveur (netlify/lib/compteur.mjs)
@@ -447,23 +446,36 @@
       });
     }, function (err) { occupe(b, false); msg($("#cptMsg"), erreurGps(err)); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 });
   });
+  // Véhicule : le dernier choisi est retenu sur ce téléphone
+  var CLE_VEH = "elev8.compteur.vehicule";
+  (function () { var v = lireLocal(CLE_VEH); if (v) { var r = document.querySelector('input[name="cptVehicule"][value="' + (v === "van" ? "van" : "confort") + '"]'); if (r) r.checked = true; } })();
+  document.querySelectorAll('input[name="cptVehicule"]').forEach(function (r) { r.addEventListener("change", function () { ecrireLocal(CLE_VEH, r.value); }); });
+
+  // Départ : un seul appui. Position GPS prise automatiquement (8 s maximum), infos client facultatives.
   $("#cptPrepa").addEventListener("submit", function (e) {
     e.preventDefault();
     var b = $("#cptGo");
-    if ($("#cptDepart").value.trim().length < 3) { msg($("#cptMsg"), "Indiquez le lieu de prise en charge."); return; }
-    if ($("#cptNom").value.trim().length < 2) { msg($("#cptMsg"), "Indiquez le nom du client (justificatif de réservation)."); return; }
-    occupe(b, true); msg($("#cptMsg"), "Enregistrement de la réservation…", true);
-    var data = { depart: $("#cptDepart").value.trim(), position: etat.cptPos || null, apporteur: $("#cptApporteur").value.trim(),
-      vehicule: document.querySelector('input[name="cptVehicule"]:checked').value, passagers: $("#cptPassagers").value,
-      client: { prenom: $("#cptPrenom").value.trim(), nom: $("#cptNom").value.trim(), telephone: $("#cptTel").value.trim() } };
-    api("compteur-depart", data).then(function (j) {
-      occupe(b, false);
-      if (!j.ok) { msg($("#cptMsg"), j.message || "Impossible de démarrer."); return; }
-      msg($("#cptMsg"), "");
-      cpt = { ref: j.compteur.ref, debutMs: Date.parse(j.compteur.debut), km: 0, lentSec: 0, attente: false, dernier: null, peages: "", depart: data.depart };
-      $("#cptPeages").value = ""; sauverCpt(); afficherRoule(); lancerMesure();
-      $("#cptPrepa").reset(); etat.cptPos = null;
-    });
+    if (cpt) return;
+    occupe(b, true); msg($("#cptMsg"), "Départ…", true);
+    var partir = function (position) {
+      var data = { depart: $("#cptDepart").value.trim(), position: position || etat.cptPos || null, apporteur: $("#cptApporteur").value.trim(),
+        vehicule: document.querySelector('input[name="cptVehicule"]:checked').value, passagers: $("#cptPassagers").value,
+        client: { prenom: $("#cptPrenom").value.trim(), nom: $("#cptNom").value.trim(), telephone: $("#cptTel").value.trim() } };
+      api("compteur-depart", data).then(function (j) {
+        occupe(b, false);
+        if (!j.ok) { msg($("#cptMsg"), j.message || "Impossible de démarrer."); return; }
+        msg($("#cptMsg"), "");
+        cpt = { ref: j.compteur.ref, debutMs: Date.parse(j.compteur.debut), km: 0, lentSec: 0, attente: false, dernier: null, peages: "", depart: j.compteur.depart.adresse };
+        $("#cptPeages").value = ""; sauverCpt(); afficherRoule(); lancerMesure();
+        var veh = document.querySelector('input[name="cptVehicule"]:checked').value;
+        $("#cptPrepa").reset(); etat.cptPos = null;
+        var r = document.querySelector('input[name="cptVehicule"][value="' + veh + '"]'); if (r) r.checked = true;
+        var d = $("#cptPrepa").querySelector("details"); if (d) d.open = false;
+      });
+    };
+    if (!navigator.geolocation) { partir(null); return; }
+    navigator.geolocation.getCurrentPosition(function (p) { partir({ lat: p.coords.latitude, lon: p.coords.longitude }); },
+      function () { partir(null); }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 });
   });
   // « Attendre client » met le compteur en attente ; « Prise en charge » reprend la course (même état qu'avant)
   $("#cptAttente").addEventListener("click", function () { if (!cpt) return; cpt.attente = true; sauverCpt(); majEcran(); });

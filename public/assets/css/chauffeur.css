@@ -210,3 +210,19 @@ button, input, select { font: inherit; color: inherit; }
   .cpt-btn--or { grid-column: 1 / -1; }
   .cpt-tourner { display: block; margin: 6px 0 0; text-align: center; font-size: 11px; color: var(--c-gris-2); }
 }
+
+/* Avant la course : un seul bouton « Départ » */
+.cpt-prepa { display: grid; gap: 14px; justify-items: center; padding: 6px 0 10px; }
+.cpt-prepa-haut { width: min(100%, 26rem); }
+.cpt-depart {
+  width: min(100%, 26rem); aspect-ratio: 2.4 / 1; max-height: 11rem; background: #B69B65; color: #0B0B0B; border: 0; border-radius: 2px; cursor: pointer;
+  font: 600 1.15rem/1 "Inter", "Jost", sans-serif; letter-spacing: .32em; text-transform: uppercase; -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+}
+.cpt-depart:active { background: #C9AF7C; }
+.cpt-depart.is-busy { opacity: .6; pointer-events: none; }
+.cpt-prepa-msg { text-align: center; max-width: 30rem; }
+.cpt-tarifs-ligne { margin: 0; max-width: 30rem; text-align: center; font-size: .78rem; line-height: 1.6; color: var(--gris); }
+.cpt-options { width: min(100%, 30rem); border-top: 1px solid var(--filet); padding-top: 10px; }
+.cpt-options summary { cursor: pointer; text-align: center; font-size: .74rem; letter-spacing: .16em; text-transform: uppercase; color: var(--gris); list-style: none; padding: 6px 0; }
+.cpt-options summary::-webkit-details-marker { display: none; }
+.cpt-options[open] summary { color: var(--champagne); margin-bottom: 10px; }

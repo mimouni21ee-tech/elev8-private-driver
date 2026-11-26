@@ -17,7 +17,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,400;6..96,500&family=Jost:wght@300;400;500&family=Inter:wght@200;300;400;500&display=swap">
-<link rel="stylesheet" href="/assets/css/chauffeur.css?v=20261126d">
+<link rel="stylesheet" href="/assets/css/chauffeur.css?v=20261126e">
 </head>
 <body>
 <!-- Espace chauffeur ELEV8 (non référencé) : courses saisies sur place, prix de la grille,
@@ -154,41 +154,42 @@
 
   <!-- Compteur ELEV8 : prix au temps et à la distance, calculé à l'arrivée -->
   <section id="vueCompteur" hidden>
-    <form id="cptPrepa" class="ch-stack" novalidate>
-      <div class="ch-card ch-stack">
-        <p class="ch-lab">Tarifs affichés au client avant le départ</p>
-        <div class="cpt-tarifs" id="cptTarifs"></div>
-        <p class="ch-muted ch-petit">Le compteur démarre à la prise en charge. Quand le véhicule roule, la distance est facturée ; à l'arrêt, dans les bouchons (sous 20 km/h) ou en attente, c'est le temps. Péages et parkings en sus.</p>
+    <!-- Avant la course : un seul geste, « Départ ». Le lieu de prise en charge est pris par le GPS. -->
+    <form id="cptPrepa" class="cpt-prepa" novalidate>
+      <div class="cpt-prepa-haut">
+        <div class="ch-seg cpt-vehicule" role="radiogroup" aria-label="Véhicule">
+          <label><input type="radio" name="cptVehicule" value="confort" checked><span>Tesla</span></label>
+          <label><input type="radio" name="cptVehicule" value="van"><span>Classe V</span></label>
+        </div>
       </div>
-      <div class="ch-card ch-stack">
-        <div class="field ch-field">
-          <span class="ch-lab">Prise en charge</span>
-          <div class="ch-row">
-            <input id="cptDepart" placeholder="Adresse ou lieu de prise en charge" autocomplete="off">
-            <button type="button" class="ch-btn ch-btn--icon" id="cptPosition" aria-label="Utiliser ma position" title="Ma position">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="7"/></svg>
-            </button>
+      <button type="submit" class="cpt-depart" id="cptGo">Départ</button>
+      <p class="ch-msg cpt-prepa-msg" id="cptMsg" role="alert"></p>
+      <p class="cpt-tarifs-ligne" id="cptTarifs"></p>
+      <details class="cpt-options">
+        <summary>Infos client (facultatif)</summary>
+        <div class="ch-stack">
+          <div class="field ch-field">
+            <span class="ch-lab">Lieu de prise en charge (sinon, position GPS)</span>
+            <div class="ch-row">
+              <input id="cptDepart" placeholder="Rempli automatiquement au départ" autocomplete="off">
+              <button type="button" class="ch-btn ch-btn--icon" id="cptPosition" aria-label="Utiliser ma position" title="Ma position">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="7"/></svg>
+              </button>
+            </div>
           </div>
-        </div>
-        <div class="ch-row ch-row--2">
-          <div class="ch-seg" role="radiogroup" aria-label="Véhicule">
-            <label><input type="radio" name="cptVehicule" value="confort" checked><span>Tesla</span></label>
-            <label><input type="radio" name="cptVehicule" value="van"><span>Classe V</span></label>
+          <div class="ch-row ch-row--2">
+            <label class="ch-field"><span class="ch-lab">Prénom</span><input id="cptPrenom" autocomplete="off" autocapitalize="words"></label>
+            <label class="ch-field"><span class="ch-lab">Nom</span><input id="cptNom" autocomplete="off" autocapitalize="words"></label>
           </div>
-          <label class="ch-field"><span class="ch-lab">Passagers</span>
-            <select id="cptPassagers"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option></select>
-          </label>
+          <div class="ch-row ch-row--2">
+            <label class="ch-field"><span class="ch-lab">Téléphone</span><input id="cptTel" type="tel" inputmode="tel" autocomplete="off" placeholder="06 12 34 56 78"></label>
+            <label class="ch-field"><span class="ch-lab">Passagers</span>
+              <select id="cptPassagers"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option></select>
+            </label>
+          </div>
+          <label class="ch-field"><span class="ch-lab">Apporteur</span><input id="cptApporteur" list="apporteurs" maxlength="80"></label>
         </div>
-        <div class="ch-row ch-row--2">
-          <label class="ch-field"><span class="ch-lab">Prénom</span><input id="cptPrenom" autocomplete="off" autocapitalize="words"></label>
-          <label class="ch-field"><span class="ch-lab">Nom *</span><input id="cptNom" autocomplete="off" autocapitalize="words"></label>
-        </div>
-        <label class="ch-field"><span class="ch-lab">Téléphone (pour le SMS)</span><input id="cptTel" type="tel" inputmode="tel" autocomplete="off" placeholder="06 12 34 56 78"></label>
-        <label class="ch-field"><span class="ch-lab">Apporteur (facultatif)</span><input id="cptApporteur" list="apporteurs" maxlength="80"></label>
-        <button type="submit" class="ch-btn ch-btn--or ch-btn--grand" id="cptGo">Départ</button>
-        <p class="ch-muted ch-petit">À lancer quand le client est à bord et a accepté les tarifs : la réservation est horodatée à ce moment.</p>
-        <p class="ch-msg" id="cptMsg" role="alert"></p>
-      </div>
+      </details>
     </form>
 
     <!-- Écran du compteur pendant la course : plein écran, pensé pour le paysage -->
@@ -244,6 +245,6 @@
 <script src="/config.js?v=20261124a"></script>
 <script src="/assets/js/qrcode.min.js?v=1.4.4"></script>
 <script src="/assets/js/adresses.js"></script>
-<script src="/assets/js/chauffeur.js?v=20261126d"></script>
+<script src="/assets/js/chauffeur.js?v=20261126e"></script>
 </body>
 </html>

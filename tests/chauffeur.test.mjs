@@ -368,7 +368,13 @@ await t("compteur : GPS qui décroche → au moins la distance de l'itinéraire 
   assert.equal((await ch({ action: "compteur-annuler", ref: ref2 })).status, 200);
   assert.equal((await DEM.chargerParRef(DEM.magasin(), ref2, NOW)).erreur, "introuvable");
   assert.equal((await ch({ action: "compteur-arrivee", ref: ref2, km: 5 })).status, 409);
-  assert.equal((await ch({ action: "compteur-depart", depart: "x", client: {} })).status, 422);
+  // Départ en un seul appui : sans nom ni adresse, le lieu vient du GPS
+  CPT.deps.adresse = async () => "8 Rue de la Liberté 21000 Dijon";
+  r = await ch({ action: "compteur-depart", position: { lat: 47.3226, lon: 5.0353 } });
+  assert.equal(r.status, 200); assert.equal(r.j.compteur.depart.adresse, "8 Rue de la Liberté 21000 Dijon");
+  r = await ch({ action: "compteur-depart" });
+  assert.equal(r.status, 200); assert.equal(r.j.compteur.depart.adresse, "Lieu non renseigné");
+  assert.equal((await ch({ action: "compteur-depart", client: { telephone: "123" } })).status, 422);
 });
 
 console.log("\n" + ok + " test(s) réussi(s)");
