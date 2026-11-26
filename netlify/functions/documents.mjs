@@ -193,6 +193,16 @@ async function coherenceStripe(doc, E) {
   const paye = P && P.payeLe && ["paye", "rembourse_partiel", "rembourse"].includes(P.statut) ? P : null;
   const f = doc.facture, stripe = f.modePaiement === MODE_STRIPE;
   if (!paye) return stripe ? { erreur: [422, "stripe_absent", "Aucun paiement Stripe confirmé pour la référence " + doc.ref + " : choisissez un autre mode de paiement."] } : {};
+  if (paye.horsStripe && !paye.paymentIntent) {
+    // Course sur place réglée hors Stripe (TPE Indy, Tap to Pay Indy, espèces) : mode libre mais jamais « Stripe »
+    if (stripe) return { erreur: [422, "hors_stripe_mode", "Cette course a été réglée hors Stripe (" + paye.horsStripe.moyen + ") : choisissez le mode de paiement correspondant (carte bancaire, Tap to Pay Indy, espèces…)."] };
+    if (!f.paye) return { erreur: [422, "hors_stripe_paye", "Cette course est déjà réglée (" + paye.horsStripe.moyen + ") : la facture doit être indiquée comme acquittée (« Paiement reçu »)."] };
+    if (!f.datePaiement) f.datePaiement = aujourdhuiParis(Date.parse(paye.payeLe));
+    if (!f.referencePaiement && paye.horsStripe.reference) f.referencePaiement = paye.horsStripe.reference;
+    const ttc = Math.round(montants(doc.montant, E, doc.supplements).ttc * 100);
+    if (ttc !== paye.montantCents) return { erreur: [422, "hors_stripe_montant", "Le total de la facture (" + euros(ttc / 100) + ") doit être égal au montant encaissé (" + euros(paye.montantCents / 100) + ")."] };
+    return {};
+  }
   if (paye.statut === "rembourse") return { erreur: [409, "stripe_rembourse", "Cette réservation a été remboursée intégralement par Stripe : aucune facture n'est à émettre."] };
   if (!stripe) return { erreur: [422, "stripe_mode", "Cette réservation a été payée en ligne par Stripe : le mode de paiement de la facture doit être « Paiement en ligne Stripe »."] };
   if (!f.paye) return { erreur: [422, "stripe_paye", "Cette réservation est payée par Stripe : la facture doit être indiquée comme acquittée (« Paiement reçu »)."] };

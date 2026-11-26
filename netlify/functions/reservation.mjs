@@ -131,7 +131,7 @@ export function validate(b) {
   if (!d.nom) bad.push("nom");
   if (!d.prenom) bad.push("prenom");
   if (!validPhone(d.telephone)) bad.push("telephone");
-  if (d.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(d.email)) bad.push("email");
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(d.email)) bad.push("email");   // obligatoire (23 nov. 2026) : devis et lien de paiement envoyés par e-mail
   if (!Number.isInteger(d.passagers) || d.passagers < 1 || d.passagers > 8) bad.push("passagers");
   if (d.reference && !/^[A-Z0-9 \-]{2,20}$/.test(d.reference)) bad.push("reference");
   if (d.bagages !== null && (!Number.isInteger(d.bagages) || d.bagages < 0 || d.bagages > 20)) bad.push("bagages");

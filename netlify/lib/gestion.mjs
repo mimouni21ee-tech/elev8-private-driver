@@ -217,7 +217,9 @@ export async function exportEncaissements({ du, au, origine = "" }) {
   for (const b of blobs) {
     const p = await st.get(b.key, { type: "json" });
     if (!p || !p.payeLe) continue;
-    const evts = [{ le: p.payeLe, op: "Paiement reçu", c: p.montantCents, id: p.paymentIntent || "" }]
+    const evts = [p.horsStripe
+      ? { le: p.payeLe, op: "Paiement reçu hors Stripe (" + p.horsStripe.moyen + ")", c: p.montantCents, id: p.horsStripe.reference || "" }
+      : { le: p.payeLe, op: "Paiement reçu", c: p.montantCents, id: p.paymentIntent || "" }]
       .concat((p.remboursements || []).map((r) => ({ le: r.le, op: "Remboursement", c: -r.montantCents, id: r.charge || "" })));
     // remboursement antérieur à ce journal (sans date enregistrée) : signalé à la date du paiement
     const dates = (p.remboursements || []).reduce((a, r) => a + r.montantCents, 0);

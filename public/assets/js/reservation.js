@@ -215,7 +215,7 @@
       return $("#f-retdate").value !== $("#f-date").value || v.slice(0, 5) > $("#f-time").value.slice(0, 5);
     },
     phone: function (v) { return validPhone(normalizePhone(ccSel.value, v)); },
-    email: function (v) { v = v.trim(); return !v || /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v); }
+    email: function (v) { v = v.trim(); return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v); }   // obligatoire : le devis est envoyé par e-mail
   };
   function fieldOf(name) { return form.elements[name].closest(".field"); }
   function check(name) {

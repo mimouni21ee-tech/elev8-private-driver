@@ -75,7 +75,9 @@ async function traiter(st, ev, now) {
     const D = await demandeDe(n, now);
     if (n.statut === "paye" && r.change && r.avant && r.avant.statut !== "paye") {
       if (D && D.client && D.client.email) await envoyerUneFois(st, n, "client_paiement_recu", mailPaiementRecu(D, n), D.client.email, now);
-      await envoyerUneFois(st, n, "elev8_paiement_recu", alerteElev8(D, n, "Paiement reçu — course à attribuer",
+      await envoyerUneFois(st, n, "elev8_paiement_recu", n.surPlace
+        ? alerteElev8(D, n, "Paiement reçu — course sur place", ["Le paiement est confirmé par Stripe.", "Course saisie depuis /chauffeur : chauffeur déjà confirmé. Pensez à « Course terminée » à l'arrivée."], lienDocuments(n))
+        : alerteElev8(D, n, "Paiement reçu — course à attribuer",
         ["Le paiement est confirmé par Stripe.", "Statut : Payée — en attente d'attribution.", "HUBER : transmission automatique dès que son API sera disponible ; d'ici là, confirmez le chauffeur dans /documents."], lienDocuments(n)), "elev8", now);
       // Facture d'acompte (100 %) : isolée, elle ne peut pas faire échouer la confirmation du paiement ; reprise par la tâche horaire
       try { await facturerPaiement(st, n, { now }); }

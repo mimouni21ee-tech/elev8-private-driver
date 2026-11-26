@@ -446,9 +446,10 @@
     paiementFacture = P && P.payeLe && ["paye", "rembourse_partiel", "rembourse"].indexOf(P.statut) >= 0 ? P : null;
     if (paiementFacture && P.statut !== "rembourse") {
       $("#d-paye").checked = true;
-      $("#d-mode").value = MODE_STRIPE;
+      var hs = P.horsStripe && !P.paymentIntent ? P.horsStripe : null;      // course sur place réglée par TPE, Tap to Pay Indy ou espèces
+      $("#d-mode").value = hs ? hs.moyen : MODE_STRIPE;
       $("#d-datepaiement").value = dateParis(P.payeLe);
-      $("#d-refpaiement").value = P.paymentIntent || "";
+      $("#d-refpaiement").value = hs ? (hs.reference || "") : (P.paymentIntent || "");
       var pr = demandeChargee && demandeChargee.prestation;                 // date de la course réservée (modifiable)
       if (!v("#d-dateprestation") && pr && /^\d{4}-\d{2}-\d{2}$/.test(pr.date || "")) $("#d-dateprestation").value = pr.date;
       majAffichage();
@@ -459,7 +460,13 @@
     var el = $("#stripeFactureMsg"), P = paiementFacture, mode = $("#d-mode").value, m = "", alerte = false;
     if (P) {
       var encaisse = Math.round((P.montant - (P.rembourse || 0)) * 100) / 100;
-      if (P.statut === "rembourse") { m = "Course remboursée intégralement par Stripe : aucune facture à émettre."; alerte = true; }
+      var hs = P.horsStripe && !P.paymentIntent ? P.horsStripe : null;
+      if (hs) {
+        if (mode === MODE_STRIPE) { m = "Course réglée hors Stripe (" + hs.moyen + ") : choisissez ce mode de paiement."; alerte = true; }
+        else if (Math.abs(total() - P.montant) >= 0.005) { m = "Le total de la facture (" + fmt(total()) + ") diffère du montant encaissé (" + fmt(P.montant) + ")."; alerte = true; }
+        else m = "Réglée sur place le " + new Date(P.payeLe).toLocaleDateString("fr-FR", { timeZone: "Europe/Paris" }) + " (" + hs.moyen + ") : " + fmt(P.montant) + " encaissés.";
+      }
+      else if (P.statut === "rembourse") { m = "Course remboursée intégralement par Stripe : aucune facture à émettre."; alerte = true; }
       else if (mode !== MODE_STRIPE) { m = "Cette réservation a été payée en ligne par Stripe : choisissez « Paiement en ligne Stripe »."; alerte = true; }
       else if (Math.abs(total() - encaisse) >= 0.005) { m = "Le total de la facture (" + fmt(total()) + ") diffère du montant encaissé par Stripe (" + fmt(encaisse) + (P.rembourse > 0 ? ", après remboursement de " + fmt(P.rembourse) : "") + ")."; alerte = true; }
       else m = "Payée par Stripe le " + new Date(P.payeLe).toLocaleDateString("fr-FR", { timeZone: "Europe/Paris" }) + " : " + fmt(encaisse) + " encaissés, référence " + (P.paymentIntent || "—") + ". Mode, date et référence sont repris automatiquement.";

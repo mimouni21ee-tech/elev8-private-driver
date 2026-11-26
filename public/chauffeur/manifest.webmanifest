@@ -1,0 +1,14 @@
+{
+  "name": "ELEV8 Chauffeur",
+  "short_name": "ELEV8",
+  "start_url": "/chauffeur/",
+  "scope": "/chauffeur/",
+  "display": "standalone",
+  "background_color": "#0b0a09",
+  "theme_color": "#0b0a09",
+  "lang": "fr",
+  "icons": [
+    { "src": "/chauffeur/icone-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "/chauffeur/icone-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
