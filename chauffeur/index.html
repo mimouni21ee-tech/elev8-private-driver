@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ELEV8 Chauffeur</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#0b0a09">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ELEV8 Chauffeur">
+<link rel="manifest" href="/chauffeur/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/chauffeur/icone-180.png">
+<link rel="icon" href="/chauffeur/icone-180.png" type="image/png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,400;6..96,500&family=Jost:wght@300;400;500&family=Inter:wght@200;300;400;500&display=swap">
+<link rel="stylesheet" href="/assets/css/chauffeur.css?v=20261126d">
+</head>
+<body>
+<!-- Espace chauffeur ELEV8 (non référencé) : courses saisies sur place, prix de la grille,
+     lien de paiement Stripe (QR code / SMS) ou encaissement TPE / Tap to Pay Indy / espèces.
+     API : /chauffeur-api (netlify/functions/chauffeur.mjs). -->
+<header class="ch-top">
+  <span class="ch-brand"><span class="ch-mono">E8</span><span>ELEV8 <em>Chauffeur</em></span></span>
+  <span class="ch-badge" id="badgeTest" hidden>site de test</span>
+</header>
+
+<main class="ch">
+  <!-- Connexion (une seule fois sur ce téléphone) -->
+  <section id="vueLock" class="ch-card" hidden>
+    <h1 class="ch-h1">Espace chauffeur</h1>
+    <p class="ch-muted">Mot de passe de l'espace ELEV8 (le même que /documents). Vous restez connecté sur ce téléphone.</p>
+    <form id="lockForm" class="ch-stack">
+      <label class="ch-field"><span>Mot de passe</span><input id="mdp" type="password" autocomplete="current-password" required></label>
+      <button class="ch-btn ch-btn--or" type="submit">Ouvrir</button>
+      <p class="ch-msg" id="lockMsg" role="alert"></p>
+    </form>
+  </section>
+
+  <nav class="ch-tabs" id="onglets" hidden>
+    <button type="button" class="ch-tab is-on" data-vue="vueSaisie">Nouvelle course</button>
+    <button type="button" class="ch-tab" data-vue="vueCompteur">Compteur</button>
+    <button type="button" class="ch-tab" data-vue="vueJour">Courses du jour</button>
+  </nav>
+
+  <!-- 1. Saisie -->
+  <section id="vueSaisie" hidden>
+    <form id="saisie" class="ch-stack" novalidate>
+      <div class="ch-card ch-stack">
+        <div class="field ch-field">
+          <span class="ch-lab">Prise en charge</span>
+          <div class="ch-row">
+            <input id="f-from" placeholder="Adresse ou lieu (ex. Grand Hôtel La Cloche Dijon)" autocomplete="off">
+            <button type="button" class="ch-btn ch-btn--icon" id="btnPosition" aria-label="Utiliser ma position" title="Ma position">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="7"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="field ch-field">
+          <span class="ch-lab">Destination</span>
+          <input id="f-to" placeholder="Adresse ou lieu" autocomplete="off">
+        </div>
+        <div class="ch-seg" role="radiogroup" aria-label="Quand">
+          <label><input type="radio" name="quand" value="maintenant" checked><span>Maintenant</span></label>
+          <label><input type="radio" name="quand" value="plus_tard"><span>Plus tard</span></label>
+        </div>
+        <div class="ch-row ch-row--2" id="blocPlusTard" hidden>
+          <label class="ch-field"><span class="ch-lab">Date</span><input id="date" type="date"></label>
+          <label class="ch-field"><span class="ch-lab">Heure</span><input id="heure" type="time"></label>
+        </div>
+        <div class="ch-row ch-row--2">
+          <div class="ch-seg" role="radiogroup" aria-label="Véhicule">
+            <label><input type="radio" name="vehicule" value="confort" checked><span>Tesla</span></label>
+            <label><input type="radio" name="vehicule" value="van"><span>Classe V</span></label>
+          </div>
+          <label class="ch-field"><span class="ch-lab">Passagers</span>
+            <select id="passagers"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option></select>
+          </label>
+        </div>
+        <button type="button" class="ch-btn ch-btn--or" id="btnPrix">Calculer le prix</button>
+        <p class="ch-msg" id="prixMsg" role="alert"></p>
+      </div>
+
+      <div class="ch-card ch-stack" id="blocPrix" hidden>
+        <p class="ch-lab">Prix de la grille</p>
+        <p class="ch-prix" id="prixGrille">—</p>
+        <p class="ch-muted" id="prixDetail"></p>
+        <label class="ch-field"><span class="ch-lab">Prix convenu avec le client (€ TTC)</span>
+          <input id="montant" inputmode="decimal" placeholder="20,00"></label>
+        <label class="ch-field" id="blocMotif" hidden><span class="ch-lab">Motif de l'ajustement</span>
+          <input id="motif" maxlength="160" placeholder="ex. attente, bagages, geste commercial"></label>
+      </div>
+
+      <div class="ch-card ch-stack" id="blocClient" hidden>
+        <div class="ch-row ch-row--2">
+          <label class="ch-field"><span class="ch-lab">Prénom</span><input id="prenom" autocomplete="off" autocapitalize="words"></label>
+          <label class="ch-field"><span class="ch-lab">Nom *</span><input id="nom" autocomplete="off" autocapitalize="words"></label>
+        </div>
+        <label class="ch-field"><span class="ch-lab">Téléphone (pour le SMS)</span><input id="tel" type="tel" inputmode="tel" autocomplete="off" placeholder="06 12 34 56 78"></label>
+        <label class="ch-field"><span class="ch-lab">E-mail (facultatif — reçu de paiement)</span><input id="email" type="email" inputmode="email" autocomplete="off" autocapitalize="off"></label>
+        <label class="ch-field"><span class="ch-lab">Apporteur (facultatif)</span><input id="apporteur" list="apporteurs" maxlength="80" placeholder="ex. Voiturier Grand Hôtel La Cloche"></label>
+        <datalist id="apporteurs"></datalist>
+        <button type="submit" class="ch-btn ch-btn--or ch-btn--grand" id="btnValider">Valider la réservation</button>
+        <p class="ch-muted ch-petit">À valider une fois le prix accepté par le client, avant le départ : la réservation est horodatée et sert de justificatif de réservation préalable.</p>
+        <p class="ch-msg" id="valMsg" role="alert"></p>
+      </div>
+    </form>
+  </section>
+
+  <!-- 2. Course : paiement et suivi -->
+  <section id="vueCourse" hidden>
+    <div class="ch-card ch-stack">
+      <div class="ch-entete">
+        <span class="ch-ref" id="cRef"></span>
+        <span class="ch-chip" id="cStatut"></span>
+      </div>
+      <p class="ch-prix" id="cMontant"></p>
+      <p class="ch-trajet" id="cTrajet"></p>
+      <p class="ch-muted ch-petit" id="cJustif"></p>
+    </div>
+
+    <div class="ch-card ch-stack" id="cPayer" hidden>
+      <p class="ch-lab">Paiement par le client (Apple Pay, carte)</p>
+      <div class="ch-qr" id="cQr" aria-label="QR code du lien de paiement"></div>
+      <p class="ch-muted ch-centre ch-petit">Le client scanne avec l'appareil photo de son téléphone.</p>
+      <div class="ch-row ch-row--2">
+        <a class="ch-btn" id="cSms" href="#">Envoyer par SMS</a>
+        <button type="button" class="ch-btn" id="cPartager">Partager le lien</button>
+      </div>
+      <p class="ch-msg" id="cStripeMsg"></p>
+    </div>
+
+    <div class="ch-card ch-stack" id="cAutre" hidden>
+      <p class="ch-lab">Ou encaissé autrement</p>
+      <label class="ch-field"><span class="ch-lab">Référence de la transaction (facultatif, à saisir avant)</span><input id="cRefTx" maxlength="60" placeholder="n° de ticket TPE / Indy"></label>
+      <div class="ch-moyens" id="cMoyens"></div>
+      <p class="ch-msg" id="cAutreMsg" role="alert"></p>
+    </div>
+
+    <div class="ch-card ch-stack" id="cPaye" hidden>
+      <p class="ch-ok" id="cPayeTxt"></p>
+      <button type="button" class="ch-btn ch-btn--or ch-btn--grand" id="cTerminer">Course terminée</button>
+      <p class="ch-msg" id="cTerminerMsg" role="alert"></p>
+    </div>
+
+    <div class="ch-stack">
+      <button type="button" class="ch-btn ch-btn--lien" id="cAnnuler" hidden>Annuler la course (client renonce)</button>
+      <button type="button" class="ch-btn" id="cNouvelle">Nouvelle course</button>
+    </div>
+  </section>
+
+  <!-- Compteur ELEV8 : prix au temps et à la distance, calculé à l'arrivée -->
+  <section id="vueCompteur" hidden>
+    <form id="cptPrepa" class="ch-stack" novalidate>
+      <div class="ch-card ch-stack">
+        <p class="ch-lab">Tarifs affichés au client avant le départ</p>
+        <div class="cpt-tarifs" id="cptTarifs"></div>
+        <p class="ch-muted ch-petit">Le compteur démarre à la prise en charge. Quand le véhicule roule, la distance est facturée ; à l'arrêt, dans les bouchons (sous 20 km/h) ou en attente, c'est le temps. Péages et parkings en sus.</p>
+      </div>
+      <div class="ch-card ch-stack">
+        <div class="field ch-field">
+          <span class="ch-lab">Prise en charge</span>
+          <div class="ch-row">
+            <input id="cptDepart" placeholder="Adresse ou lieu de prise en charge" autocomplete="off">
+            <button type="button" class="ch-btn ch-btn--icon" id="cptPosition" aria-label="Utiliser ma position" title="Ma position">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="7"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="ch-row ch-row--2">
+          <div class="ch-seg" role="radiogroup" aria-label="Véhicule">
+            <label><input type="radio" name="cptVehicule" value="confort" checked><span>Tesla</span></label>
+            <label><input type="radio" name="cptVehicule" value="van"><span>Classe V</span></label>
+          </div>
+          <label class="ch-field"><span class="ch-lab">Passagers</span>
+            <select id="cptPassagers"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option></select>
+          </label>
+        </div>
+        <div class="ch-row ch-row--2">
+          <label class="ch-field"><span class="ch-lab">Prénom</span><input id="cptPrenom" autocomplete="off" autocapitalize="words"></label>
+          <label class="ch-field"><span class="ch-lab">Nom *</span><input id="cptNom" autocomplete="off" autocapitalize="words"></label>
+        </div>
+        <label class="ch-field"><span class="ch-lab">Téléphone (pour le SMS)</span><input id="cptTel" type="tel" inputmode="tel" autocomplete="off" placeholder="06 12 34 56 78"></label>
+        <label class="ch-field"><span class="ch-lab">Apporteur (facultatif)</span><input id="cptApporteur" list="apporteurs" maxlength="80"></label>
+        <button type="submit" class="ch-btn ch-btn--or ch-btn--grand" id="cptGo">Départ</button>
+        <p class="ch-muted ch-petit">À lancer quand le client est à bord et a accepté les tarifs : la réservation est horodatée à ce moment.</p>
+        <p class="ch-msg" id="cptMsg" role="alert"></p>
+      </div>
+    </form>
+
+    <!-- Écran du compteur pendant la course : plein écran, pensé pour le paysage -->
+    <div id="cptRoule" class="cpt" hidden>
+      <header class="cpt-haut">
+        <div class="cpt-id">
+          <span class="cpt-logo" aria-hidden="true">E8</span>
+          <span class="cpt-nom">ELEV8 <span>Private Driver</span></span>
+        </div>
+        <div class="cpt-haut-droite">
+          <span class="cpt-gps" id="cptGps">GPS : recherche…</span>
+          <span class="cpt-type">Compteur VTC</span>
+        </div>
+      </header>
+
+      <main class="cpt-centre">
+        <p class="cpt-indic"><span class="cpt-point" aria-hidden="true"></span><span id="cptIndic">Course en cours</span></p>
+        <p class="cpt-prix" id="cptPrix" aria-live="polite">0,00 €</p>
+        <dl class="cpt-stats">
+          <div><dt>Durée totale</dt><dd id="cptDuree">00:00:00</dd></div>
+          <div><dt>Distance totale</dt><dd><span id="cptKm">0,0</span> km</dd></div>
+          <div><dt>Prix / km</dt><dd id="cptPrixKm">—</dd></div>
+        </dl>
+      </main>
+
+      <div class="cpt-bandeau">
+        <div class="cpt-info"><span class="cpt-lab">Prise en charge</span><span class="cpt-val" id="cptPec">—</span></div>
+        <div class="cpt-info"><span class="cpt-lab">État</span><span class="cpt-val cpt-etat" id="cptEtat">En course</span></div>
+        <div class="cpt-info"><span class="cpt-lab">Attente / ralenti</span><span class="cpt-val" id="cptLent">00:00</span></div>
+        <label class="cpt-info cpt-peages"><span class="cpt-lab">Péages / parking</span><span class="cpt-saisie"><input id="cptPeages" inputmode="decimal" placeholder="0,00" aria-label="Péages et parking en euros"><span>€</span></span></label>
+      </div>
+
+      <div class="cpt-actions">
+        <button type="button" class="cpt-btn" id="cptAttente">Attendre client</button>
+        <button type="button" class="cpt-btn" id="cptReprendre">Prise en charge</button>
+        <button type="button" class="cpt-btn cpt-btn--or" id="cptStop">Terminer la course</button>
+      </div>
+      <div class="cpt-pied">
+        <p class="ch-msg" id="cptStopMsg" role="alert"></p>
+        <button type="button" class="cpt-lien" id="cptAbandon">Annuler cette course</button>
+      </div>
+      <p class="cpt-tourner">Tournez l'appareil à l'horizontale pour le compteur.</p>
+    </div>
+  </section>
+
+  <!-- 3. Courses du jour -->
+  <section id="vueJour" hidden>
+    <div class="ch-stack" id="liste"></div>
+    <p class="ch-muted ch-centre" id="listeVide" hidden>Aucune course saisie aujourd'hui ni hier.</p>
+  </section>
+</main>
+
+<script src="/config.js?v=20261124a"></script>
+<script src="/assets/js/qrcode.min.js?v=1.4.4"></script>
+<script src="/assets/js/adresses.js"></script>
+<script src="/assets/js/chauffeur.js?v=20261126d"></script>
+</body>
+</html>
