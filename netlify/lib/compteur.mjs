@@ -25,7 +25,8 @@ export const TARIFS = {
   km: 1.90,              // € TTC par kilomètre parcouru (au-dessus de la vitesse seuil)
   heure: 45,             // € TTC par heure d'attente ou de marche lente (sous la vitesse seuil)
   seuilKmh: 20,          // sous cette vitesse, c'est le temps qui compte (et non plus la distance)
-  minimum: 20            // € TTC, course minimum (hors péages et parkings)
+  minimum: 10,           // € TTC, course minimum (hors péages et parkings)
+  palier: 0.10           // le prix avance par paliers de 0,10 € (comme un compteur)
 };
 export const deps = { route: (a, b) => ignRoute(a, b), adresse: (lat, lon) => adresseDePosition(lat, lon) };
 
@@ -38,7 +39,8 @@ const coord = (p) => (p && Number.isFinite(+p.lat) && Number.isFinite(+p.lon) &&
 export function calculer({ km = 0, lentSec = 0, peages = 0 }, T = TARIFS) {
   km = Math.max(0, +km || 0); lentSec = Math.max(0, +lentSec || 0); peages = Math.max(0, +peages || 0);
   const pKm = arr(km * T.km), minutes = lentSec / 60, pTemps = arr(minutes * T.heure / 60);
-  const brut = arr(T.priseEnCharge + pKm + pTemps);
+  const pas = T.palier || 0.1, exact = T.priseEnCharge + pKm + pTemps;
+  const brut = arr(Math.floor(exact / pas + 1e-6) * pas);                   // palier atteint (ce qu'affiche le compteur)
   const course = Math.max(T.minimum, brut);
   const lignes = [
     { libelle: "Prise en charge", montant: T.priseEnCharge },

@@ -318,14 +318,16 @@ await t("page /chauffeur : non référencée, sans cache, position autorisée po
 
 /* ====================== Compteur ELEV8 ====================== */
 const CPT = await import("../netlify/lib/compteur.mjs");
-await t("compteur : formule (prise en charge + km + temps lent, minimum 20 €, péages en sus)", async () => {
-  let r = CPT.calculer({ km: 3, lentSec: 180 });
-  assert.equal(r.brut, 4.5 + 5.7 + 2.25); assert.equal(r.total, 20);
-  assert.ok(r.lignes.some((l) => /Minimum/.test(l.libelle)));
+await t("compteur : formule (prise en charge + km + temps lent, paliers de 0,10 €, minimum 10 €, péages en sus)", async () => {
+  let r = CPT.calculer({ km: 3, lentSec: 180 });                 // 4,50 + 5,70 + 2,25 = 12,45 → palier 12,40
+  assert.equal(r.brut, 12.4); assert.equal(r.total, 12.4);
+  assert.ok(!r.lignes.some((l) => /Minimum/.test(l.libelle)));
+  r = CPT.calculer({ km: 1, lentSec: 60 });                      // 4,50 + 1,90 + 0,75 = 7,15 → minimum 10 €
+  assert.equal(r.total, 10); assert.ok(r.lignes.some((l) => /Minimum/.test(l.libelle)));
   r = CPT.calculer({ km: 45, lentSec: 600, peages: 3.4 });
-  assert.equal(r.total, Math.round((4.5 + 85.5 + 7.5 + 3.4) * 100) / 100);
+  assert.equal(r.total, 100.9);
   assert.equal(r.lignes.at(-1).montant, 3.4);
-  r = CPT.calculer({ km: -5, lentSec: -1 }); assert.equal(r.total, 20);
+  r = CPT.calculer({ km: -5, lentSec: -1 }); assert.equal(r.total, 10);
 });
 
 let K;
@@ -341,7 +343,7 @@ await t("compteur : départ → réservation horodatée avec les tarifs ; arriv�
   NOW += 25 * 60_000;
   r = await ch({ action: "compteur-arrivee", ref: K.ref, km: 9.1, lentSec: 420, peages: "0", position: { lat: 47.29, lon: 5.05 } });
   assert.equal(r.status, 200, JSON.stringify(r.j));
-  const attendu = Math.round((4.5 + 9.1 * 1.9 + 7 * 0.75) * 100) / 100;
+  const attendu = 27;                                             // 4,50 + 17,29 + 5,25 = 27,04 → palier 27,00
   assert.equal(r.j.course.montant, attendu); assert.equal(r.j.course.statut, "en_attente"); assert.match(r.j.course.lien, /^\/payer\//);
   assert.equal(r.j.course.trajet.destination, "BMW Hénin, 21000 Dijon");
   const D = (await DEM.chargerParRef(DEM.magasin(), K.ref, NOW)).record;
@@ -360,7 +362,7 @@ await t("compteur : GPS qui décroche → au moins la distance de l'itinéraire 
   let r = await ch({ action: "compteur-depart", depart: "Gare de Dijon", position: { lat: 47.32, lon: 5.03 }, client: { nom: "Roy" } });
   const ref = r.j.compteur.ref;
   r = await ch({ action: "compteur-arrivee", ref, km: 12, lentSec: 0, position: { lat: 47.02, lon: 4.84 } });
-  assert.equal(r.j.course.montant, Math.round((4.5 + 40 * 1.9) * 100) / 100);
+  assert.equal(r.j.course.montant, 80.5);
   r = await ch({ action: "compteur-depart", depart: "Gare de Dijon", client: { nom: "Roy" } });
   const ref2 = r.j.compteur.ref;
   assert.equal((await ch({ action: "compteur-annuler", ref: ref2 })).status, 200);

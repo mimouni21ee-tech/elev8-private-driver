@@ -108,14 +108,14 @@
     navigator.geolocation.getCurrentPosition(function (pos) {
       api("position", { lat: pos.coords.latitude, lon: pos.coords.longitude }).then(function (j) {
         occupe(b, false);
-        if (!j.ok) { msg($("#prixMsg"), j.message); return; }
+        if (!j.ok) { msg($("#prixMsg"), "Position trouvée, mais pas l'adresse exacte : saisissez-la (nom de l'hôtel, rue…)."); return; }
         $("#f-from").value = j.adresse; msg($("#prixMsg"), "Position : " + j.adresse + " (précisez le nom de l'hôtel si besoin).", true);
         invaliderPrix();
         if (!$("#f-to").value.trim()) $("#f-to").focus();
       });
     }, function (err) {
       occupe(b, false);
-      msg($("#prixMsg"), err && err.code === 1 ? "Accès à la position refusé : autorisez-le dans Réglages › Safari (ou l'application) › Position." : "Position introuvable. Saisissez l'adresse.");
+      msg($("#prixMsg"), erreurGps(err));
     }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 });
   });
 
@@ -347,9 +347,14 @@
 
   /* ---------- Compteur ELEV8 : prix au temps et à la distance ---------- */
   var CLE_CPT = "elev8.compteur.encours";
-  var T_DEFAUT = { priseEnCharge: 4.5, km: 1.9, heure: 45, seuilKmh: 20, minimum: 20 };
+  var T_DEFAUT = { priseEnCharge: 4.5, km: 1.9, heure: 45, seuilKmh: 20, minimum: 10, palier: 0.1 };
   var cpt = null, cptWatch = null, cptTick = 0, cptSauve = 0;
   function T() { return etat.tarifs || T_DEFAUT; }
+  function erreurGps(err) {
+    if (err && err.code === 1) return "Position bloquée par le téléphone. iPhone : Réglages › Confidentialité et sécurité › Service de localisation › Sites web Safari › « Lorsque l'app est active ». Puis dans Safari : bouton « aA » › Réglages du site web › Position › Autoriser.";
+    if (err && err.code === 3) return "Le GPS met trop de temps à répondre : rapprochez-vous d'une fenêtre ou sortez, puis réessayez.";
+    return "Position introuvable pour l'instant (intérieur ?) : réessayez dehors ou saisissez l'adresse.";
+  }
   function afficherTarifs() {
     var t = T();
     $("#cptTarifs").innerHTML = [["Prise en charge", eur(t.priseEnCharge)], ["Prix au kilomètre", eur(t.km)],
@@ -358,10 +363,14 @@
   }
   afficherTarifs();
   // Même formule que le serveur (netlify/lib/compteur.mjs)
-  function prixCompteur(c) {
-    var t = T(), brut = t.priseEnCharge + c.km * t.km + (c.lentSec / 3600) * t.heure;
-    return Math.max(t.minimum, Math.round(brut * 100) / 100) + (num(c.peages) > 0 ? num(c.peages) : 0);
+  // Prix au palier de 0,10 € atteint (même calcul que le serveur)
+  function prixBrut(c) {
+    var t = T(), pas = t.palier || 0.1, exact = t.priseEnCharge + Math.round(c.km * t.km * 100) / 100 + Math.round((c.lentSec / 3600) * t.heure * 100) / 100;
+    return Math.round(Math.floor(exact / pas + 1e-6) * pas * 100) / 100;
   }
+  function peagesDe(c) { return num(c.peages) > 0 ? num(c.peages) : 0; }
+  // Prix final (identique au serveur, netlify/lib/compteur.mjs) : minimum de course appliqué à l'arrivée
+  function prixCompteur(c) { return Math.max(T().minimum, prixBrut(c)) + peagesDe(c); }
   function distM(a, b) {
     var R = 6371000, r = Math.PI / 180, dLat = (b.lat - a.lat) * r, dLon = (b.lon - a.lon) * r;
     var x = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
@@ -392,22 +401,28 @@
     majEcran();
     if (++cptSauve % 5 === 0) sauverCpt();
   }
+  function deuxChiffres(n) { return ("0" + n).slice(-2); }
+  // Affichage uniquement : aucune valeur de calcul n'est modifiée ici
   function majEcran() {
     if (!cpt) return;
     cpt.peages = $("#cptPeages").value;
-    $("#cptPrix").textContent = eur(prixCompteur(cpt));
+    var brut = prixBrut(cpt);
+    $("#cptPrix").textContent = eur(brut + peagesDe(cpt));                // le compteur démarre à la prise en charge
     $("#cptKm").textContent = cpt.km.toFixed(1).replace(".", ",");
-    var s2 = Math.floor((Date.now() - cpt.debutMs) / 1000), h = Math.floor(s2 / 3600), m = Math.floor(s2 / 60) % 60;
-    $("#cptDuree").textContent = (h ? h + "h" + ("0" + m).slice(-2) : m + ":" + ("0" + (s2 % 60)).slice(-2));
-    $("#cptLent").textContent = Math.floor(cpt.lentSec / 60);
-    $("#cptEtat").textContent = cpt.attente ? "Attente client" : (cpt.lent ? "Ralenti — tarif horaire" : "En route — tarif kilométrique");
-    $("#cptEtat").classList.toggle("is-lent", !!(cpt.attente || cpt.lent));
-    $("#cptAttente").classList.toggle("is-on", !!cpt.attente);
-    $("#cptAttente").textContent = cpt.attente ? "Reprendre la route" : "Attente client";
-    $("#cptGps").textContent = !cpt.gpsT ? "GPS : recherche…" : (Date.now() - cpt.gpsT > 20000 ? "GPS : signal perdu (la distance sera vérifiée à l'arrivée)" : "GPS : actif (précision " + cpt.precision + " m)");
+    $("#cptPrixKm").textContent = cpt.km >= 1 ? eur(brut / cpt.km) : "—";            // moyenne affichée à partir de 1 km
+    var s2 = Math.max(0, Math.floor((Date.now() - cpt.debutMs) / 1000));
+    $("#cptDuree").textContent = deuxChiffres(Math.floor(s2 / 3600)) + ":" + deuxChiffres(Math.floor(s2 / 60) % 60) + ":" + deuxChiffres(s2 % 60);
+    $("#cptLent").textContent = deuxChiffres(Math.floor(cpt.lentSec / 60)) + ":" + deuxChiffres(Math.floor(cpt.lentSec % 60));
+    $("#cptPec").textContent = (cpt.depart || "—") + (cpt.debutMs ? " · " + heureFr(new Date(cpt.debutMs).toISOString()) : "");
+    $("#cptEtat").textContent = cpt.attente ? "Client en attente" : "En course";
+    $("#cptIndic").textContent = cpt.attente ? "Client en attente" : "Course en cours";
+    $("#cptRoule").classList.toggle("is-attente", !!cpt.attente);
+    $("#cptAttente").classList.toggle("is-actif", !!cpt.attente);
+    $("#cptReprendre").classList.toggle("is-actif", !cpt.attente);
+    $("#cptGps").textContent = !cpt.gpsT ? "GPS · recherche…" : (Date.now() - cpt.gpsT > 20000 ? "GPS · signal perdu, distance vérifiée à l'arrivée" : "GPS · " + cpt.precision + " m");
   }
   function lancerMesure() {
-    if (navigator.geolocation) cptWatch = navigator.geolocation.watchPosition(surPosition, function () { $("#cptGps").textContent = "GPS : indisponible — autorisez la position pour ce site."; }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+    if (navigator.geolocation) cptWatch = navigator.geolocation.watchPosition(surPosition, function () { $("#cptGps").textContent = "GPS · indisponible : autorisez la position"; }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
     cptTick = setInterval(seconde, 1000);
     reveil(true);
     document.addEventListener("visibilitychange", function () { if (!document.hidden && cpt) reveil(true); });
@@ -425,8 +440,12 @@
     occupe(b, true); msg($("#cptMsg"), "Recherche de votre position…", true);
     navigator.geolocation.getCurrentPosition(function (pos) {
       etat.cptPos = { lat: pos.coords.latitude, lon: pos.coords.longitude };
-      api("position", etat.cptPos).then(function (j) { occupe(b, false); if (j.ok) { $("#cptDepart").value = j.adresse; msg($("#cptMsg"), ""); } else msg($("#cptMsg"), j.message); });
-    }, function () { occupe(b, false); msg($("#cptMsg"), "Position refusée ou introuvable : saisissez l'adresse."); }, { enableHighAccuracy: true, timeout: 12000 });
+      api("position", etat.cptPos).then(function (j) {
+        occupe(b, false);
+        if (j.ok) { $("#cptDepart").value = j.adresse; msg($("#cptMsg"), ""); }
+        else { $("#cptDepart").value = "Position GPS " + etat.cptPos.lat.toFixed(5) + ", " + etat.cptPos.lon.toFixed(5); msg($("#cptMsg"), "Position trouvée, mais pas l'adresse exacte : vous pouvez la préciser (nom de l'hôtel…).", true); }
+      });
+    }, function (err) { occupe(b, false); msg($("#cptMsg"), erreurGps(err)); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 });
   });
   $("#cptPrepa").addEventListener("submit", function (e) {
     e.preventDefault();
@@ -441,17 +460,19 @@
       occupe(b, false);
       if (!j.ok) { msg($("#cptMsg"), j.message || "Impossible de démarrer."); return; }
       msg($("#cptMsg"), "");
-      cpt = { ref: j.compteur.ref, debutMs: Date.parse(j.compteur.debut), km: 0, lentSec: 0, attente: false, dernier: null, peages: "" };
+      cpt = { ref: j.compteur.ref, debutMs: Date.parse(j.compteur.debut), km: 0, lentSec: 0, attente: false, dernier: null, peages: "", depart: data.depart };
       $("#cptPeages").value = ""; sauverCpt(); afficherRoule(); lancerMesure();
       $("#cptPrepa").reset(); etat.cptPos = null;
     });
   });
-  $("#cptAttente").addEventListener("click", function () { if (!cpt) return; cpt.attente = !cpt.attente; sauverCpt(); majEcran(); });
+  // « Attendre client » met le compteur en attente ; « Prise en charge » reprend la course (même état qu'avant)
+  $("#cptAttente").addEventListener("click", function () { if (!cpt) return; cpt.attente = true; sauverCpt(); majEcran(); });
+  $("#cptReprendre").addEventListener("click", function () { if (!cpt) return; cpt.attente = false; sauverCpt(); majEcran(); });
   $("#cptPeages").addEventListener("input", majEcran);
   $("#cptStop").addEventListener("click", function () {
     if (!cpt) return;
-    var b = this, prix = prixCompteur(cpt);
-    if (!window.confirm("Terminer la course ? Prix au compteur : " + eur(prix) + " (vérifié par le serveur).")) return;
+    var b = this, prix = prixCompteur(cpt), brut = prixBrut(cpt) + peagesDe(cpt);
+    if (!window.confirm("Terminer la course ? Prix à payer : " + eur(prix) + (prix > brut + 0.004 ? " (compteur " + eur(brut) + ", course minimum " + eur(T().minimum) + ")" : "") + ".")) return;
     occupe(b, true); msg($("#cptStopMsg"), "Calcul du prix final…", true);
     var envoyer = function (position) {
       api("compteur-arrivee", { ref: cpt.ref, km: cpt.km, lentSec: cpt.lentSec, peages: $("#cptPeages").value, position: position }).then(function (j) {
