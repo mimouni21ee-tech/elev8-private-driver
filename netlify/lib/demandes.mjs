@@ -51,11 +51,22 @@ export async function enregistrer(st, { ref, d, est, now = Date.now() }) {
       dureeMin: est.statut === "estimation" ? est.dureeMin ?? null : null,
       lignes: Array.isArray(est.lignes) ? est.lignes : []
     } : null,
-    origine: d.origine ? (d.origine.libelle || d.origine.code || "") : ""
+    origine: d.origine ? (d.origine.libelle || d.origine.code || "") : "",
+    ...(d.surPlace ? { surPlace: d.surPlace } : {})
   };
   await st.setJSON("demande/" + id, record, { metadata: { expire } });
   await st.setJSON("ref/" + ref, { id, expire });
   return id;
+}
+/* Mise à jour d'une demande existante (compteur ELEV8 : destination et prix connus à l'arrivée) */
+export async function mettreAJour(st, id, fn) {
+  if (typeof id !== "string" || !ID_RE.test(id)) return null;
+  const r = await st.get("demande/" + id, { type: "json" });
+  if (!r) return null;
+  const n = fn(structuredClone(r));
+  if (!n) return r;
+  await st.setJSON("demande/" + id, n, { metadata: { expire: Date.parse(n.expire) } });
+  return n;
 }
 export async function supprimer(st, record) {
   try { await st.delete("demande/" + record.id); } catch { /* ignoré */ }
