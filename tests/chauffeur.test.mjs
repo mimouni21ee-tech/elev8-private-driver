@@ -316,4 +316,65 @@ await t("page /chauffeur : non référencée, sans cache, position autorisée po
   for (const s of page.match(/src="([^"]+)"/g)) assert.ok(/src="\//.test(s), "script local uniquement : " + s);
 });
 
+/* ====================== Compteur ELEV8 ====================== */
+const CPT = await import("../netlify/lib/compteur.mjs");
+await t("compteur : formule (prise en charge + km + temps lent, paliers de 0,10 €, minimum 10 €, péages en sus)", async () => {
+  let r = CPT.calculer({ km: 3, lentSec: 180 });                 // 4,50 + 5,70 + 2,25 = 12,45 → palier 12,40
+  assert.equal(r.brut, 12.4); assert.equal(r.total, 12.4);
+  assert.ok(!r.lignes.some((l) => /Minimum/.test(l.libelle)));
+  r = CPT.calculer({ km: 1, lentSec: 60 });                      // 4,50 + 1,90 + 0,75 = 7,15 → minimum 10 €
+  assert.equal(r.total, 10); assert.ok(r.lignes.some((l) => /Minimum/.test(l.libelle)));
+  r = CPT.calculer({ km: 45, lentSec: 600, peages: 3.4 });
+  assert.equal(r.total, 100.9);
+  assert.equal(r.lignes.at(-1).montant, 3.4);
+  r = CPT.calculer({ km: -5, lentSec: -1 }); assert.equal(r.total, 10);
+});
+
+let K;
+await t("compteur : départ → réservation horodatée avec les tarifs ; arrivée → prix serveur, dossier de paiement, QR", async () => {
+  CPT.deps.route = async () => ({ distanceKm: 8.3 });
+  CPT.deps.adresse = async () => "BMW Hénin, 21000 Dijon";
+  let r = await ch({ action: "compteur-depart", depart: "Grand Hôtel La Cloche, Dijon", position: { lat: 47.3226, lon: 5.0353 }, vehicule: "confort", client: { nom: "Martin", telephone: "0611223344" } });
+  assert.equal(r.status, 200, JSON.stringify(r.j)); K = r.j.compteur;
+  assert.match(K.ref, /^E8-/); assert.equal(K.tarifs.km, 1.9);
+  const D0 = (await DEM.chargerParRef(DEM.magasin(), K.ref, NOW)).record;
+  assert.equal(D0.prestation.type, "Course au compteur"); assert.match(D0.prestation.precisions, /1,90 €\/km/); assert.equal(D0.estimation.montant, null);
+  assert.equal((await ch({ action: "compteur-etat", ref: K.ref })).j.compteur.ref, K.ref);
+  NOW += 25 * 60_000;
+  r = await ch({ action: "compteur-arrivee", ref: K.ref, km: 9.1, lentSec: 420, peages: "0", position: { lat: 47.29, lon: 5.05 } });
+  assert.equal(r.status, 200, JSON.stringify(r.j));
+  const attendu = 27;                                             // 4,50 + 17,29 + 5,25 = 27,04 → palier 27,00
+  assert.equal(r.j.course.montant, attendu); assert.equal(r.j.course.statut, "en_attente"); assert.match(r.j.course.lien, /^\/payer\//);
+  assert.equal(r.j.course.trajet.destination, "BMW Hénin, 21000 Dijon");
+  const D = (await DEM.chargerParRef(DEM.magasin(), K.ref, NOW)).record;
+  assert.equal(D.estimation.montant, attendu); assert.equal(D.surPlace.compteur.kmItineraire, 8.3);
+  // deuxième « Arrivée » (double appui) : renvoie la même course, ne recrée rien
+  r = await ch({ action: "compteur-arrivee", ref: K.ref, km: 50 });
+  assert.equal(r.j.course.montant, attendu);
+  assert.equal((await ch({ action: "compteur-etat", ref: K.ref })).j.compteur, null);
+  // la course apparaît dans la liste du jour et s'encaisse comme les autres
+  assert.ok((await ch({ action: "jour" })).j.courses.some((c) => c.ref === K.ref));
+  assert.equal((await ch({ action: "encaisser", ref: K.ref, moyen: "espèces" })).status, 200);
+});
+
+await t("compteur : GPS qui décroche → au moins la distance de l'itinéraire ; abandon sans facturation", async () => {
+  CPT.deps.route = async () => ({ distanceKm: 40 });
+  let r = await ch({ action: "compteur-depart", depart: "Gare de Dijon", position: { lat: 47.32, lon: 5.03 }, client: { nom: "Roy" } });
+  const ref = r.j.compteur.ref;
+  r = await ch({ action: "compteur-arrivee", ref, km: 12, lentSec: 0, position: { lat: 47.02, lon: 4.84 } });
+  assert.equal(r.j.course.montant, 80.5);
+  r = await ch({ action: "compteur-depart", depart: "Gare de Dijon", client: { nom: "Roy" } });
+  const ref2 = r.j.compteur.ref;
+  assert.equal((await ch({ action: "compteur-annuler", ref: ref2 })).status, 200);
+  assert.equal((await DEM.chargerParRef(DEM.magasin(), ref2, NOW)).erreur, "introuvable");
+  assert.equal((await ch({ action: "compteur-arrivee", ref: ref2, km: 5 })).status, 409);
+  // Départ en un seul appui : sans nom ni adresse, le lieu vient du GPS
+  CPT.deps.adresse = async () => "8 Rue de la Liberté 21000 Dijon";
+  r = await ch({ action: "compteur-depart", position: { lat: 47.3226, lon: 5.0353 } });
+  assert.equal(r.status, 200); assert.equal(r.j.compteur.depart.adresse, "8 Rue de la Liberté 21000 Dijon");
+  r = await ch({ action: "compteur-depart" });
+  assert.equal(r.status, 200); assert.equal(r.j.compteur.depart.adresse, "Lieu non renseigné");
+  assert.equal((await ch({ action: "compteur-depart", client: { telephone: "123" } })).status, 422);
+});
+
 console.log("\n" + ok + " test(s) réussi(s)");

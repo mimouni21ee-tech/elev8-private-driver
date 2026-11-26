@@ -102,3 +102,127 @@ button, input, select { font: inherit; color: inherit; }
 .ac__main { color: var(--ivoire); font-size: .95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ac__sub { color: var(--gris); font-size: .76rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ac__credit { padding: .45rem .95rem; text-align: right; font-size: .6rem; letter-spacing: .14em; color: rgba(143, 136, 125, .75); }
+
+/* Compteur ELEV8 */
+.ch-tabs { grid-template-columns: repeat(3, 1fr); }
+.cpt-tarifs { display: grid; grid-template-columns: 1fr auto; gap: .35rem 1rem; font-size: .95rem; }
+.cpt-tarifs span:nth-child(even) { color: var(--champagne-clair); text-align: right; font-weight: 400; }
+@media (min-width: 700px) { .ch { max-width: 44rem; } }
+
+/* ==========================================================================
+   Compteur ELEV8 — écran de course (plein écran, paysage)
+   ========================================================================== */
+.cpt {
+  --c-fond: #0B0B0B; --c-blanc: #FFFFFF; --c-champ: #B69B65; --c-gris: #8A857C; --c-gris-2: #5E5A53;
+  --c-filet: rgba(182, 155, 101, .28); --c-filet-doux: rgba(255, 255, 255, .08);
+  --f-ui: "Inter", "Jost", "Helvetica Neue", Arial, sans-serif;
+  position: fixed; inset: 0; z-index: 100; background: var(--c-fond); color: var(--c-blanc); font-family: var(--f-ui);
+  display: grid; grid-template-rows: auto 1fr auto auto auto;
+  padding: max(env(safe-area-inset-top), 14px) max(env(safe-area-inset-right), 28px) max(env(safe-area-inset-bottom), 14px) max(env(safe-area-inset-left), 28px);
+  height: 100vh; height: 100dvh; overflow: hidden; -webkit-user-select: none; user-select: none;
+}
+.cpt[hidden] { display: none !important; }
+
+/* En-tête */
+.cpt-haut { display: flex; align-items: center; justify-content: space-between; padding-bottom: clamp(8px, 2vh, 16px); border-bottom: 1px solid var(--c-filet); }
+.cpt-id { display: flex; align-items: center; gap: 14px; }
+.cpt-logo { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid var(--c-champ); color: var(--c-champ); font: italic 400 15px/1 var(--f-display); letter-spacing: -.02em; }
+.cpt-nom { font-size: 12px; font-weight: 400; letter-spacing: .32em; text-transform: uppercase; color: var(--c-blanc); white-space: nowrap; }
+.cpt-nom span { color: var(--c-champ); }
+.cpt-haut-droite { display: flex; align-items: center; gap: 22px; }
+.cpt-type { font-size: 10.5px; font-weight: 400; letter-spacing: .28em; text-transform: uppercase; color: var(--c-gris); }
+.cpt-gps { font-size: 10.5px; letter-spacing: .04em; color: var(--c-gris-2); }
+
+/* Centre : le montant domine */
+.cpt-centre { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 0; gap: clamp(4px, 1.4vh, 14px); }
+.cpt-indic { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 10.5px; font-weight: 500; letter-spacing: .3em; text-transform: uppercase; color: var(--c-champ); }
+.cpt-point { width: 6px; height: 6px; border-radius: 50%; background: var(--c-champ); }
+.cpt.is-attente .cpt-point { background: transparent; box-shadow: inset 0 0 0 1px var(--c-champ); }
+.cpt-prix {
+  margin: 0; font-family: var(--f-ui); font-weight: 200; color: var(--c-blanc); line-height: .92; letter-spacing: -.035em; white-space: nowrap;
+  font-size: min(27vh, 17vw); font-variant-numeric: tabular-nums lining-nums; font-feature-settings: "tnum" 1, "lnum" 1;
+}
+.cpt-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: clamp(6px, 2vh, 18px) 0 0; width: min(100%, 760px); }
+.cpt-stats > div { text-align: center; padding: 2px 12px; display: flex; flex-direction: column; justify-content: space-between; }
+.cpt-stats > div + div { border-left: 1px solid var(--c-filet); }
+.cpt-stats dt { font-size: 10px; font-weight: 500; letter-spacing: .26em; text-transform: uppercase; color: var(--c-gris); margin-bottom: clamp(4px, 1vh, 8px); }
+.cpt-stats dd { margin: 0; font-size: clamp(17px, 4.2vh, 30px); font-weight: 300; color: var(--c-blanc); font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; letter-spacing: .01em; }
+
+/* Bandeau d'état */
+.cpt-bandeau { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; align-items: stretch; border-top: 1px solid var(--c-filet-doux); border-bottom: 1px solid var(--c-filet-doux); margin-top: clamp(8px, 2vh, 18px); }
+.cpt-info { display: flex; flex-direction: column; justify-content: center; gap: 4px; padding: clamp(8px, 1.6vh, 14px) 16px; min-width: 0; }
+.cpt-info + .cpt-info { border-left: 1px solid var(--c-filet-doux); }
+.cpt-lab { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 9.5px; font-weight: 500; letter-spacing: .24em; text-transform: uppercase; color: var(--c-gris-2); }
+.cpt-val { font-size: 13.5px; font-weight: 400; color: #D9D5CD; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.cpt.is-attente .cpt-etat { color: var(--c-champ); }
+.cpt-saisie { display: flex; align-items: baseline; gap: 6px; }
+.cpt-saisie input { width: 100%; min-width: 0; background: transparent; border: 0; border-bottom: 1px solid var(--c-gris-2); color: var(--c-blanc); font: 400 13.5px var(--f-ui); padding: 2px 0; border-radius: 0; -webkit-appearance: none; appearance: none; font-variant-numeric: tabular-nums; -webkit-user-select: text; user-select: text; }
+.cpt-saisie input:focus { outline: none; border-bottom-color: var(--c-champ); }
+.cpt-saisie span { font-size: 12px; color: var(--c-gris); }
+
+/* Commandes */
+.cpt-actions { display: grid; grid-template-columns: 1fr 1fr 1.35fr; gap: 12px; margin-top: clamp(10px, 2.2vh, 18px); }
+.cpt-btn {
+  min-height: clamp(50px, 11vh, 72px); padding: 0 16px; background: var(--c-fond); color: var(--c-champ); border: 1px solid var(--c-champ); border-radius: 2px;
+  font: 500 12px/1 var(--f-ui); letter-spacing: .24em; text-transform: uppercase; cursor: pointer; transition: background .15s ease, color .15s ease;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+}
+.cpt-btn:active { background: rgba(182, 155, 101, .12); }
+.cpt-btn.is-actif { background: rgba(182, 155, 101, .14); color: var(--c-blanc); }
+.cpt-btn--or { background: var(--c-champ); color: #0B0B0B; font-weight: 600; }
+.cpt-btn--or:active { background: #C9AF7C; }
+.cpt-btn.is-busy { opacity: .55; pointer-events: none; }
+.cpt-pied { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 26px; padding-top: 6px; }
+.cpt-pied .ch-msg { font-size: 12px; }
+.cpt-lien { margin-left: auto; background: none; border: 0; padding: 4px 0; color: var(--c-gris-2); font: 400 11px var(--f-ui); letter-spacing: .06em; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.cpt-tourner { display: none; }
+
+/* Petits écrans en paysage (smartphone) : on resserre sans rien masquer */
+@media (orientation: landscape) and (max-height: 430px) {
+  .cpt { padding-top: max(env(safe-area-inset-top), 8px); padding-bottom: max(env(safe-area-inset-bottom), 6px); }
+  .cpt-haut { padding-bottom: 6px; }
+  .cpt-logo { width: 26px; height: 26px; font-size: 12px; }
+  .cpt-nom { font-size: 10px; letter-spacing: .26em; }
+  .cpt-type, .cpt-gps { font-size: 9px; }
+  .cpt-prix { font-size: min(25vh, 15vw); }
+  .cpt-stats dt { font-size: 8.5px; margin-bottom: 2px; }
+  .cpt-info { padding: 5px 12px; gap: 2px; }
+  .cpt-lab { font-size: 8px; }
+  .cpt-val, .cpt-saisie input { font-size: 12px; }
+  .cpt-btn { min-height: 44px; font-size: 10.5px; letter-spacing: .2em; }
+  .cpt-pied { min-height: 20px; padding-top: 2px; }
+}
+
+/* Portrait : reste utilisable, avec une invitation à tourner l'appareil */
+@media (orientation: portrait) {
+  .cpt { grid-template-rows: auto 1fr auto auto auto auto; }
+  .cpt-haut-droite .cpt-gps { display: none; }
+  .cpt-nom { font-size: 10px; letter-spacing: .22em; white-space: nowrap; }
+  .cpt-type { font-size: 9px; letter-spacing: .2em; white-space: nowrap; }
+  .cpt-btn { letter-spacing: .16em; }
+  .cpt-prix { font-size: 22vw; }
+  .cpt-stats dd { font-size: 5vw; }
+  .cpt-stats dt { font-size: 8.5px; letter-spacing: .16em; }
+  .cpt-bandeau { grid-template-columns: 1fr 1fr; }
+  .cpt-info:nth-child(3) { border-left: 0; }
+  .cpt-info:nth-child(n+3) { border-top: 1px solid var(--c-filet-doux); }
+  .cpt-actions { grid-template-columns: 1fr 1fr; }
+  .cpt-btn--or { grid-column: 1 / -1; }
+  .cpt-tourner { display: block; margin: 6px 0 0; text-align: center; font-size: 11px; color: var(--c-gris-2); }
+}
+
+/* Avant la course : un seul bouton « Départ » */
+.cpt-prepa { display: grid; gap: 14px; justify-items: center; padding: 6px 0 10px; }
+.cpt-prepa-haut { width: min(100%, 26rem); }
+.cpt-depart {
+  width: min(100%, 26rem); aspect-ratio: 2.4 / 1; max-height: 11rem; background: #B69B65; color: #0B0B0B; border: 0; border-radius: 2px; cursor: pointer;
+  font: 600 1.15rem/1 "Inter", "Jost", sans-serif; letter-spacing: .32em; text-transform: uppercase; -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+}
+.cpt-depart:active { background: #C9AF7C; }
+.cpt-depart.is-busy { opacity: .6; pointer-events: none; }
+.cpt-prepa-msg { text-align: center; max-width: 30rem; }
+.cpt-tarifs-ligne { margin: 0; max-width: 30rem; text-align: center; font-size: .78rem; line-height: 1.6; color: var(--gris); }
+.cpt-options { width: min(100%, 30rem); border-top: 1px solid var(--filet); padding-top: 10px; }
+.cpt-options summary { cursor: pointer; text-align: center; font-size: .74rem; letter-spacing: .16em; text-transform: uppercase; color: var(--gris); list-style: none; padding: 6px 0; }
+.cpt-options summary::-webkit-details-marker { display: none; }
+.cpt-options[open] summary { color: var(--champagne); margin-bottom: 10px; }

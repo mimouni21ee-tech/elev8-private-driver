@@ -58,6 +58,16 @@ export async function enregistrer(st, { ref, d, est, now = Date.now() }) {
   await st.setJSON("ref/" + ref, { id, expire });
   return id;
 }
+/* Mise à jour d'une demande existante (compteur ELEV8 : destination et prix connus à l'arrivée) */
+export async function mettreAJour(st, id, fn) {
+  if (typeof id !== "string" || !ID_RE.test(id)) return null;
+  const r = await st.get("demande/" + id, { type: "json" });
+  if (!r) return null;
+  const n = fn(structuredClone(r));
+  if (!n) return r;
+  await st.setJSON("demande/" + id, n, { metadata: { expire: Date.parse(n.expire) } });
+  return n;
+}
 export async function supprimer(st, record) {
   try { await st.delete("demande/" + record.id); } catch { /* ignoré */ }
   try { await st.delete("ref/" + record.ref); } catch { /* ignoré */ }

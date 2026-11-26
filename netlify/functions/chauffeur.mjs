@@ -8,11 +8,13 @@
            Changer DOCUMENTS_MOT_DE_PASSE dans Netlify déconnecte immédiatement le téléphone.
 
    Actions : connexion · verifier · position · estimer · creer · etat · encaisser · terminer · annuler · jour
+             compteur-depart · compteur-arrivee · compteur-annuler · compteur-etat (Compteur ELEV8, lib/compteur.mjs)
    La logique (réservation, paiement, encaissement hors Stripe) est dans netlify/lib/sur-place.mjs.
    ========================================================================== */
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { retenirContexte, estSiteDeTest } from "../lib/environnement.mjs";
 import { stripeActif } from "../lib/stripe.mjs";
+import { TARIFS, demarrer, arreter, abandonner, enCours } from "../lib/compteur.mjs";
 import { lireCourse, prixGrille, MESSAGES_ESTIMATION, adresseDePosition, creerCourse, marquerPaye, terminer, annuler, lire, listerJour, MOYENS } from "../lib/sur-place.mjs";
 
 export const config = { path: "/chauffeur-api", rateLimit: { windowLimit: 90, windowSize: 60, aggregateBy: ["ip", "domain"] } };
@@ -85,7 +87,7 @@ export default async (req, context) => {
     switch (b.action) {
       case "connexion":
       case "verifier":
-        return ok({ stripe: !!stripeActif(), modeStripe: stripeActif()?.mode || null, test: estSiteDeTest(), moyens: MOYENS });
+        return ok({ stripe: !!stripeActif(), modeStripe: stripeActif()?.mode || null, test: estSiteDeTest(), moyens: MOYENS, tarifs: TARIFS });
       case "position": {
         const adresse = await adresseDePosition(b.lat, b.lon);
         return adresse ? ok({ adresse }) : json(404, { ok: false, message: "Adresse introuvable pour cette position : saisissez-la." });
@@ -120,6 +122,24 @@ export default async (req, context) => {
         if (!refOk) return json(400, { ok: false, message: "Référence invalide." });
         const r = await annuler({ ref, now });
         return r.erreur ? ko(r) : ok(r);
+      }
+      case "compteur-depart": {
+        const r = await demarrer(b, { now });
+        return r.erreur ? ko(r) : ok(r);
+      }
+      case "compteur-arrivee": {
+        if (!refOk) return json(400, { ok: false, message: "Référence invalide." });
+        const r = await arreter({ ...b, ref }, { origine: url.origin, now });
+        return r.erreur ? ko(r) : ok(r);
+      }
+      case "compteur-annuler": {
+        if (!refOk) return json(400, { ok: false, message: "Référence invalide." });
+        const r = await abandonner({ ref }, { now });
+        return r.erreur ? ko(r) : ok({});
+      }
+      case "compteur-etat": {
+        if (!refOk) return json(400, { ok: false, message: "Référence invalide." });
+        return ok({ compteur: await enCours(ref) });
       }
       case "jour":
         return ok({ courses: await listerJour({ now }) });

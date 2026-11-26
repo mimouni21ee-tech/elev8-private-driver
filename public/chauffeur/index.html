@@ -16,8 +16,8 @@
 <link rel="icon" href="/chauffeur/icone-180.png" type="image/png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,400;6..96,500&family=Jost:wght@300;400;500&display=swap">
-<link rel="stylesheet" href="/assets/css/chauffeur.css?v=20261124c">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,400;6..96,500&family=Jost:wght@300;400;500&family=Inter:wght@200;300;400;500&display=swap">
+<link rel="stylesheet" href="/assets/css/chauffeur.css?v=20261126e">
 </head>
 <body>
 <!-- Espace chauffeur ELEV8 (non référencé) : courses saisies sur place, prix de la grille,
@@ -42,6 +42,7 @@
 
   <nav class="ch-tabs" id="onglets" hidden>
     <button type="button" class="ch-tab is-on" data-vue="vueSaisie">Nouvelle course</button>
+    <button type="button" class="ch-tab" data-vue="vueCompteur">Compteur</button>
     <button type="button" class="ch-tab" data-vue="vueJour">Courses du jour</button>
   </nav>
 
@@ -151,6 +152,89 @@
     </div>
   </section>
 
+  <!-- Compteur ELEV8 : prix au temps et à la distance, calculé à l'arrivée -->
+  <section id="vueCompteur" hidden>
+    <!-- Avant la course : un seul geste, « Départ ». Le lieu de prise en charge est pris par le GPS. -->
+    <form id="cptPrepa" class="cpt-prepa" novalidate>
+      <div class="cpt-prepa-haut">
+        <div class="ch-seg cpt-vehicule" role="radiogroup" aria-label="Véhicule">
+          <label><input type="radio" name="cptVehicule" value="confort" checked><span>Tesla</span></label>
+          <label><input type="radio" name="cptVehicule" value="van"><span>Classe V</span></label>
+        </div>
+      </div>
+      <button type="submit" class="cpt-depart" id="cptGo">Départ</button>
+      <p class="ch-msg cpt-prepa-msg" id="cptMsg" role="alert"></p>
+      <p class="cpt-tarifs-ligne" id="cptTarifs"></p>
+      <details class="cpt-options">
+        <summary>Infos client (facultatif)</summary>
+        <div class="ch-stack">
+          <div class="field ch-field">
+            <span class="ch-lab">Lieu de prise en charge (sinon, position GPS)</span>
+            <div class="ch-row">
+              <input id="cptDepart" placeholder="Rempli automatiquement au départ" autocomplete="off">
+              <button type="button" class="ch-btn ch-btn--icon" id="cptPosition" aria-label="Utiliser ma position" title="Ma position">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="7"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="ch-row ch-row--2">
+            <label class="ch-field"><span class="ch-lab">Prénom</span><input id="cptPrenom" autocomplete="off" autocapitalize="words"></label>
+            <label class="ch-field"><span class="ch-lab">Nom</span><input id="cptNom" autocomplete="off" autocapitalize="words"></label>
+          </div>
+          <div class="ch-row ch-row--2">
+            <label class="ch-field"><span class="ch-lab">Téléphone</span><input id="cptTel" type="tel" inputmode="tel" autocomplete="off" placeholder="06 12 34 56 78"></label>
+            <label class="ch-field"><span class="ch-lab">Passagers</span>
+              <select id="cptPassagers"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option></select>
+            </label>
+          </div>
+          <label class="ch-field"><span class="ch-lab">Apporteur</span><input id="cptApporteur" list="apporteurs" maxlength="80"></label>
+        </div>
+      </details>
+    </form>
+
+    <!-- Écran du compteur pendant la course : plein écran, pensé pour le paysage -->
+    <div id="cptRoule" class="cpt" hidden>
+      <header class="cpt-haut">
+        <div class="cpt-id">
+          <span class="cpt-logo" aria-hidden="true">E8</span>
+          <span class="cpt-nom">ELEV8 <span>Private Driver</span></span>
+        </div>
+        <div class="cpt-haut-droite">
+          <span class="cpt-gps" id="cptGps">GPS : recherche…</span>
+          <span class="cpt-type">Compteur VTC</span>
+        </div>
+      </header>
+
+      <main class="cpt-centre">
+        <p class="cpt-indic"><span class="cpt-point" aria-hidden="true"></span><span id="cptIndic">Course en cours</span></p>
+        <p class="cpt-prix" id="cptPrix" aria-live="polite">0,00 €</p>
+        <dl class="cpt-stats">
+          <div><dt>Durée totale</dt><dd id="cptDuree">00:00:00</dd></div>
+          <div><dt>Distance totale</dt><dd><span id="cptKm">0,0</span> km</dd></div>
+          <div><dt>Prix / km</dt><dd id="cptPrixKm">—</dd></div>
+        </dl>
+      </main>
+
+      <div class="cpt-bandeau">
+        <div class="cpt-info"><span class="cpt-lab">Prise en charge</span><span class="cpt-val" id="cptPec">—</span></div>
+        <div class="cpt-info"><span class="cpt-lab">État</span><span class="cpt-val cpt-etat" id="cptEtat">En course</span></div>
+        <div class="cpt-info"><span class="cpt-lab">Attente / ralenti</span><span class="cpt-val" id="cptLent">00:00</span></div>
+        <label class="cpt-info cpt-peages"><span class="cpt-lab">Péages / parking</span><span class="cpt-saisie"><input id="cptPeages" inputmode="decimal" placeholder="0,00" aria-label="Péages et parking en euros"><span>€</span></span></label>
+      </div>
+
+      <div class="cpt-actions">
+        <button type="button" class="cpt-btn" id="cptAttente">Attendre client</button>
+        <button type="button" class="cpt-btn" id="cptReprendre">Prise en charge</button>
+        <button type="button" class="cpt-btn cpt-btn--or" id="cptStop">Terminer la course</button>
+      </div>
+      <div class="cpt-pied">
+        <p class="ch-msg" id="cptStopMsg" role="alert"></p>
+        <button type="button" class="cpt-lien" id="cptAbandon">Annuler cette course</button>
+      </div>
+      <p class="cpt-tourner">Tournez l'appareil à l'horizontale pour le compteur.</p>
+    </div>
+  </section>
+
   <!-- 3. Courses du jour -->
   <section id="vueJour" hidden>
     <div class="ch-stack" id="liste"></div>
@@ -161,6 +245,6 @@
 <script src="/config.js?v=20261124a"></script>
 <script src="/assets/js/qrcode.min.js?v=1.4.4"></script>
 <script src="/assets/js/adresses.js"></script>
-<script src="/assets/js/chauffeur.js?v=20261124c"></script>
+<script src="/assets/js/chauffeur.js?v=20261126e"></script>
 </body>
 </html>
